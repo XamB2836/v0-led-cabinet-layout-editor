@@ -5,6 +5,7 @@ import type React from "react"
 import { createContext, useContext, useReducer, useCallback, type ReactNode } from "react"
 import type { Cabinet, CabinetType, LayoutData, EditorState, DataRoute, PowerFeed, RoutingMode } from "./types"
 import { DEFAULT_LAYOUT } from "./types"
+import { normalizeLayout } from "./layout-io"
 
 type EditorAction =
   | { type: "SET_LAYOUT"; payload: LayoutData }
@@ -16,6 +17,7 @@ type EditorAction =
   | { type: "ADD_CABINET_TYPE"; payload: CabinetType }
   | { type: "DELETE_CABINET_TYPE"; payload: string }
   | { type: "UPDATE_PROJECT"; payload: Partial<LayoutData["project"]> }
+<<<<<<< Updated upstream
   | { type: "UPDATE_OVERVIEW"; payload: Partial<LayoutData["project"]["overview"]> }
   | { type: "UPDATE_EXPORT_SETTINGS"; payload: Partial<LayoutData["project"]["exportSettings"]> }
   | { type: "ADD_DATA_ROUTE"; payload: DataRoute }
@@ -24,6 +26,10 @@ type EditorAction =
   | { type: "ADD_POWER_FEED"; payload: PowerFeed }
   | { type: "UPDATE_POWER_FEED"; payload: { id: string; updates: Partial<PowerFeed> } }
   | { type: "DELETE_POWER_FEED"; payload: string }
+=======
+  | { type: "UPDATE_OVERVIEW"; payload: Partial<LayoutData["overview"]> }
+  | { type: "UPDATE_EXPORT_SETTINGS"; payload: Partial<LayoutData["exportSettings"]> }
+>>>>>>> Stashed changes
   | { type: "SET_ZOOM"; payload: number }
   | { type: "SET_PAN"; payload: { x: number; y: number } }
   | { type: "TOGGLE_DIMENSIONS" }
@@ -41,11 +47,12 @@ const MAX_HISTORY = 50
 function editorReducer(state: EditorState, action: EditorAction): EditorState {
   switch (action.type) {
     case "SET_LAYOUT":
+      const normalized = normalizeLayout(action.payload)
       return {
         ...state,
-        layout: action.payload,
+        layout: normalized,
         selectedCabinetId: null,
-        history: [action.payload],
+        history: [normalized],
         historyIndex: 0,
       }
 
@@ -138,6 +145,22 @@ function editorReducer(state: EditorState, action: EditorAction): EditorState {
         layout: {
           ...state.layout,
           project: { ...state.layout.project, ...action.payload },
+        },
+      }
+    case "UPDATE_OVERVIEW":
+      return {
+        ...state,
+        layout: {
+          ...state.layout,
+          overview: { ...state.layout.overview, ...action.payload },
+        },
+      }
+    case "UPDATE_EXPORT_SETTINGS":
+      return {
+        ...state,
+        layout: {
+          ...state.layout,
+          exportSettings: { ...state.layout.exportSettings, ...action.payload },
         },
       }
 

@@ -5,6 +5,7 @@ import type React from "react"
 import { useRef } from "react"
 import { useEditor } from "@/lib/editor-context"
 import type { LayoutData } from "@/lib/types"
+import { exportOverviewPdf } from "@/lib/export-pdf"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -52,6 +53,7 @@ export function TopBar() {
 
   const handleUndo = () => dispatch({ type: "UNDO" })
   const handleRedo = () => dispatch({ type: "REDO" })
+  const handleExportPdf = () => exportOverviewPdf(layout)
 
   const canUndo = state.historyIndex > 0
   const canRedo = state.historyIndex < state.history.length - 1
@@ -68,6 +70,19 @@ export function TopBar() {
           value={layout.project.name}
           onChange={(e) => dispatch({ type: "UPDATE_PROJECT", payload: { name: e.target.value } })}
           className="h-8 w-40 bg-secondary text-sm"
+        />
+      </div>
+
+      {/* Client */}
+      <div className="flex items-center gap-2">
+        <Label htmlFor="client-name" className="text-xs text-muted-foreground">
+          Client
+        </Label>
+        <Input
+          id="client-name"
+          value={layout.project.client || ""}
+          onChange={(e) => dispatch({ type: "UPDATE_PROJECT", payload: { client: e.target.value } })}
+          className="h-8 w-32 bg-secondary text-sm"
         />
       </div>
 
@@ -132,16 +147,25 @@ export function TopBar() {
         </Label>
         <Select
           value={layout.project.controller}
+<<<<<<< Updated upstream
           onValueChange={(value: "A100" | "A200") =>
             dispatch({ type: "UPDATE_PROJECT", payload: { controller: value } })
           }
+=======
+          onValueChange={(value) => dispatch({ type: "UPDATE_PROJECT", payload: { controller: value } })}
+>>>>>>> Stashed changes
         >
           <SelectTrigger className="h-8 w-24 bg-secondary text-sm">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
+<<<<<<< Updated upstream
             <SelectItem value="A100">A100 (2 ports)</SelectItem>
             <SelectItem value="A200">A200 (4 ports)</SelectItem>
+=======
+            <SelectItem value="A100">A100</SelectItem>
+            <SelectItem value="A200">A200</SelectItem>
+>>>>>>> Stashed changes
           </SelectContent>
         </Select>
       </div>
@@ -168,7 +192,14 @@ export function TopBar() {
           <Download className="w-4 h-4 mr-2" />
           JSON
         </Button>
+<<<<<<< Updated upstream
         <ExportPdfDialog />
+=======
+        <Button variant="secondary" size="sm" onClick={handleExportPdf}>
+          <Download className="w-4 h-4 mr-2" />
+          Export PDF
+        </Button>
+>>>>>>> Stashed changes
       </div>
     </div>
   )

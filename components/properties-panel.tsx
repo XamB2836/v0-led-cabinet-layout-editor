@@ -7,10 +7,15 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+<<<<<<< Updated upstream
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { AlertCircle, AlertTriangle, RotateCw, Trash2, Copy, CheckCircle, Settings, Sliders, Cable } from "lucide-react"
 import { OverviewSettings } from "./overview-settings"
 import { DataRoutesPanel } from "./data-routes-panel"
+=======
+import { Switch } from "@/components/ui/switch"
+import { AlertCircle, AlertTriangle, RotateCw, Trash2, Copy, CheckCircle } from "lucide-react"
+>>>>>>> Stashed changes
 
 export function PropertiesPanel() {
   const { state, dispatch } = useEditor()
@@ -20,9 +25,18 @@ export function PropertiesPanel() {
   const errors = validateLayout(layout)
   const bounds = getLayoutBounds(layout)
 
+<<<<<<< Updated upstream
   const pitch = layout.project.pitch_mm
   const widthPx = bounds.width > 0 ? Math.round(bounds.width / pitch) : 0
   const heightPx = bounds.height > 0 ? Math.round(bounds.height / pitch) : 0
+=======
+  const receiverCardMode =
+    selectedCabinet?.receiverCardLabel === null
+      ? "none"
+      : selectedCabinet?.receiverCardLabel
+        ? "custom"
+        : "default"
+>>>>>>> Stashed changes
 
   const handleRotate = () => {
     if (!selectedCabinet) return
@@ -46,7 +60,11 @@ export function PropertiesPanel() {
     dispatch({ type: "PUSH_HISTORY" })
   }
 
+<<<<<<< Updated upstream
   const handleUpdateField = (field: string, value: string | number | null) => {
+=======
+  const handleUpdateField = (field: string, value: string | number | null | undefined) => {
+>>>>>>> Stashed changes
     if (!selectedCabinet) return
     dispatch({
       type: "UPDATE_CABINET",
@@ -123,6 +141,7 @@ export function PropertiesPanel() {
                   </Select>
                 </div>
 
+<<<<<<< Updated upstream
                 {/* Position */}
                 <div className="grid grid-cols-2 gap-2">
                   <div className="space-y-1">
@@ -137,6 +156,293 @@ export function PropertiesPanel() {
                       onBlur={handleBlur}
                       className="h-8 bg-input text-sm font-mono"
                     />
+=======
+            {/* Rotation */}
+            <div className="space-y-1">
+              <Label className="text-xs">Rotation</Label>
+              <Select
+                value={String(selectedCabinet.rot_deg)}
+                onValueChange={(value) => {
+                  handleUpdateField("rot_deg", Number.parseInt(value) as 0 | 90 | 180 | 270)
+                  dispatch({ type: "PUSH_HISTORY" })
+                }}
+              >
+                <SelectTrigger className="h-8 bg-input text-sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="0">0 deg</SelectItem>
+                  <SelectItem value="90">90 deg</SelectItem>
+                  <SelectItem value="180">180 deg</SelectItem>
+                  <SelectItem value="270">270 deg</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Receiver Card Override */}
+            <div className="space-y-1">
+              <Label className="text-xs">Receiver Card</Label>
+              <Select
+                value={receiverCardMode}
+                onValueChange={(value) => {
+                  if (value === "none") {
+                    handleUpdateField("receiverCardLabel", null)
+                  } else if (value === "custom") {
+                    handleUpdateField("receiverCardLabel", layout.overview.receiverCardModel)
+                  } else {
+                    handleUpdateField("receiverCardLabel", undefined)
+                  }
+                  dispatch({ type: "PUSH_HISTORY" })
+                }}
+              >
+                <SelectTrigger className="h-8 bg-input text-sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="default">Default</SelectItem>
+                  <SelectItem value="none">None</SelectItem>
+                  <SelectItem value="custom">Custom</SelectItem>
+                </SelectContent>
+              </Select>
+              {receiverCardMode === "custom" && (
+                <Input
+                  value={selectedCabinet.receiverCardLabel || ""}
+                  onChange={(e) => handleUpdateField("receiverCardLabel", e.target.value)}
+                  onBlur={handleBlur}
+                  className="h-8 bg-input text-sm font-mono"
+                />
+              )}
+            </div>
+
+            {/* Port & Chain (optional) */}
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <Label htmlFor="port" className="text-xs">
+                  Port
+                </Label>
+                <Input
+                  id="port"
+                  type="number"
+                  min={1}
+                  max={4}
+                  value={selectedCabinet.port || ""}
+                  placeholder="-"
+                  onChange={(e) => handleUpdateField("port", Number.parseInt(e.target.value) || undefined)}
+                  onBlur={handleBlur}
+                  className="h-8 bg-input text-sm font-mono"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="chain" className="text-xs">
+                  Chain Index
+                </Label>
+                <Input
+                  id="chain"
+                  type="number"
+                  min={1}
+                  value={selectedCabinet.chainIndex || ""}
+                  placeholder="-"
+                  onChange={(e) => handleUpdateField("chainIndex", Number.parseInt(e.target.value) || undefined)}
+                  onBlur={handleBlur}
+                  className="h-8 bg-input text-sm font-mono"
+                />
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex gap-2 pt-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleRotate}
+                className="flex-1 bg-transparent"
+                title="Rotate 90 deg (R)"
+              >
+                <RotateCw className="w-4 h-4 mr-1" />
+                Rotate
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleDuplicate}
+                className="flex-1 bg-transparent"
+                title="Duplicate (Ctrl+D)"
+              >
+                <Copy className="w-4 h-4 mr-1" />
+                Copy
+              </Button>
+              <Button variant="destructive" size="sm" onClick={handleDelete} title="Delete (Del)">
+                <Trash2 className="w-4 h-4" />
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">Select a cabinet to edit its properties</p>
+        )}
+      </div>
+
+      {/* Layout Info */}
+      <div className="p-3 border-b border-sidebar-border">
+        <h3 className="text-xs font-semibold text-muted-foreground mb-2">Layout Info</h3>
+        <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+          <span className="text-muted-foreground">Cabinets:</span>
+          <span className="font-mono">{layout.cabinets.length}</span>
+          <span className="text-muted-foreground">Width:</span>
+          <span className="font-mono">{bounds.width} mm</span>
+          <span className="text-muted-foreground">Height:</span>
+          <span className="font-mono">{bounds.height} mm</span>
+        </div>
+      </div>
+
+      {/* Overview Settings */}
+      <div className="p-3 border-b border-sidebar-border space-y-3">
+        <h3 className="text-xs font-semibold text-muted-foreground">Overview</h3>
+        <div className="flex items-center justify-between">
+          <Label className="text-xs">Receiver Cards</Label>
+          <Switch
+            checked={layout.overview.showReceiverCards}
+            onCheckedChange={(checked) => {
+              dispatch({ type: "UPDATE_OVERVIEW", payload: { showReceiverCards: checked } })
+              dispatch({ type: "PUSH_HISTORY" })
+            }}
+          />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">Receiver Model</Label>
+          <Input
+            value={layout.overview.receiverCardModel}
+            onChange={(e) => dispatch({ type: "UPDATE_OVERVIEW", payload: { receiverCardModel: e.target.value } })}
+            onBlur={handleBlur}
+            className="h-8 bg-input text-sm font-mono"
+          />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">Labels</Label>
+          <Select
+            value={layout.overview.labelsMode}
+            onValueChange={(value) =>
+              dispatch({ type: "UPDATE_OVERVIEW", payload: { labelsMode: value as typeof layout.overview.labelsMode } })
+            }
+          >
+            <SelectTrigger className="h-8 bg-input text-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="cabinetId">Cabinet IDs</SelectItem>
+              <SelectItem value="grid">Grid Labels (A1)</SelectItem>
+              <SelectItem value="none">None</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="flex items-center justify-between">
+          <Label className="text-xs">Show Internal IDs</Label>
+          <Switch
+            checked={layout.overview.showInternalIds}
+            onCheckedChange={(checked) => dispatch({ type: "UPDATE_OVERVIEW", payload: { showInternalIds: checked } })}
+          />
+        </div>
+        <div className="flex items-center justify-between">
+          <Label className="text-xs">Dimensions</Label>
+          <Switch
+            checked={layout.overview.showDimensions}
+            onCheckedChange={(checked) => dispatch({ type: "UPDATE_OVERVIEW", payload: { showDimensions: checked } })}
+          />
+        </div>
+        <div className="flex items-center justify-between">
+          <Label className="text-xs">Pixels</Label>
+          <Switch
+            checked={layout.exportSettings.showPixels}
+            onCheckedChange={(checked) => dispatch({ type: "UPDATE_EXPORT_SETTINGS", payload: { showPixels: checked } })}
+          />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">PDF Page</Label>
+          <Select
+            value={layout.exportSettings.pageSize}
+            onValueChange={(value) => dispatch({ type: "UPDATE_EXPORT_SETTINGS", payload: { pageSize: value as "A4" | "A3" } })}
+          >
+            <SelectTrigger className="h-8 bg-input text-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="A4">A4</SelectItem>
+              <SelectItem value="A3">A3</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">Orientation</Label>
+          <Select
+            value={layout.exportSettings.orientation}
+            onValueChange={(value) =>
+              dispatch({
+                type: "UPDATE_EXPORT_SETTINGS",
+                payload: { orientation: value as "portrait" | "landscape" },
+              })
+            }
+          >
+            <SelectTrigger className="h-8 bg-input text-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="portrait">Portrait</SelectItem>
+              <SelectItem value="landscape">Landscape</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      {/* Diagnostics */}
+      <div className="flex-1 flex flex-col min-h-0">
+        <div className="p-3 border-b border-sidebar-border flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-sidebar-foreground">Diagnostics</h2>
+          <div className="flex items-center gap-2 text-xs">
+            {errorCount > 0 && (
+              <span className="flex items-center gap-1 text-error">
+                <AlertCircle className="w-3 h-3" />
+                {errorCount}
+              </span>
+            )}
+            {warningCount > 0 && (
+              <span className="flex items-center gap-1 text-warning">
+                <AlertTriangle className="w-3 h-3" />
+                {warningCount}
+              </span>
+            )}
+            {errorCount === 0 && warningCount === 0 && (
+              <span className="flex items-center gap-1 text-success">
+                <CheckCircle className="w-3 h-3" />
+                OK
+              </span>
+            )}
+          </div>
+        </div>
+
+        <ScrollArea className="flex-1">
+          <div className="p-2 space-y-1">
+            {errors.length === 0 ? (
+              <p className="text-xs text-muted-foreground p-2">No issues detected</p>
+            ) : (
+              errors.map((error, i) => (
+                <button
+                  key={i}
+                  className={`w-full text-left p-2 rounded-md text-xs hover:bg-sidebar-accent transition-colors ${
+                    error.type === "error" ? "bg-error/10 text-error" : "bg-warning/10 text-warning"
+                  }`}
+                  onClick={() => {
+                    if (error.cabinetIds.length > 0) {
+                      dispatch({ type: "SELECT_CABINET", payload: error.cabinetIds[0] })
+                    }
+                  }}
+                >
+                  <div className="flex items-start gap-2">
+                    {error.type === "error" ? (
+                      <AlertCircle className="w-3 h-3 mt-0.5 shrink-0" />
+                    ) : (
+                      <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0" />
+                    )}
+                    <span>{error.message}</span>
+>>>>>>> Stashed changes
                   </div>
                   <div className="space-y-1">
                     <Label htmlFor="y-pos" className="text-xs">

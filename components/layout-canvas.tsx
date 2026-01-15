@@ -4,9 +4,15 @@ import type React from "react"
 
 import { useRef, useEffect, useState, useCallback } from "react"
 import { useEditor } from "@/lib/editor-context"
+<<<<<<< Updated upstream
 import { getCabinetBounds, validateLayout } from "@/lib/validation"
 import type { Cabinet, CabinetType, DataRoute, PowerFeed } from "@/lib/types"
 import { computeGridLabel } from "@/lib/types"
+=======
+import { getCabinetBounds } from "@/lib/validation"
+import type { Cabinet } from "@/lib/types"
+import { drawOverview } from "@/lib/overview-renderer"
+>>>>>>> Stashed changes
 import { Button } from "@/components/ui/button"
 import { ZoomIn, ZoomOut, Maximize, Ruler } from "lucide-react"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
@@ -495,6 +501,7 @@ export function LayoutCanvas() {
   const [isDraggingCabinet, setIsDraggingCabinet] = useState(false)
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
 
+<<<<<<< Updated upstream
   const errors = validateLayout(layout)
   const errorCabinetIds = new Set(errors.filter((e) => e.type === "error").flatMap((e) => e.cabinetIds))
 
@@ -507,6 +514,9 @@ export function LayoutCanvas() {
     feed?.assignedCabinetIds.forEach((id) => activeCabinetIds.add(id))
   }
 
+=======
+  // Convert screen coordinates to world coordinates
+>>>>>>> Stashed changes
   const screenToWorld = useCallback(
     (screenX: number, screenY: number) => {
       const canvas = canvasRef.current
@@ -556,6 +566,7 @@ export function LayoutCanvas() {
     canvas.height = rect.height * dpr
     ctx.scale(dpr, dpr)
 
+<<<<<<< Updated upstream
     ctx.fillStyle = "#0f0f0f"
     ctx.fillRect(0, 0, rect.width, rect.height)
 
@@ -758,10 +769,51 @@ export function LayoutCanvas() {
     ctx.restore()
 
     // UI overlay
+=======
+    const palette = {
+      background: getComputedStyle(document.documentElement).getPropertyValue("--canvas").trim() || "#111",
+      gridLine: getComputedStyle(document.documentElement).getPropertyValue("--grid-line").trim() || "#333",
+      cabinetFill: "rgba(56, 189, 248, 0.15)",
+      cabinetStroke: "#3b82f6",
+      cabinetSelected: "#38bdf8",
+      cabinetErrorFill: "rgba(220, 38, 38, 0.3)",
+      cabinetErrorStroke: "#dc2626",
+      labelPrimary: "#94a3b8",
+      labelSecondary: "#64748b",
+      receiverCardFill: "#ffffff",
+      receiverCardStroke: "#000000",
+      receiverCardText: "#111111",
+      dimensionLine: "#94a3b8",
+      dimensionText: "#e2e8f0",
+    }
+
+    drawOverview(ctx, layout, {
+      zoom,
+      panX,
+      panY,
+      viewportWidth: rect.width,
+      viewportHeight: rect.height,
+      showGrid: layout.project.grid.enabled,
+      showOrigin: true,
+      labelsMode: layout.overview.labelsMode,
+      showInternalIds: layout.overview.showInternalIds,
+      showDimensions: layout.overview.showDimensions,
+      showPixels: layout.exportSettings.showPixels,
+      showReceiverCards: layout.overview.showReceiverCards,
+      selectedCabinetId,
+      palette,
+    })
+
+    // Draw scale indicator
+>>>>>>> Stashed changes
     ctx.fillStyle = "#64748b"
     ctx.font = "11px Inter, sans-serif"
     ctx.textAlign = "left"
     ctx.fillText(`Zoom: ${(zoom * 100).toFixed(0)}%`, 12, rect.height - 12)
+<<<<<<< Updated upstream
+=======
+  }, [layout, zoom, panX, panY, selectedCabinetId])
+>>>>>>> Stashed changes
 
     if (routingMode.type !== "none") {
       const modeText =
