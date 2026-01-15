@@ -38,6 +38,11 @@ export function KeyboardHandler() {
         }
       }
 
+      if (e.key === "d" && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault()
+        dispatch({ type: "TOGGLE_DIMENSIONS" })
+      }
+
       // Duplicate
       if ((e.ctrlKey || e.metaKey) && e.key === "d") {
         if (selectedCabinetId) {

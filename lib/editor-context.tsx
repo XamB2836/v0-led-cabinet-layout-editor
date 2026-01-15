@@ -3,7 +3,7 @@
 import type React from "react"
 
 import { createContext, useContext, useReducer, useCallback, type ReactNode } from "react"
-import type { Cabinet, CabinetType, LayoutData, EditorState } from "./types"
+import type { Cabinet, CabinetType, LayoutData, EditorState, DataRoute, PowerFeed, RoutingMode } from "./types"
 import { DEFAULT_LAYOUT } from "./types"
 
 type EditorAction =
@@ -16,8 +16,22 @@ type EditorAction =
   | { type: "ADD_CABINET_TYPE"; payload: CabinetType }
   | { type: "DELETE_CABINET_TYPE"; payload: string }
   | { type: "UPDATE_PROJECT"; payload: Partial<LayoutData["project"]> }
+  | { type: "UPDATE_OVERVIEW"; payload: Partial<LayoutData["project"]["overview"]> }
+  | { type: "UPDATE_EXPORT_SETTINGS"; payload: Partial<LayoutData["project"]["exportSettings"]> }
+  | { type: "ADD_DATA_ROUTE"; payload: DataRoute }
+  | { type: "UPDATE_DATA_ROUTE"; payload: { id: string; updates: Partial<DataRoute> } }
+  | { type: "DELETE_DATA_ROUTE"; payload: string }
+  | { type: "ADD_POWER_FEED"; payload: PowerFeed }
+  | { type: "UPDATE_POWER_FEED"; payload: { id: string; updates: Partial<PowerFeed> } }
+  | { type: "DELETE_POWER_FEED"; payload: string }
   | { type: "SET_ZOOM"; payload: number }
   | { type: "SET_PAN"; payload: { x: number; y: number } }
+  | { type: "TOGGLE_DIMENSIONS" }
+  | { type: "SET_ROUTING_MODE"; payload: RoutingMode } // New action for routing mode
+  | { type: "ADD_CABINET_TO_ROUTE"; payload: { routeId: string; cabinetId: string } } // Add cabinet to data route
+  | { type: "REMOVE_CABINET_FROM_ROUTE"; payload: { routeId: string; cabinetId: string } } // Remove cabinet from route
+  | { type: "ADD_CABINET_TO_POWER_FEED"; payload: { feedId: string; cabinetId: string } } // Add cabinet to power feed
+  | { type: "REMOVE_CABINET_FROM_POWER_FEED"; payload: { feedId: string; cabinetId: string } } // Remove from power
   | { type: "UNDO" }
   | { type: "REDO" }
   | { type: "PUSH_HISTORY" }
@@ -127,11 +141,208 @@ function editorReducer(state: EditorState, action: EditorAction): EditorState {
         },
       }
 
+    case "UPDATE_OVERVIEW":
+      return {
+        ...state,
+        layout: {
+          ...state.layout,
+          project: {
+            ...state.layout.project,
+            overview: { ...state.layout.project.overview, ...action.payload },
+          },
+        },
+      }
+
+    case "UPDATE_EXPORT_SETTINGS":
+      return {
+        ...state,
+        layout: {
+          ...state.layout,
+          project: {
+            ...state.layout.project,
+            exportSettings: { ...state.layout.project.exportSettings, ...action.payload },
+          },
+        },
+      }
+
+    case "ADD_DATA_ROUTE":
+      return {
+        ...state,
+        layout: {
+          ...state.layout,
+          project: {
+            ...state.layout.project,
+            dataRoutes: [...state.layout.project.dataRoutes, action.payload],
+          },
+        },
+      }
+
+    case "UPDATE_DATA_ROUTE":
+      return {
+        ...state,
+        layout: {
+          ...state.layout,
+          project: {
+            ...state.layout.project,
+            dataRoutes: state.layout.project.dataRoutes.map((r) =>
+              r.id === action.payload.id ? { ...r, ...action.payload.updates } : r,
+            ),
+          },
+        },
+      }
+
+    case "DELETE_DATA_ROUTE":
+      return {
+        ...state,
+        layout: {
+          ...state.layout,
+          project: {
+            ...state.layout.project,
+            dataRoutes: state.layout.project.dataRoutes.filter((r) => r.id !== action.payload),
+          },
+        },
+      }
+
+    case "ADD_POWER_FEED":
+      return {
+        ...state,
+        layout: {
+          ...state.layout,
+          project: {
+            ...state.layout.project,
+            powerFeeds: [...state.layout.project.powerFeeds, action.payload],
+          },
+        },
+      }
+
+    case "UPDATE_POWER_FEED":
+      return {
+        ...state,
+        layout: {
+          ...state.layout,
+          project: {
+            ...state.layout.project,
+            powerFeeds: state.layout.project.powerFeeds.map((f) =>
+              f.id === action.payload.id ? { ...f, ...action.payload.updates } : f,
+            ),
+          },
+        },
+      }
+
+    case "DELETE_POWER_FEED":
+      return {
+        ...state,
+        layout: {
+          ...state.layout,
+          project: {
+            ...state.layout.project,
+            powerFeeds: state.layout.project.powerFeeds.filter((f) => f.id !== action.payload),
+          },
+        },
+      }
+
     case "SET_ZOOM":
       return { ...state, zoom: Math.max(0.1, Math.min(5, action.payload)) }
 
     case "SET_PAN":
       return { ...state, panX: action.payload.x, panY: action.payload.y }
+
+    case "TOGGLE_DIMENSIONS":
+      return { ...state, showDimensions: !state.showDimensions }
+
+    case "SET_ROUTING_MODE":
+      return { ...state, routingMode: action.payload }
+
+    case "ADD_CABINET_TO_ROUTE": {
+      const route = state.layout.project.dataRoutes.find((r) => r.id === action.payload.routeId)
+      if (!route) return state
+
+      const cabinetId = action.payload.cabinetId
+      const isAlreadyInRoute = route.cabinetIds.includes(cabinetId)
+
+      // Toggle: if already in route, remove it; otherwise add it
+      const newCabinetIds = isAlreadyInRoute
+        ? route.cabinetIds.filter((id) => id !== cabinetId)
+        : [...route.cabinetIds, cabinetId]
+
+      return {
+        ...state,
+        layout: {
+          ...state.layout,
+          project: {
+            ...state.layout.project,
+            dataRoutes: state.layout.project.dataRoutes.map((r) =>
+              r.id === action.payload.routeId ? { ...r, cabinetIds: newCabinetIds } : r,
+            ),
+          },
+        },
+      }
+    }
+
+    case "REMOVE_CABINET_FROM_ROUTE": {
+      const route = state.layout.project.dataRoutes.find((r) => r.id === action.payload.routeId)
+      if (!route) return state
+
+      return {
+        ...state,
+        layout: {
+          ...state.layout,
+          project: {
+            ...state.layout.project,
+            dataRoutes: state.layout.project.dataRoutes.map((r) =>
+              r.id === action.payload.routeId
+                ? { ...r, cabinetIds: r.cabinetIds.filter((id) => id !== action.payload.cabinetId) }
+                : r,
+            ),
+          },
+        },
+      }
+    }
+
+    case "ADD_CABINET_TO_POWER_FEED": {
+      const feed = state.layout.project.powerFeeds.find((f) => f.id === action.payload.feedId)
+      if (!feed) return state
+
+      const cabinetId = action.payload.cabinetId
+      const isAlreadyInFeed = feed.assignedCabinetIds.includes(cabinetId)
+
+      const newCabinetIds = isAlreadyInFeed
+        ? feed.assignedCabinetIds.filter((id) => id !== cabinetId)
+        : [...feed.assignedCabinetIds, cabinetId]
+
+      return {
+        ...state,
+        layout: {
+          ...state.layout,
+          project: {
+            ...state.layout.project,
+            powerFeeds: state.layout.project.powerFeeds.map((f) =>
+              f.id === action.payload.feedId ? { ...f, assignedCabinetIds: newCabinetIds } : f,
+            ),
+          },
+        },
+      }
+    }
+
+    case "REMOVE_CABINET_FROM_POWER_FEED": {
+      const feed = state.layout.project.powerFeeds.find((f) => f.id === action.payload.feedId)
+      if (!feed) return state
+
+      return {
+        ...state,
+        layout: {
+          ...state.layout,
+          project: {
+            ...state.layout.project,
+            powerFeeds: state.layout.project.powerFeeds.map((f) =>
+              f.id === action.payload.feedId
+                ? { ...f, assignedCabinetIds: f.assignedCabinetIds.filter((id) => id !== action.payload.cabinetId) }
+                : f,
+            ),
+          },
+        },
+      }
+    }
 
     case "PUSH_HISTORY": {
       const newHistory = state.history.slice(0, state.historyIndex + 1)
@@ -183,6 +394,8 @@ const initialState: EditorState = {
   draggedCabinetId: null,
   history: [DEFAULT_LAYOUT],
   historyIndex: 0,
+  showDimensions: true,
+  routingMode: { type: "none" }, // Initialize routing mode
 }
 
 interface EditorContextValue {

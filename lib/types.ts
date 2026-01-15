@@ -14,6 +14,7 @@ export interface Cabinet {
   rot_deg: 0 | 90 | 180 | 270
   port?: number
   chainIndex?: number
+  receiverCardOverride?: string | null // null = hide, undefined = use global, string = custom label
 }
 
 export interface GridSettings {
@@ -21,12 +22,47 @@ export interface GridSettings {
   step_mm: number
 }
 
+export interface OverviewSettings {
+  showReceiverCards: boolean
+  receiverCardModel: string
+  labelsMode: "internal" | "grid" // "internal" = C01, "grid" = A1/B1
+  showPixels: boolean
+  showDataRoutes: boolean
+  showPowerRoutes: boolean
+}
+
+export interface DataRoute {
+  id: string
+  port: number
+  cabinetIds: string[] // ordered cabinet IDs in chain
+}
+
+export interface PowerFeed {
+  id: string
+  label: string
+  connector: string
+  consumptionW: number
+  assignedCabinetIds: string[]
+  positionX?: number // X position for the power line (auto-calculated or manual)
+}
+
+export interface ExportSettings {
+  pageSize: "A4" | "A3"
+  orientation: "portrait" | "landscape"
+  title: string
+  clientName: string
+}
+
 export interface Project {
   name: string
   units: "mm"
   pitch_mm: number
-  controller: string
+  controller: "A100" | "A200"
   grid: GridSettings
+  overview: OverviewSettings
+  dataRoutes: DataRoute[]
+  powerFeeds: PowerFeed[]
+  exportSettings: ExportSettings
 }
 
 export interface LayoutData {
@@ -43,6 +79,8 @@ export interface ValidationError {
   cabinetIds: string[]
 }
 
+export type RoutingMode = { type: "none" } | { type: "data"; routeId: string } | { type: "power"; feedId: string }
+
 export interface EditorState {
   layout: LayoutData
   selectedCabinetId: string | null
@@ -53,6 +91,8 @@ export interface EditorState {
   draggedCabinetId: string | null
   history: LayoutData[]
   historyIndex: number
+  showDimensions: boolean
+  routingMode: RoutingMode // New routing mode state
 }
 
 // Default cabinet types
@@ -65,14 +105,85 @@ export const DEFAULT_CABINET_TYPES: CabinetType[] = [
 ]
 
 export const DEFAULT_LAYOUT: LayoutData = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   project: {
     name: "New Layout",
     units: "mm",
     pitch_mm: 2.5,
     controller: "A200",
     grid: { enabled: true, step_mm: 160 },
+    overview: {
+      showReceiverCards: true,
+      receiverCardModel: "5A75-E",
+      labelsMode: "grid",
+      showPixels: true,
+      showDataRoutes: true,
+      showPowerRoutes: true,
+    },
+    dataRoutes: [],
+    powerFeeds: [],
+    exportSettings: {
+      pageSize: "A4",
+      orientation: "portrait",
+      title: "",
+      clientName: "",
+    },
   },
   cabinetTypes: [...DEFAULT_CABINET_TYPES],
   cabinets: [],
+}
+
+export function computeGridLabel(cabinet: Cabinet, allCabinets: Cabinet[], cabinetTypes: CabinetType[]): string {
+  // Get all cabinet bounds
+  const cabinetsWithBounds = allCabinets
+    .map((c) => {
+      const type = cabinetTypes.find((t) => t.typeId === c.typeId)
+      if (!type) return null
+      const isRotated = c.rot_deg === 90 || c.rot_deg === 270
+      const w = isRotated ? type.height_mm : type.width_mm
+      const h = isRotated ? type.width_mm : type.height_mm
+      return {
+        cabinet: c,
+        centerX: c.x_mm + w / 2,
+        centerY: c.y_mm + h / 2,
+      }
+    })
+    .filter(Boolean) as { cabinet: Cabinet; centerX: number; centerY: number }[]
+
+  if (cabinetsWithBounds.length === 0) return "?"
+
+  // Get unique columns (X centers) and rows (Y centers) with tolerance
+  const tolerance = 50 // mm tolerance for grouping
+  const columns: number[] = []
+  const rows: number[] = []
+
+  cabinetsWithBounds.forEach(({ centerX, centerY }) => {
+    // Check columns
+    const existingCol = columns.find((c) => Math.abs(c - centerX) < tolerance)
+    if (!existingCol) columns.push(centerX)
+
+    // Check rows
+    const existingRow = rows.find((r) => Math.abs(r - centerY) < tolerance)
+    if (!existingRow) rows.push(centerY)
+  })
+
+  // Sort columns left to right
+  columns.sort((a, b) => a - b)
+  // In our coordinate system, Y increases upward, so highest Y = top = row 1
+  rows.sort((a, b) => b - a) // Descending: highest Y first (top row = row 1)
+
+  // Find this cabinet's column and row
+  const thisCabinet = cabinetsWithBounds.find((c) => c.cabinet.id === cabinet.id)
+  if (!thisCabinet) return "?"
+
+  const colIndex = columns.findIndex((c) => Math.abs(c - thisCabinet.centerX) < tolerance)
+  const rowIndex = rows.findIndex((r) => Math.abs(r - thisCabinet.centerY) < tolerance)
+
+  if (colIndex === -1 || rowIndex === -1) return "?"
+
+  // Column letter (A, B, C...) and row number (1, 2, 3...)
+  const colLetter = String.fromCharCode(65 + colIndex) // A=65
+  const rowNumber = rowIndex + 1
+
+  return `${colLetter}${rowNumber}`
 }

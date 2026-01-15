@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Download, Upload, Undo2, Redo2, Grid3X3 } from "lucide-react"
+import { ExportPdfDialog } from "./export-pdf-dialog"
 
 export function TopBar() {
   const { state, dispatch } = useEditor()
@@ -125,17 +126,24 @@ export function TopBar() {
         </Select>
       </div>
 
-      {/* Controller */}
       <div className="flex items-center gap-2">
         <Label htmlFor="controller" className="text-xs text-muted-foreground">
           Controller
         </Label>
-        <Input
-          id="controller"
+        <Select
           value={layout.project.controller}
-          onChange={(e) => dispatch({ type: "UPDATE_PROJECT", payload: { controller: e.target.value } })}
-          className="h-8 w-24 bg-secondary text-sm"
-        />
+          onValueChange={(value: "A100" | "A200") =>
+            dispatch({ type: "UPDATE_PROJECT", payload: { controller: value } })
+          }
+        >
+          <SelectTrigger className="h-8 w-24 bg-secondary text-sm">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="A100">A100 (2 ports)</SelectItem>
+            <SelectItem value="A200">A200 (4 ports)</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       <div className="flex-1" />
@@ -156,10 +164,11 @@ export function TopBar() {
           <Upload className="w-4 h-4 mr-2" />
           Import
         </Button>
-        <Button variant="default" size="sm" onClick={handleExportJSON}>
+        <Button variant="outline" size="sm" onClick={handleExportJSON}>
           <Download className="w-4 h-4 mr-2" />
-          Export JSON
+          JSON
         </Button>
+        <ExportPdfDialog />
       </div>
     </div>
   )
