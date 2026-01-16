@@ -183,7 +183,7 @@ function getReceiverCardRect(bounds: { x: number; y: number; width: number; heig
   const cardX = bounds.x + bounds.width / 2 - cardWidth / 2
   const cardY = bounds.y + bounds.height / 2 - cardHeight / 2
   const connectorX = cardX + cardWidth / 2
-  const connectorY = cardY + cardHeight / 2
+  const connectorY = cardY + cardHeight + 6 / zoom
 
   return {
     x: cardX,
@@ -699,25 +699,9 @@ export function LayoutCanvas() {
       ctx.lineWidth = isSelected || isInActiveRoute ? 3 / zoom : 2 / zoom
       ctx.strokeRect(bounds.x, bounds.y, bounds.width, bounds.height)
 
-      const displayLabel =
-        labelsMode === "grid" ? computeGridLabel(cabinet, layout.cabinets, layout.cabinetTypes) : cabinet.id
-
       if (labelsMode === "grid") {
+        const displayLabel = computeGridLabel(cabinet, layout.cabinets, layout.cabinetTypes)
         drawGridLabel(ctx, bounds, displayLabel, zoom)
-
-        ctx.fillStyle = isSelected ? "#38bdf8" : "#94a3b8"
-        const fontSize = Math.max(10, 11 / zoom)
-        ctx.font = `${fontSize}px Inter, sans-serif`
-        ctx.textAlign = "center"
-        ctx.textBaseline = "middle"
-        ctx.fillText(cabinet.id, bounds.x + bounds.width / 2, bounds.y + bounds.height / 2 - 10 / zoom)
-      } else {
-        ctx.fillStyle = isSelected ? "#38bdf8" : "#94a3b8"
-        const fontSize = Math.max(12, 14 / zoom)
-        ctx.font = `${fontSize}px Inter, sans-serif`
-        ctx.textAlign = "center"
-        ctx.textBaseline = "middle"
-        ctx.fillText(displayLabel, bounds.x + bounds.width / 2, bounds.y + bounds.height / 2 - fontSize / 2)
       }
 
       ctx.fillStyle = "#64748b"
@@ -729,15 +713,6 @@ export function LayoutCanvas() {
         bounds.x + bounds.width / 2,
         bounds.y + bounds.height - 25 / zoom,
       )
-
-      if (showReceiverCards) {
-        const cardModel =
-          cabinet.receiverCardOverride === null ? null : cabinet.receiverCardOverride || receiverCardModel
-
-        if (cardModel) {
-          drawReceiverCard(ctx, bounds, cardModel, zoom)
-        }
-      }
 
       if (cabinet.rot_deg !== 0) {
         ctx.fillStyle = "#94a3b8"
@@ -797,7 +772,7 @@ export function LayoutCanvas() {
       }
     })
 
-    // Draw data routes ON TOP of cabinets
+    // Draw data routes above cabinets but under receiver cards
     if (showDataRoutes && dataRoutes && dataRoutes.length > 0) {
       drawDataRoutes(
         ctx,
@@ -808,6 +783,19 @@ export function LayoutCanvas() {
         showReceiverCards,
         receiverCardModel,
       )
+    }
+
+    // Draw receiver cards on top so data lines sit underneath the label
+    if (showReceiverCards) {
+      layout.cabinets.forEach((cabinet) => {
+        const bounds = getCabinetBounds(cabinet, layout.cabinetTypes)
+        if (!bounds) return
+        const cardModel =
+          cabinet.receiverCardOverride === null ? null : cabinet.receiverCardOverride || receiverCardModel
+        if (cardModel) {
+          drawReceiverCard(ctx, bounds, cardModel, zoom)
+        }
+      })
     }
 
     // Draw controller
