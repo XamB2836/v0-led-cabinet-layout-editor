@@ -14,11 +14,7 @@ export interface Cabinet {
   rot_deg: 0 | 90 | 180 | 270
   port?: number
   chainIndex?: number
-<<<<<<< Updated upstream
   receiverCardOverride?: string | null // null = hide, undefined = use global, string = custom label
-=======
-  receiverCardLabel?: string | null
->>>>>>> Stashed changes
 }
 
 export interface GridSettings {
@@ -26,10 +22,12 @@ export interface GridSettings {
   step_mm: number
 }
 
+export type LabelsMode = "internal" | "grid"
+
 export interface OverviewSettings {
   showReceiverCards: boolean
   receiverCardModel: string
-  labelsMode: "internal" | "grid" // "internal" = C01, "grid" = A1/B1
+  labelsMode: LabelsMode
   showPixels: boolean
   showDataRoutes: boolean
   showPowerRoutes: boolean
@@ -70,51 +68,11 @@ export interface Project {
   exportSettings: ExportSettings
 }
 
-export type LabelsMode = "cabinetId" | "grid" | "none"
-
-export interface ExportSettings {
-  pageSize: "A4" | "A3"
-  orientation: "portrait" | "landscape"
-  showPixels: boolean
-}
-
-export interface OverviewSettings {
-  showReceiverCards: boolean
-  receiverCardModel: string
-  labelsMode: LabelsMode
-  showInternalIds: boolean
-  showDimensions: boolean
-}
-
-export interface RoutePoint {
-  x_mm: number
-  y_mm: number
-}
-
-export interface DataRoute {
-  port: number
-  orderedCabinetIds: string[]
-  waypoints?: RoutePoint[]
-}
-
-export interface PowerFeed {
-  id: string
-  label: string
-  connector: string
-  consumptionW?: number
-  assignedCabinetIds: string[]
-  waypoints?: RoutePoint[]
-}
-
 export interface LayoutData {
   schemaVersion: number
   project: Project
   cabinetTypes: CabinetType[]
   cabinets: Cabinet[]
-  overview: OverviewSettings
-  exportSettings: ExportSettings
-  dataRoutes: DataRoute[]
-  powerFeeds: PowerFeed[]
 }
 
 export interface ValidationError {
@@ -137,7 +95,7 @@ export interface EditorState {
   history: LayoutData[]
   historyIndex: number
   showDimensions: boolean
-  routingMode: RoutingMode // New routing mode state
+  routingMode: RoutingMode
 }
 
 // Default cabinet types
@@ -177,20 +135,6 @@ export const DEFAULT_LAYOUT: LayoutData = {
   },
   cabinetTypes: [...DEFAULT_CABINET_TYPES],
   cabinets: [],
-  overview: {
-    showReceiverCards: true,
-    receiverCardModel: "5A75-E",
-    labelsMode: "cabinetId",
-    showInternalIds: true,
-    showDimensions: true,
-  },
-  exportSettings: {
-    pageSize: "A4",
-    orientation: "portrait",
-    showPixels: true,
-  },
-  dataRoutes: [],
-  powerFeeds: [],
 }
 
 export function computeGridLabel(cabinet: Cabinet, allCabinets: Cabinet[], cabinetTypes: CabinetType[]): string {

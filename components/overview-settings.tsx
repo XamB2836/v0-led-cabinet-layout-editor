@@ -106,7 +106,7 @@ export function OverviewSettings() {
 
       <div className="space-y-3">
         <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-          <Cable className="w-3 h-3 text-orange-500" />
+          <Cable className="w-3 h-3 text-blue-500" />
           Data Routes
         </div>
 
@@ -120,14 +120,14 @@ export function OverviewSettings() {
             onCheckedChange={(checked) => dispatch({ type: "UPDATE_OVERVIEW", payload: { showDataRoutes: checked } })}
           />
         </div>
-        <p className="text-xs text-muted-foreground">Display orange data chain lines between cabinets</p>
+        <p className="text-xs text-muted-foreground">Display blue data chain lines between cabinets</p>
       </div>
 
       <Separator />
 
       <div className="space-y-3">
         <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-          <Zap className="w-3 h-3 text-blue-500" />
+          <Zap className="w-3 h-3 text-orange-500" />
           Power Routes
         </div>
 
@@ -141,7 +141,7 @@ export function OverviewSettings() {
             onCheckedChange={(checked) => dispatch({ type: "UPDATE_OVERVIEW", payload: { showPowerRoutes: checked } })}
           />
         </div>
-        <p className="text-xs text-muted-foreground">Display blue power feed lines and consumption labels</p>
+        <p className="text-xs text-muted-foreground">Display orange power feed lines and consumption labels</p>
       </div>
     </div>
   )

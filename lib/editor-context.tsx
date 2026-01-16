@@ -17,7 +17,6 @@ type EditorAction =
   | { type: "ADD_CABINET_TYPE"; payload: CabinetType }
   | { type: "DELETE_CABINET_TYPE"; payload: string }
   | { type: "UPDATE_PROJECT"; payload: Partial<LayoutData["project"]> }
-<<<<<<< Updated upstream
   | { type: "UPDATE_OVERVIEW"; payload: Partial<LayoutData["project"]["overview"]> }
   | { type: "UPDATE_EXPORT_SETTINGS"; payload: Partial<LayoutData["project"]["exportSettings"]> }
   | { type: "ADD_DATA_ROUTE"; payload: DataRoute }
@@ -26,10 +25,6 @@ type EditorAction =
   | { type: "ADD_POWER_FEED"; payload: PowerFeed }
   | { type: "UPDATE_POWER_FEED"; payload: { id: string; updates: Partial<PowerFeed> } }
   | { type: "DELETE_POWER_FEED"; payload: string }
-=======
-  | { type: "UPDATE_OVERVIEW"; payload: Partial<LayoutData["overview"]> }
-  | { type: "UPDATE_EXPORT_SETTINGS"; payload: Partial<LayoutData["exportSettings"]> }
->>>>>>> Stashed changes
   | { type: "SET_ZOOM"; payload: number }
   | { type: "SET_PAN"; payload: { x: number; y: number } }
   | { type: "TOGGLE_DIMENSIONS" }
@@ -145,22 +140,6 @@ function editorReducer(state: EditorState, action: EditorAction): EditorState {
         layout: {
           ...state.layout,
           project: { ...state.layout.project, ...action.payload },
-        },
-      }
-    case "UPDATE_OVERVIEW":
-      return {
-        ...state,
-        layout: {
-          ...state.layout,
-          overview: { ...state.layout.overview, ...action.payload },
-        },
-      }
-    case "UPDATE_EXPORT_SETTINGS":
-      return {
-        ...state,
-        layout: {
-          ...state.layout,
-          exportSettings: { ...state.layout.exportSettings, ...action.payload },
         },
       }
 

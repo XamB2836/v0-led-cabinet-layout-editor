@@ -4,15 +4,9 @@ import type React from "react"
 
 import { useRef, useEffect, useState, useCallback } from "react"
 import { useEditor } from "@/lib/editor-context"
-<<<<<<< Updated upstream
 import { getCabinetBounds, validateLayout } from "@/lib/validation"
 import type { Cabinet, CabinetType, DataRoute, PowerFeed } from "@/lib/types"
 import { computeGridLabel } from "@/lib/types"
-=======
-import { getCabinetBounds } from "@/lib/validation"
-import type { Cabinet } from "@/lib/types"
-import { drawOverview } from "@/lib/overview-renderer"
->>>>>>> Stashed changes
 import { Button } from "@/components/ui/button"
 import { ZoomIn, ZoomOut, Maximize, Ruler } from "lucide-react"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
@@ -179,30 +173,80 @@ function drawOverallDimensions(
   drawDimension(ctx, maxX, minY, maxX, maxY, totalHeight, zoom, "vertical", 80, "#f59e0b", heightPx)
 }
 
+function getReceiverCardRect(bounds: { x: number; y: number; width: number; height: number }, zoom: number) {
+  const minWidth = 48 / zoom
+  const maxWidth = 84 / zoom
+  const minHeight = 12 / zoom
+  const maxHeight = 18 / zoom
+  const cardWidth = Math.min(maxWidth, Math.max(minWidth, bounds.width * 0.7))
+  const cardHeight = Math.min(maxHeight, Math.max(minHeight, bounds.height * 0.2))
+  const cardX = bounds.x + bounds.width / 2 - cardWidth / 2
+  const cardY = bounds.y + bounds.height / 2 - cardHeight / 2
+  const connectorX = cardX + cardWidth / 2
+  const connectorY = cardY + cardHeight / 2
+
+  return {
+    x: cardX,
+    y: cardY,
+    width: cardWidth,
+    height: cardHeight,
+    centerX: cardX + cardWidth / 2,
+    centerY: cardY + cardHeight / 2,
+    connectorX,
+    connectorY,
+  }
+}
+
+function fitTextToWidth(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  maxWidth: number,
+  suffix = "...",
+) {
+  if (ctx.measureText(text).width <= maxWidth) return text
+  let trimmed = text
+  while (trimmed.length > 0 && ctx.measureText(`${trimmed}${suffix}`).width > maxWidth) {
+    trimmed = trimmed.slice(0, -1)
+  }
+  return trimmed.length > 0 ? `${trimmed}${suffix}` : suffix
+}
+
 function drawReceiverCard(
   ctx: CanvasRenderingContext2D,
   bounds: { x: number; y: number; width: number; height: number },
   model: string,
   zoom: number,
 ) {
-  const cardWidth = Math.min(60, bounds.width * 0.5)
-  const cardHeight = Math.min(18, bounds.height * 0.12)
-  const fontSize = Math.max(7, 8 / zoom)
+  const { x, y, width, height, centerX, centerY, connectorX, connectorY } = getReceiverCardRect(bounds, zoom)
+  const fontSize = 8 / zoom
+  const padding = 4 / zoom
 
-  const cardX = bounds.x + bounds.width / 2 - cardWidth / 2
-  const cardY = bounds.y + bounds.height / 2 + 12 / zoom
+  ctx.save()
+  ctx.shadowColor = "rgba(2, 6, 23, 0.6)"
+  ctx.shadowBlur = 5 / zoom
+  ctx.shadowOffsetY = 2 / zoom
+  ctx.fillStyle = "#0b1220"
+  ctx.fillRect(x, y, width, height)
+  ctx.restore()
 
-  ctx.fillStyle = "#ffffff"
-  ctx.fillRect(cardX, cardY, cardWidth, cardHeight)
-  ctx.strokeStyle = "#000000"
+  ctx.strokeStyle = "#1f2a44"
   ctx.lineWidth = 1 / zoom
-  ctx.strokeRect(cardX, cardY, cardWidth, cardHeight)
+  ctx.strokeRect(x, y, width, height)
 
-  ctx.fillStyle = "#000000"
+  ctx.fillStyle = "#0f172a"
+  ctx.fillRect(x + 1 / zoom, y + 1 / zoom, width - 2 / zoom, 2 / zoom)
+
+  ctx.fillStyle = "#e2e8f0"
   ctx.font = `bold ${fontSize}px Inter, sans-serif`
   ctx.textAlign = "center"
   ctx.textBaseline = "middle"
-  ctx.fillText(model, cardX + cardWidth / 2, cardY + cardHeight / 2)
+  const fitted = fitTextToWidth(ctx, model, width - padding * 2)
+  ctx.fillText(fitted, centerX, centerY)
+
+  ctx.fillStyle = "#3b82f6"
+  ctx.beginPath()
+  ctx.arc(connectorX, connectorY, 3.2 / zoom, 0, Math.PI * 2)
+  ctx.fill()
 }
 
 function drawGridLabel(
@@ -237,6 +281,8 @@ function drawDataRoutes(
   cabinets: Cabinet[],
   cabinetTypes: CabinetType[],
   zoom: number,
+  showReceiverCards: boolean,
+  receiverCardModel: string,
 ) {
   const lineWidth = Math.max(2, 2.5 / zoom)
   const arrowSize = Math.max(6, 8 / zoom)
@@ -251,8 +297,8 @@ function drawDataRoutes(
     if (route.cabinetIds.length === 0) return
 
     ctx.save()
-    ctx.strokeStyle = "#f97316"
-    ctx.fillStyle = "#f97316"
+    ctx.strokeStyle = "#3b82f6"
+    ctx.fillStyle = "#3b82f6"
     ctx.lineWidth = lineWidth
     ctx.lineCap = "round"
     ctx.lineJoin = "round"
@@ -264,9 +310,15 @@ function drawDataRoutes(
       if (!cabinet) return
       const bounds = getCabinetBounds(cabinet, cabinetTypes)
       if (!bounds) return
+      const hasReceiverCard =
+        showReceiverCards &&
+        (cabinet.receiverCardOverride === null ? false : !!(cabinet.receiverCardOverride || receiverCardModel))
+      const anchor = hasReceiverCard
+        ? getReceiverCardRect(bounds, zoom)
+        : { connectorX: bounds.x + bounds.width / 2, connectorY: bounds.y + bounds.height / 2 }
       points.push({
-        x: bounds.x + bounds.width / 2,
-        y: bounds.y + bounds.height / 2,
+        x: anchor.connectorX,
+        y: anchor.connectorY,
         bounds,
       })
     })
@@ -287,7 +339,7 @@ function drawDataRoutes(
     const labelWidth = ctx.measureText(portLabel).width + 16 / zoom
     const labelHeight = fontSize + 10 / zoom
 
-    ctx.fillStyle = "#f97316"
+    ctx.fillStyle = "#3b82f6"
     ctx.fillRect(portLabelX - labelWidth / 2, portLabelY - labelHeight / 2, labelWidth, labelHeight)
     ctx.fillStyle = "#ffffff"
     ctx.textAlign = "center"
@@ -295,10 +347,10 @@ function drawDataRoutes(
     ctx.fillText(portLabel, portLabelX, portLabelY)
 
     // Draw line from port to first cabinet
-    ctx.strokeStyle = "#f97316"
+    ctx.strokeStyle = "#3b82f6"
     ctx.beginPath()
     ctx.moveTo(portLabelX, portLabelY - labelHeight / 2)
-    ctx.lineTo(portLabelX, firstPoint.y + (firstPoint.bounds?.height || 0) / 2)
+    ctx.lineTo(portLabelX, firstPoint.y)
     ctx.stroke()
 
     // Draw connections between cabinets with orthogonal lines
@@ -388,8 +440,8 @@ function drawPowerFeeds(
     if (!feedBounds) return
 
     ctx.save()
-    ctx.strokeStyle = "#3b82f6"
-    ctx.fillStyle = "#3b82f6"
+    ctx.strokeStyle = "#f97316"
+    ctx.fillStyle = "#f97316"
     ctx.lineWidth = lineWidth
     ctx.lineCap = "round"
 
@@ -435,7 +487,7 @@ function drawPowerFeeds(
     const boxHeight = fontSize * 3.5 + labelPadding * 2
 
     // Background box
-    ctx.fillStyle = "rgba(59, 130, 246, 0.95)"
+    ctx.fillStyle = "rgba(249, 115, 22, 0.95)"
     ctx.fillRect(lineX - boxWidth / 2, labelY, boxWidth, boxHeight)
 
     // Text
@@ -501,7 +553,6 @@ export function LayoutCanvas() {
   const [isDraggingCabinet, setIsDraggingCabinet] = useState(false)
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
 
-<<<<<<< Updated upstream
   const errors = validateLayout(layout)
   const errorCabinetIds = new Set(errors.filter((e) => e.type === "error").flatMap((e) => e.cabinetIds))
 
@@ -513,10 +564,6 @@ export function LayoutCanvas() {
     const feed = layout.project.powerFeeds.find((f) => f.id === routingMode.feedId)
     feed?.assignedCabinetIds.forEach((id) => activeCabinetIds.add(id))
   }
-
-=======
-  // Convert screen coordinates to world coordinates
->>>>>>> Stashed changes
   const screenToWorld = useCallback(
     (screenX: number, screenY: number) => {
       const canvas = canvasRef.current
@@ -566,7 +613,6 @@ export function LayoutCanvas() {
     canvas.height = rect.height * dpr
     ctx.scale(dpr, dpr)
 
-<<<<<<< Updated upstream
     ctx.fillStyle = "#0f0f0f"
     ctx.fillRect(0, 0, rect.width, rect.height)
 
@@ -638,11 +684,11 @@ export function LayoutCanvas() {
         strokeColor = "#38bdf8"
       } else if (isInActiveRoute) {
         if (routingMode.type === "data") {
-          fillColor = "rgba(249, 115, 22, 0.3)"
-          strokeColor = "#f97316"
-        } else if (routingMode.type === "power") {
           fillColor = "rgba(59, 130, 246, 0.3)"
           strokeColor = "#3b82f6"
+        } else if (routingMode.type === "power") {
+          fillColor = "rgba(249, 115, 22, 0.3)"
+          strokeColor = "#f97316"
         }
       }
 
@@ -709,7 +755,7 @@ export function LayoutCanvas() {
             const badgeX = bounds.x + bounds.width - badgeSize - 4 / zoom
             const badgeY = bounds.y + bounds.height - badgeSize - 4 / zoom
 
-            ctx.fillStyle = "#f97316"
+            ctx.fillStyle = "#3b82f6"
             ctx.beginPath()
             ctx.arc(badgeX + badgeSize / 2, badgeY + badgeSize / 2, badgeSize / 2, 0, Math.PI * 2)
             ctx.fill()
@@ -753,7 +799,15 @@ export function LayoutCanvas() {
 
     // Draw data routes ON TOP of cabinets
     if (showDataRoutes && dataRoutes && dataRoutes.length > 0) {
-      drawDataRoutes(ctx, dataRoutes, layout.cabinets, layout.cabinetTypes, zoom)
+      drawDataRoutes(
+        ctx,
+        dataRoutes,
+        layout.cabinets,
+        layout.cabinetTypes,
+        zoom,
+        showReceiverCards,
+        receiverCardModel,
+      )
     }
 
     // Draw controller
@@ -769,51 +823,10 @@ export function LayoutCanvas() {
     ctx.restore()
 
     // UI overlay
-=======
-    const palette = {
-      background: getComputedStyle(document.documentElement).getPropertyValue("--canvas").trim() || "#111",
-      gridLine: getComputedStyle(document.documentElement).getPropertyValue("--grid-line").trim() || "#333",
-      cabinetFill: "rgba(56, 189, 248, 0.15)",
-      cabinetStroke: "#3b82f6",
-      cabinetSelected: "#38bdf8",
-      cabinetErrorFill: "rgba(220, 38, 38, 0.3)",
-      cabinetErrorStroke: "#dc2626",
-      labelPrimary: "#94a3b8",
-      labelSecondary: "#64748b",
-      receiverCardFill: "#ffffff",
-      receiverCardStroke: "#000000",
-      receiverCardText: "#111111",
-      dimensionLine: "#94a3b8",
-      dimensionText: "#e2e8f0",
-    }
-
-    drawOverview(ctx, layout, {
-      zoom,
-      panX,
-      panY,
-      viewportWidth: rect.width,
-      viewportHeight: rect.height,
-      showGrid: layout.project.grid.enabled,
-      showOrigin: true,
-      labelsMode: layout.overview.labelsMode,
-      showInternalIds: layout.overview.showInternalIds,
-      showDimensions: layout.overview.showDimensions,
-      showPixels: layout.exportSettings.showPixels,
-      showReceiverCards: layout.overview.showReceiverCards,
-      selectedCabinetId,
-      palette,
-    })
-
-    // Draw scale indicator
->>>>>>> Stashed changes
     ctx.fillStyle = "#64748b"
     ctx.font = "11px Inter, sans-serif"
     ctx.textAlign = "left"
     ctx.fillText(`Zoom: ${(zoom * 100).toFixed(0)}%`, 12, rect.height - 12)
-<<<<<<< Updated upstream
-=======
-  }, [layout, zoom, panX, panY, selectedCabinetId])
->>>>>>> Stashed changes
 
     if (routingMode.type !== "none") {
       const modeText =
@@ -821,7 +834,7 @@ export function LayoutCanvas() {
           ? `Routing: Port ${layout.project.dataRoutes.find((r) => r.id === routingMode.routeId)?.port || "?"} - Click cabinets to add/remove`
           : `Power Feed - Click cabinets to assign`
 
-      ctx.fillStyle = routingMode.type === "data" ? "#f97316" : "#3b82f6"
+      ctx.fillStyle = routingMode.type === "data" ? "#3b82f6" : "#f97316"
       ctx.font = "bold 12px Inter, sans-serif"
       ctx.textAlign = "center"
       ctx.fillText(modeText, rect.width / 2, 24)

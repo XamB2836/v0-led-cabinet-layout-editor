@@ -122,8 +122,8 @@ export function ExportPdfDialog() {
         const lineEndY = offsetY + feedMaxY * scale + 25
 
         powerFeedElements += `
-          <line x1="${centerX}" y1="${lineStartY}" x2="${centerX}" y2="${lineEndY}" stroke="#3b82f6" strokeWidth="3" strokeLinecap="round"/>
-          <rect x="${centerX - 35}" y="${lineStartY - 35}" width="70" height="30" fill="#3b82f6" rx="2"/>
+          <line x1="${centerX}" y1="${lineStartY}" x2="${centerX}" y2="${lineEndY}" stroke="#f97316" strokeWidth="3.5" strokeLinecap="round"/>
+          <rect x="${centerX - 35}" y="${lineStartY - 35}" width="70" height="30" fill="#f97316" rx="2"/>
           <text x="${centerX}" y="${lineStartY - 25}" textAnchor="middle" fontFamily="monospace" fontSize="8" fontWeight="bold" fill="white">${feed.label}</text>
           <text x="${centerX}" y="${lineStartY - 14}" textAnchor="middle" fontFamily="monospace" fontSize="7" fill="white">${feed.consumptionW > 0 ? `${feed.consumptionW}W` : feed.connector}</text>
         `
@@ -150,14 +150,19 @@ export function ExportPdfDialog() {
             cabinet.receiverCardOverride === null ? null : cabinet.receiverCardOverride || receiverCardModel
 
           if (cardModel) {
-            const cardW = Math.min(45, w * 0.5)
-            const cardH = 14
+            const cardW = Math.min(80, w * 0.7)
+            const cardH = 22
             const cardX = x + w / 2 - cardW / 2
-            const cardY = y + h / 2 + 8
+            const cardY = y + h / 2 - cardH / 2
+            const connectorX = cardX + cardW / 2
+            const connectorY = cardY + cardH / 2
 
             receiverCard = `
-            <rect x="${cardX}" y="${cardY}" width="${cardW}" height="${cardH}" fill="white" stroke="black" strokeWidth="0.5"/>
-            <text x="${cardX + cardW / 2}" y="${cardY + cardH / 2 + 1}" textAnchor="middle" dominantBaseline="middle" fontFamily="monospace" fontSize="8" fontWeight="bold">${cardModel}</text>
+            <rect x="${cardX + 1}" y="${cardY + 1}" width="${cardW}" height="${cardH}" fill="rgba(15, 23, 42, 0.08)" rx="3"/>
+            <rect x="${cardX}" y="${cardY}" width="${cardW}" height="${cardH}" fill="#f8fafc" stroke="#0f172a" strokeWidth="0.9" rx="3"/>
+            <rect x="${cardX}" y="${cardY}" width="${cardW}" height="6" fill="#0f172a" rx="3"/>
+            <text x="${cardX + cardW / 2}" y="${cardY + cardH / 2 + 2}" textAnchor="middle" dominantBaseline="middle" fontFamily="monospace" fontSize="9" fontWeight="bold" fill="#0f172a">${cardModel}</text>
+            <circle cx="${connectorX}" cy="${connectorY}" r="2.6" fill="#3b82f6"/>
           `
           }
         }
@@ -193,10 +198,25 @@ export function ExportPdfDialog() {
           if (!cabinet) return
           const b = getCabinetBounds(cabinet, layout.cabinetTypes)
           if (!b) return
-          points.push({
-            x: offsetX + (b.x + b.width / 2) * scale,
-            y: offsetY + (b.y + b.height / 2) * scale,
-          })
+          const centerX = offsetX + (b.x + b.width / 2) * scale
+          const centerY = offsetY + (b.y + b.height / 2) * scale
+          let pointX = centerX
+          let pointY = centerY
+
+          if (showReceiverCards) {
+            const cardModel =
+              cabinet.receiverCardOverride === null ? null : cabinet.receiverCardOverride || receiverCardModel
+            if (cardModel) {
+              const cardW = Math.min(80, b.width * scale * 0.7)
+              const cardH = 22
+              const cardX = centerX - cardW / 2
+              const cardY = centerY - cardH / 2
+              pointX = cardX + cardW / 2
+              pointY = cardY + cardH / 2
+            }
+          }
+
+          points.push({ x: pointX, y: pointY })
         })
 
         if (points.length < 2) return
@@ -220,12 +240,13 @@ export function ExportPdfDialog() {
 
         // Port label
         const portLabel = `
-          <circle cx="${points[0].x - 12}" cy="${points[0].y}" r="8" fill="#f97316"/>
+          <circle cx="${points[0].x - 12}" cy="${points[0].y}" r="8" fill="#3b82f6"/>
           <text x="${points[0].x - 12}" y="${points[0].y + 1}" textAnchor="middle" dominantBaseline="middle" fontFamily="sans-serif" fontSize="8" fontWeight="bold" fill="white">P${route.port}</text>
         `
 
         dataRouteElements += `
-          <path d="${pathD}" fill="none" stroke="#f97316" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+          <line x1="${points[0].x - 4}" y1="${points[0].y}" x2="${points[0].x}" y2="${points[0].y}" stroke="#3b82f6" strokeWidth="3.5" strokeLinecap="round"/>
+          <path d="${pathD}" fill="none" stroke="#3b82f6" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"/>
           ${portLabel}
         `
       })

@@ -60,12 +60,12 @@ export function getGridLabelMap(layout: LayoutData) {
 }
 
 export function getReceiverCardLabel(layout: LayoutData, cabinet: Cabinet) {
-  if (!layout.overview.showReceiverCards) return null
-  if (cabinet.receiverCardLabel === null) return null
-  if (cabinet.receiverCardLabel && cabinet.receiverCardLabel.trim().length > 0) {
-    return cabinet.receiverCardLabel.trim()
+  if (!layout.project.overview.showReceiverCards) return null
+  if (cabinet.receiverCardOverride === null) return null
+  if (cabinet.receiverCardOverride && cabinet.receiverCardOverride.trim().length > 0) {
+    return cabinet.receiverCardOverride.trim()
   }
-  return layout.overview.receiverCardModel
+  return layout.project.overview.receiverCardModel
 }
 
 export function getLayoutPixelDimensions(layout: LayoutData) {

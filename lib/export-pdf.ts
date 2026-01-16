@@ -10,7 +10,7 @@ const PAGE_SIZES_MM = {
 }
 
 export function exportOverviewPdf(layout: LayoutData) {
-  const { pageSize, orientation } = layout.exportSettings
+  const { pageSize, orientation } = layout.project.exportSettings
   const baseSize = PAGE_SIZES_MM[pageSize]
   const pageWidthMm = orientation === "landscape" ? baseSize.height : baseSize.width
   const pageHeightMm = orientation === "landscape" ? baseSize.width : baseSize.height
@@ -48,11 +48,10 @@ export function exportOverviewPdf(layout: LayoutData) {
     viewportHeight: canvas.height,
     showGrid: false,
     showOrigin: false,
-    labelsMode: layout.overview.labelsMode,
-    showInternalIds: layout.overview.showInternalIds,
-    showDimensions: layout.overview.showDimensions,
-    showPixels: layout.exportSettings.showPixels,
-    showReceiverCards: layout.overview.showReceiverCards,
+    labelsMode: layout.project.overview.labelsMode,
+    showDimensions: true,
+    showPixels: layout.project.overview.showPixels,
+    showReceiverCards: layout.project.overview.showReceiverCards,
     palette: {
       background: "#ffffff",
       gridLine: "#dddddd",
