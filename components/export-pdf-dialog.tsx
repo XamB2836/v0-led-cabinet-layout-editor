@@ -4,6 +4,7 @@ import { useState, useCallback } from "react"
 import { useEditor } from "@/lib/editor-context"
 import { getCabinetBounds, getLayoutBounds } from "@/lib/validation"
 import { computeGridLabel } from "@/lib/types"
+import { getBreakerSafeMaxW, getPowerFeedLoadW } from "@/lib/power-utils"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -104,6 +105,8 @@ export function ExportPdfDialog() {
           feedMaxX = Number.NEGATIVE_INFINITY,
           feedMaxY = Number.NEGATIVE_INFINITY
 
+        const points: { x: number; y: number }[] = []
+
         feed.assignedCabinetIds.forEach((id) => {
           const cabinet = layout.cabinets.find((c) => c.id === id)
           if (!cabinet) return
@@ -113,19 +116,47 @@ export function ExportPdfDialog() {
           feedMinY = Math.min(feedMinY, b.y)
           feedMaxX = Math.max(feedMaxX, b.x2)
           feedMaxY = Math.max(feedMaxY, b.y2)
+          const anchorX = b.x + b.width * 0.65
+          points.push({
+            x: offsetX + anchorX * scale,
+            y: offsetY + (b.y + b.height / 2) * scale,
+          })
         })
 
-        if (feedMinX === Number.POSITIVE_INFINITY) return
+        if (feedMinX === Number.POSITIVE_INFINITY || points.length === 0) return
 
-        const centerX = offsetX + ((feedMinX + feedMaxX) / 2) * scale
-        const lineStartY = offsetY + feedMinY * scale - 25
-        const lineEndY = offsetY + feedMaxY * scale + 25
+        let pathD = `M ${points[0].x} ${points[0].y}`
+        for (let i = 1; i < points.length; i++) {
+          const prev = points[i - 1]
+          const curr = points[i]
+          const dx = Math.abs(curr.x - prev.x)
+          const dy = Math.abs(curr.y - prev.y)
+
+          if (dx < 4 || dy < 4) {
+            pathD += ` L ${curr.x} ${curr.y}`
+          } else {
+            pathD += ` L ${curr.x} ${prev.y} L ${curr.x} ${curr.y}`
+          }
+        }
+
+        const breakerText = feed.breaker || ""
+        const detailText = breakerText ? `${breakerText} • ${feed.connector}` : feed.connector
+        const loadW = getPowerFeedLoadW(feed, layout.cabinets, layout.cabinetTypes)
+        const safeMaxW = getBreakerSafeMaxW(feed.breaker)
+        const consumptionText = safeMaxW ? `Load: ${loadW}W / ${safeMaxW}W` : `Load: ${loadW}W`
+        const lineCount = 3
+        const boxHeight = lineCount === 3 ? 36 : 28
+
+        const labelX = points[0].x
+        const labelY = offsetY + feedMaxY * scale + 110
 
         powerFeedElements += `
-          <line x1="${centerX}" y1="${lineStartY}" x2="${centerX}" y2="${lineEndY}" stroke="#f97316" strokeWidth="3.5" strokeLinecap="round"/>
-          <rect x="${centerX - 35}" y="${lineStartY - 35}" width="70" height="30" fill="#f97316" rx="2"/>
-          <text x="${centerX}" y="${lineStartY - 25}" textAnchor="middle" fontFamily="monospace" fontSize="8" fontWeight="bold" fill="white">${feed.label}</text>
-          <text x="${centerX}" y="${lineStartY - 14}" textAnchor="middle" fontFamily="monospace" fontSize="7" fill="white">${feed.consumptionW > 0 ? `${feed.consumptionW}W` : feed.connector}</text>
+          <path d="${pathD}" fill="none" stroke="#f97316" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"/>
+          <line x1="${labelX}" y1="${labelY}" x2="${points[0].x}" y2="${points[0].y}" stroke="#f97316" strokeWidth="3.5" strokeLinecap="round"/>
+          <rect x="${labelX - 40}" y="${labelY}" width="80" height="${boxHeight}" fill="#f97316" rx="2"/>
+          <text x="${labelX}" y="${labelY + 10}" textAnchor="middle" fontFamily="monospace" fontSize="8" fontWeight="bold" fill="white">${feed.label}</text>
+          <text x="${labelX}" y="${labelY + 20}" textAnchor="middle" fontFamily="monospace" fontSize="7" fill="white">${detailText}</text>
+          <text x="${labelX}" y="${labelY + 30}" textAnchor="middle" fontFamily="monospace" fontSize="7" fill="white">${consumptionText}</text>
         `
       })
     }
@@ -155,7 +186,7 @@ export function ExportPdfDialog() {
             const cardX = x + w / 2 - cardW / 2
             const cardY = y + h / 2 - cardH / 2
             const connectorX = cardX + cardW / 2
-            const connectorY = cardY + cardH / 2
+            const connectorY = cardY + cardH + 6
 
             receiverCard = `
             <rect x="${cardX + 1}" y="${cardY + 1}" width="${cardW}" height="${cardH}" fill="rgba(15, 23, 42, 0.08)" rx="3"/>
@@ -179,7 +210,7 @@ export function ExportPdfDialog() {
         <g>
           <rect x="${x}" y="${y}" width="${w}" height="${h}" fill="rgba(56, 189, 248, 0.15)" stroke="#3b82f6" strokeWidth="1.5"/>
           ${gridLabelBox}
-          <text x="${x + w / 2}" y="${y + h / 2 - 5}" textAnchor="middle" fontFamily="sans-serif" fontSize="10" fill="#64748b">${labelsMode === "grid" ? cabinet.id : label}</text>
+          ${labelsMode === "internal" ? `<text x="${x + w / 2}" y="${y + h / 2 - 5}" textAnchor="middle" fontFamily="sans-serif" fontSize="10" fill="#64748b">${label}</text>` : ""}
           <text x="${x + w / 2}" y="${y + h - 10}" textAnchor="middle" fontFamily="monospace" fontSize="7" fill="#64748b">${cabinet.typeId.replace("STD_", "")}</text>
           ${receiverCard}
         </g>
@@ -212,7 +243,7 @@ export function ExportPdfDialog() {
               const cardX = centerX - cardW / 2
               const cardY = centerY - cardH / 2
               pointX = cardX + cardW / 2
-              pointY = cardY + cardH / 2
+              pointY = cardY + cardH + 6
             }
           }
 
@@ -285,7 +316,8 @@ export function ExportPdfDialog() {
       </g>
     `
 
-    const totalConsumption = powerFeeds?.reduce((sum, f) => sum + (f.consumptionW || 0), 0) || 0
+    const totalConsumption =
+      powerFeeds?.reduce((sum, f) => sum + getPowerFeedLoadW(f, layout.cabinets, layout.cabinetTypes), 0) || 0
     const powerInfo = totalConsumption > 0 ? ` | Total Power: ${totalConsumption}W` : ""
 
     // Controller info
@@ -305,14 +337,14 @@ export function ExportPdfDialog() {
   <text x="${svgWidth / 2}" y="${margin + 42}" textAnchor="middle" fontFamily="monospace" fontSize="11" fill="#64748b">${subtitle}</text>
   ${exportSettings.clientName ? `<text x="${svgWidth / 2}" y="${margin + 58}" textAnchor="middle" fontFamily="sans-serif" fontSize="10" fill="#94a3b8">Client: ${exportSettings.clientName}</text>` : ""}
   
-  <!-- Power Feeds (behind cabinets) -->
-  ${powerFeedElements}
-  
   <!-- Cabinets -->
   ${cabinetElements}
   
   <!-- Data Routes (on top) -->
   ${dataRouteElements}
+
+  <!-- Power Feeds (above data) -->
+  ${powerFeedElements}
   
   <!-- Dimensions -->
   ${dimensionLines}

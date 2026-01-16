@@ -7,6 +7,7 @@ import { useEditor } from "@/lib/editor-context"
 import { getCabinetBounds, validateLayout } from "@/lib/validation"
 import type { Cabinet, CabinetType, DataRoute, PowerFeed } from "@/lib/types"
 import { computeGridLabel } from "@/lib/types"
+import { getBreakerSafeMaxW, getPowerFeedLoadW } from "@/lib/power-utils"
 import { Button } from "@/components/ui/button"
 import { ZoomIn, ZoomOut, Maximize, Ruler } from "lucide-react"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
@@ -429,77 +430,113 @@ function drawPowerFeeds(
   const layoutBounds = getLayoutBoundsFromCabinets(cabinets, cabinetTypes)
   if (!layoutBounds) return
 
-  const { minX, minY, maxY } = layoutBounds
-
-  powerFeeds.forEach((feed, feedIndex) => {
+  powerFeeds.forEach((feed) => {
     if (feed.assignedCabinetIds.length === 0) return
-
-    // Get bounds of assigned cabinets for this feed
-    const assignedCabinets = cabinets.filter((c) => feed.assignedCabinetIds.includes(c.id))
-    const feedBounds = getLayoutBoundsFromCabinets(assignedCabinets, cabinetTypes)
-    if (!feedBounds) return
 
     ctx.save()
     ctx.strokeStyle = "#f97316"
     ctx.fillStyle = "#f97316"
     ctx.lineWidth = lineWidth
     ctx.lineCap = "round"
+    ctx.lineJoin = "round"
 
-    const feedOffsetX = ((feedIndex + 1) * 60) / zoom
-    const lineX = feedBounds.minX - feedOffsetX
-
-    // Draw vertical line from top to bottom of assigned cabinets
-    const lineTopY = feedBounds.minY - 20 / zoom
-    const lineBottomY = feedBounds.maxY + 20 / zoom
-
-    ctx.beginPath()
-    ctx.moveTo(lineX, lineTopY)
-    ctx.lineTo(lineX, lineBottomY)
-    ctx.stroke()
-
-    // Draw horizontal ticks to each assigned cabinet row
-    ctx.lineWidth = lineWidth * 0.6
-    assignedCabinets.forEach((cabinet) => {
+    const points: { x: number; y: number; bounds: ReturnType<typeof getCabinetBounds> }[] = []
+    feed.assignedCabinetIds.forEach((id) => {
+      const cabinet = cabinets.find((c) => c.id === id)
+      if (!cabinet) return
       const bounds = getCabinetBounds(cabinet, cabinetTypes)
       if (!bounds) return
-      const cabinetCenterY = bounds.y + bounds.height / 2
-      ctx.beginPath()
-      ctx.moveTo(lineX, cabinetCenterY)
-      ctx.lineTo(bounds.x - 5 / zoom, cabinetCenterY)
-      ctx.stroke()
+      const anchorX = bounds.x + bounds.width * 0.65
+      points.push({
+        x: anchorX,
+        y: bounds.y + bounds.height / 2,
+        bounds,
+      })
     })
 
+    if (points.length === 0) {
+      ctx.restore()
+      return
+    }
+
+    const feedBounds = getLayoutBoundsFromCabinets(
+      cabinets.filter((c) => feed.assignedCabinetIds.includes(c.id)),
+      cabinetTypes,
+    )
+    if (!feedBounds) {
+      ctx.restore()
+      return
+    }
+
     // Draw label box at bottom
-    const labelY = lineBottomY + 30 / zoom
+    const labelY = feedBounds.maxY + 110 / zoom
     const labelPadding = 6 / zoom
 
     ctx.font = `bold ${fontSize}px Inter, sans-serif`
     const labelText = feed.label
-    const consumptionText = `Consumption: ${feed.consumptionW} W`
+    const breakerText = feed.breaker || feed.label
+    const loadW = getPowerFeedLoadW(feed, cabinets, cabinetTypes)
+    const safeMaxW = getBreakerSafeMaxW(feed.breaker)
+    const consumptionText = safeMaxW ? `Load: ${loadW} W / ${safeMaxW} W` : `Load: ${loadW} W`
     const connectorText = feed.connector
 
     const maxTextWidth = Math.max(
       ctx.measureText(labelText).width,
+      ctx.measureText(breakerText).width,
       ctx.measureText(consumptionText).width,
       ctx.measureText(connectorText).width,
     )
     const boxWidth = maxTextWidth + labelPadding * 2
-    const boxHeight = fontSize * 3.5 + labelPadding * 2
+    const boxHeight = fontSize * 4.6 + labelPadding * 2
+    const boxX = points[0].x
 
     // Background box
     ctx.fillStyle = "rgba(249, 115, 22, 0.95)"
-    ctx.fillRect(lineX - boxWidth / 2, labelY, boxWidth, boxHeight)
+    ctx.fillRect(boxX - boxWidth / 2, labelY, boxWidth, boxHeight)
 
     // Text
     ctx.fillStyle = "#ffffff"
     ctx.textAlign = "center"
     ctx.textBaseline = "top"
     ctx.font = `bold ${fontSize}px Inter, sans-serif`
-    ctx.fillText(labelText, lineX, labelY + labelPadding)
+    ctx.fillText(labelText, boxX, labelY + labelPadding)
     ctx.font = `${fontSize * 0.85}px Inter, sans-serif`
-    ctx.fillText(connectorText, lineX, labelY + labelPadding + fontSize * 1.2)
+    ctx.fillText(breakerText, boxX, labelY + labelPadding + fontSize * 1.1)
+    ctx.fillText(connectorText, boxX, labelY + labelPadding + fontSize * 2.2)
     ctx.font = `bold ${fontSize * 0.9}px Inter, sans-serif`
-    ctx.fillText(consumptionText, lineX, labelY + labelPadding + fontSize * 2.3)
+    ctx.fillText(consumptionText, boxX, labelY + labelPadding + fontSize * 3.3)
+
+    // Draw line from breaker label to first cabinet
+    ctx.strokeStyle = "#f97316"
+    ctx.lineWidth = lineWidth
+    ctx.beginPath()
+    ctx.moveTo(boxX, labelY)
+    ctx.lineTo(points[0].x, points[0].y)
+    ctx.stroke()
+
+    // Draw connections between cabinets with orthogonal lines
+    if (points.length > 1) {
+      ctx.beginPath()
+      ctx.moveTo(points[0].x, points[0].y)
+
+      for (let i = 1; i < points.length; i++) {
+        const prev = points[i - 1]
+        const curr = points[i]
+        const dx = Math.abs(curr.x - prev.x)
+        const dy = Math.abs(curr.y - prev.y)
+
+        if (dy < 10) {
+          ctx.lineTo(curr.x, curr.y)
+        } else if (dx < 10) {
+          ctx.lineTo(curr.x, curr.y)
+        } else {
+          // Keep the horizontal segment on the previous cabinet row to avoid "H" shapes.
+          ctx.lineTo(curr.x, prev.y)
+          ctx.lineTo(curr.x, curr.y)
+        }
+      }
+      ctx.stroke()
+    }
 
     ctx.restore()
   })
@@ -659,11 +696,6 @@ export function LayoutCanvas() {
     const showDataRoutes = overview?.showDataRoutes ?? true
     const showPowerRoutes = overview?.showPowerRoutes ?? true
 
-    // Draw power feeds BEHIND cabinets
-    if (showPowerRoutes && powerFeeds && powerFeeds.length > 0) {
-      drawPowerFeeds(ctx, powerFeeds, layout.cabinets, layout.cabinetTypes, zoom)
-    }
-
     // Draw cabinets
     layout.cabinets.forEach((cabinet) => {
       const bounds = getCabinetBounds(cabinet, layout.cabinetTypes)
@@ -783,6 +815,11 @@ export function LayoutCanvas() {
         showReceiverCards,
         receiverCardModel,
       )
+    }
+
+    // Draw power feeds above data routes
+    if (showPowerRoutes && powerFeeds && powerFeeds.length > 0) {
+      drawPowerFeeds(ctx, powerFeeds, layout.cabinets, layout.cabinetTypes, zoom)
     }
 
     // Draw receiver cards on top so data lines sit underneath the label

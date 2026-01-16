@@ -42,6 +42,7 @@ export interface DataRoute {
 export interface PowerFeed {
   id: string
   label: string
+  breaker?: string
   connector: string
   consumptionW: number
   assignedCabinetIds: string[]

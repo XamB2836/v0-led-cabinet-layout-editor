@@ -8,8 +8,10 @@ import { Label } from "@/components/ui/label"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Plus, Trash2, Zap, Cable, Wand2, MousePointer, X } from "lucide-react"
 import type { DataRoute, PowerFeed } from "@/lib/types"
+import { getBreakerSafeMaxW, getPowerFeedLoadW } from "@/lib/power-utils"
 
 export function DataRoutesPanel() {
   const { state, dispatch } = useEditor()
@@ -59,6 +61,7 @@ export function DataRoutesPanel() {
 
     // Sort columns left to right
     columns.sort((a, b) => a[0].centerX - b[0].centerX)
+    columns.forEach((col) => col.sort((a, b) => b.centerY - a.centerY))
 
     // Since we're using Y-up coords internally, higher Y = top, so sort descending
     columns.forEach((col) => col.sort((a, b) => b.centerY - a.centerY))
@@ -147,6 +150,7 @@ export function DataRoutesPanel() {
     const newFeed: PowerFeed = {
       id: `feed-${Date.now()}`,
       label: `220V @20A`,
+      breaker: "220V 20A",
       connector: "NAC3FX-W",
       consumptionW: 0,
       assignedCabinetIds: [],
@@ -211,7 +215,11 @@ export function DataRoutesPanel() {
       const cabinetIds: string[] = []
 
       for (let c = startCol; c < endCol; c++) {
-        cabinetIds.push(...columns[c].map((item) => item.cabinet.id))
+        const colCabinets = columns[c].map((item) => item.cabinet.id)
+        if ((c - startCol) % 2 === 1) {
+          colCabinets.reverse()
+        }
+        cabinetIds.push(...colCabinets)
       }
 
       dispatch({
@@ -477,6 +485,21 @@ export function DataRoutesPanel() {
                         />
                       </div>
                       <div className="space-y-1">
+                        <Label className="text-xs text-zinc-400">Breaker</Label>
+                        <Select
+                          value={feed.breaker || "220V 20A"}
+                          onValueChange={(value) => handleUpdatePowerFeed(feed.id, { breaker: value })}
+                        >
+                          <SelectTrigger className="h-8 text-xs bg-zinc-950/60 border-zinc-800 text-zinc-100">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="220V 20A">220V 20A</SelectItem>
+                            <SelectItem value="110V 15A">110V 15A</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1">
                         <Label className="text-xs text-zinc-400">Connector</Label>
                         <Input
                           value={feed.connector}
@@ -489,17 +512,14 @@ export function DataRoutesPanel() {
                     </div>
 
                     <div className="space-y-1">
-                      <Label className="text-xs text-zinc-400">Consumption (W)</Label>
-                      <Input
-                        type="number"
-                        value={feed.consumptionW || ""}
-                        onChange={(e) =>
-                          handleUpdatePowerFeed(feed.id, { consumptionW: Number.parseInt(e.target.value) || 0 })
-                        }
-                        onBlur={() => dispatch({ type: "PUSH_HISTORY" })}
-                        className="h-8 text-xs bg-zinc-950/60 border-zinc-800 text-zinc-100 font-mono"
-                        placeholder="0"
-                      />
+                      <Label className="text-xs text-zinc-400">Load (auto)</Label>
+                      <div className="h-8 px-3 rounded-md bg-zinc-950/60 border border-zinc-800 text-xs text-zinc-100 flex items-center">
+                        {(() => {
+                          const loadW = getPowerFeedLoadW(feed, layout.cabinets, layout.cabinetTypes)
+                          const safeMaxW = getBreakerSafeMaxW(feed.breaker)
+                          return safeMaxW ? `${loadW} W / ${safeMaxW} W` : `${loadW} W`
+                        })()}
+                      </div>
                     </div>
                   </div>
                 )
@@ -510,7 +530,11 @@ export function DataRoutesPanel() {
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-orange-400 font-medium">Total Consumption:</span>
                   <span className="font-mono font-bold text-orange-400">
-                    {powerFeeds.reduce((sum, f) => sum + (f.consumptionW || 0), 0)} W
+                    {powerFeeds.reduce(
+                      (sum, f) => sum + getPowerFeedLoadW(f, layout.cabinets, layout.cabinetTypes),
+                      0,
+                    )}{" "}
+                    W
                   </span>
                 </div>
               </div>

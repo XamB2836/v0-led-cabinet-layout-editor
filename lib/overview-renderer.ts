@@ -204,7 +204,7 @@ export function drawOverview(ctx: CanvasRenderingContext2D, layout: LayoutData, 
     const fontSize = Math.max(12, 14 / zoom)
     const smallFontSize = Math.max(9, 10 / zoom)
 
-    if (options.labelsMode === "internal" || options.labelsMode === "grid") {
+    if (options.labelsMode === "internal") {
       ctx.fillStyle = palette.labelPrimary
       ctx.font = `${fontSize}px Geist, sans-serif`
       ctx.textAlign = "center"
