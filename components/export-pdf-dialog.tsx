@@ -5,6 +5,7 @@ import { useEditor } from "@/lib/editor-context"
 import { getCabinetBounds, getLayoutBounds } from "@/lib/validation"
 import { computeGridLabel } from "@/lib/types"
 import { getBreakerMaxW, getPowerFeedLoadW } from "@/lib/power-utils"
+import { isDataRouteOverCapacity } from "@/lib/data-utils"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -139,15 +140,14 @@ export function ExportPdfDialog() {
           }
         }
 
-        const breakerText = feed.breaker || ""
-        const detailText = breakerText ? `${breakerText} • ${feed.connector}` : feed.connector
         const loadW = getPowerFeedLoadW(feed, layout.cabinets, layout.cabinetTypes)
+        const breakerText = feed.breaker || ""
+        const detailText = breakerText ? `${breakerText} | ${loadW}W` : `${loadW}W`
         const maxW = getBreakerMaxW(feed.breaker)
         const isOverloaded = maxW ? loadW > maxW : false
         const lineColor = isOverloaded ? "#ef4444" : "#f97316"
-        const consumptionText = `Load: ${loadW}W`
-        const lineCount = 3
-        const boxHeight = lineCount === 3 ? 36 : 28
+        const lineCount = 2
+        const boxHeight = 24
 
         const labelX = points[0].x
         const labelY = offsetY + feedMaxY * scale + 110
@@ -155,10 +155,9 @@ export function ExportPdfDialog() {
         powerFeedElements += `
           <path d="${pathD}" fill="none" stroke="${lineColor}" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"/>
           <line x1="${labelX}" y1="${labelY}" x2="${points[0].x}" y2="${points[0].y}" stroke="${lineColor}" strokeWidth="3.5" strokeLinecap="round"/>
-          <rect x="${labelX - 40}" y="${labelY}" width="80" height="${boxHeight}" fill="#f97316" rx="2"/>
-          <text x="${labelX}" y="${labelY + 10}" textAnchor="middle" fontFamily="monospace" fontSize="8" fontWeight="bold" fill="white">${feed.label}</text>
-          <text x="${labelX}" y="${labelY + 20}" textAnchor="middle" fontFamily="monospace" fontSize="7" fill="white">${detailText}</text>
-          <text x="${labelX}" y="${labelY + 30}" textAnchor="middle" fontFamily="monospace" fontSize="7" fill="white">${consumptionText}</text>
+          <rect x="${labelX - 48}" y="${labelY}" width="96" height="${boxHeight}" fill="#f97316" rx="2"/>
+          <text x="${labelX}" y="${labelY + 6}" textAnchor="middle" fontFamily="monospace" fontSize="8" fontWeight="bold" fill="white">${detailText}</text>
+          <text x="${labelX}" y="${labelY + 16}" textAnchor="middle" fontFamily="monospace" fontSize="7" fill="white">${feed.connector}</text>
         `
       })
     }
@@ -271,15 +270,18 @@ export function ExportPdfDialog() {
           }
         }
 
+        const isOverloaded = isDataRouteOverCapacity(route, layout.cabinets, layout.cabinetTypes, pitch)
+        const lineColor = isOverloaded ? "#ef4444" : "#3b82f6"
+
         // Port label
         const portLabel = `
-          <circle cx="${points[0].x - 12}" cy="${points[0].y}" r="8" fill="#3b82f6"/>
+          <circle cx="${points[0].x - 12}" cy="${points[0].y}" r="8" fill="${lineColor}"/>
           <text x="${points[0].x - 12}" y="${points[0].y + 1}" textAnchor="middle" dominantBaseline="middle" fontFamily="sans-serif" fontSize="8" fontWeight="bold" fill="white">P${route.port}</text>
         `
 
         dataRouteElements += `
-          <line x1="${points[0].x - 4}" y1="${points[0].y}" x2="${points[0].x}" y2="${points[0].y}" stroke="#3b82f6" strokeWidth="3.5" strokeLinecap="round"/>
-          <path d="${pathD}" fill="none" stroke="#3b82f6" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"/>
+          <line x1="${points[0].x - 4}" y1="${points[0].y}" x2="${points[0].x}" y2="${points[0].y}" stroke="${lineColor}" strokeWidth="3.5" strokeLinecap="round"/>
+          <path d="${pathD}" fill="none" stroke="${lineColor}" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"/>
           ${portLabel}
         `
       })

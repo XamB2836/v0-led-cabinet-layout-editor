@@ -1,7 +1,7 @@
 "use client"
 
 import { useEditor } from "@/lib/editor-context"
-import { getCabinetBounds } from "@/lib/validation"
+import { getCabinetBounds, getLayoutBounds } from "@/lib/validation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Plus, Trash2, Zap, Cable, Wand2, MousePointer, X } from "lucide-react"
 import type { DataRoute, PowerFeed } from "@/lib/types"
 import { getPowerFeedLoadW } from "@/lib/power-utils"
+import { getControllerLimits, getDataRouteLoadPx, getLayoutPixelLoad, isDataRouteOverCapacity } from "@/lib/data-utils"
 
 export function DataRoutesPanel() {
   const { state, dispatch } = useEditor()
@@ -19,6 +20,12 @@ export function DataRoutesPanel() {
   const { dataRoutes, powerFeeds, controller } = layout.project
 
   const maxPorts = controller === "A100" ? 2 : 4
+  const pitchMm = layout.project.pitch_mm
+  const controllerLimits = getControllerLimits(controller)
+  const totalPixelLoad = getLayoutPixelLoad(layout.cabinets, layout.cabinetTypes, pitchMm)
+  const bounds = getLayoutBounds(layout)
+  const layoutWidthPx = Math.round(bounds.width / pitchMm)
+  const layoutHeightPx = Math.round(bounds.height / pitchMm)
   const routingBannerClass =
     routingMode.type === "data"
       ? "rounded-xl border border-blue-400/30 bg-gradient-to-r from-blue-500/10 via-zinc-900/80 to-zinc-900 p-3"
@@ -64,8 +71,8 @@ export function DataRoutesPanel() {
     // Power routes start from the bottom, so order each column bottom -> top.
     columns.forEach((col) => col.sort((a, b) => a.centerY - b.centerY))
 
-    // Since we're using Y-up coords internally, higher Y = top, so sort descending
-    columns.forEach((col) => col.sort((a, b) => b.centerY - a.centerY))
+    // Since we're using Y-up coords internally, lower Y = bottom, so sort ascending for bottom-to-top routing
+    columns.forEach((col) => col.sort((a, b) => a.centerY - b.centerY))
 
     // Distribute columns across available ports
     const newRoutes: DataRoute[] = []
@@ -291,6 +298,20 @@ export function DataRoutesPanel() {
           <p className="text-xs text-zinc-500">
             {controller}: {maxPorts} ports. Use Route to build a chain, or Auto for a quick snake pass.
           </p>
+          <p className="text-xs text-zinc-500">
+            Total load: {totalPixelLoad.toLocaleString()} px / {controllerLimits.totalMaxPx.toLocaleString()} px
+          </p>
+          {controllerLimits.maxWidthPx && controllerLimits.maxHeightPx && (
+            <p
+              className={`text-xs ${
+                layoutWidthPx > controllerLimits.maxWidthPx || layoutHeightPx > controllerLimits.maxHeightPx
+                  ? "text-red-400"
+                  : "text-zinc-500"
+              }`}
+            >
+              Max dims: {controllerLimits.maxWidthPx} x {controllerLimits.maxHeightPx} px
+            </p>
+          )}
 
           {dataRoutes.length === 0 ? (
             <p className="text-xs text-zinc-500 italic">No data routes. Click "Auto" or "+" to add.</p>
@@ -368,6 +389,17 @@ export function DataRoutesPanel() {
                       ) : (
                         <span className="italic">No cabinets - click "Route" to add</span>
                       )}
+                    </div>
+                    <div
+                      className={`text-xs ${
+                        isDataRouteOverCapacity(route, layout.cabinets, layout.cabinetTypes, pitchMm)
+                          ? "text-red-400"
+                          : "text-zinc-400"
+                      }`}
+                    >
+                      Load: {getDataRouteLoadPx(route, layout.cabinets, layout.cabinetTypes, pitchMm).toLocaleString()} px
+                      {" / "}
+                      650,000 px
                     </div>
                   </div>
                 )

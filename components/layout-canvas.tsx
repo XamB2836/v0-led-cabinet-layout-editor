@@ -7,6 +7,7 @@ import { useEditor } from "@/lib/editor-context"
 import { getCabinetBounds, validateLayout } from "@/lib/validation"
 import type { Cabinet, CabinetType, DataRoute, PowerFeed } from "@/lib/types"
 import { computeGridLabel } from "@/lib/types"
+import { isDataRouteOverCapacity } from "@/lib/data-utils"
 import { getPowerFeedLoadW, isPowerFeedOverloaded } from "@/lib/power-utils"
 import { Button } from "@/components/ui/button"
 import { ZoomIn, ZoomOut, Maximize, Ruler } from "lucide-react"
@@ -284,10 +285,11 @@ function drawDataRoutes(
   zoom: number,
   showReceiverCards: boolean,
   receiverCardModel: string,
+  pitchMm: number,
 ) {
-  const lineWidth = Math.max(2, 2.5 / zoom)
-  const arrowSize = Math.max(6, 8 / zoom)
-  const fontSize = Math.max(9, 10 / zoom)
+  const lineWidth = 6
+  const arrowSize = 14
+  const fontSize = 16
 
   const layoutBounds = getLayoutBoundsFromCabinets(cabinets, cabinetTypes)
   if (!layoutBounds) return
@@ -297,9 +299,12 @@ function drawDataRoutes(
   dataRoutes.forEach((route) => {
     if (route.cabinetIds.length === 0) return
 
+    const isOverloaded = isDataRouteOverCapacity(route, cabinets, cabinetTypes, pitchMm)
+    const lineColor = isOverloaded ? "#ef4444" : "#3b82f6"
+
     ctx.save()
-    ctx.strokeStyle = "#3b82f6"
-    ctx.fillStyle = "#3b82f6"
+    ctx.strokeStyle = lineColor
+    ctx.fillStyle = lineColor
     ctx.lineWidth = lineWidth
     ctx.lineCap = "round"
     ctx.lineJoin = "round"
@@ -330,17 +335,17 @@ function drawDataRoutes(
     }
 
     // Draw port label at bottom
-    const portLabelY = maxY + 60 / zoom
+    const portLabelY = maxY + 60
     const firstPoint = points[0]
     const portLabelX = firstPoint.x
 
     // Port label box
     const portLabel = `Port ${route.port}`
     ctx.font = `bold ${fontSize}px Inter, sans-serif`
-    const labelWidth = ctx.measureText(portLabel).width + 16 / zoom
-    const labelHeight = fontSize + 10 / zoom
+    const labelWidth = ctx.measureText(portLabel).width + 16
+    const labelHeight = fontSize + 10
 
-    ctx.fillStyle = "#3b82f6"
+    ctx.fillStyle = lineColor
     ctx.fillRect(portLabelX - labelWidth / 2, portLabelY - labelHeight / 2, labelWidth, labelHeight)
     ctx.fillStyle = "#ffffff"
     ctx.textAlign = "center"
@@ -348,7 +353,7 @@ function drawDataRoutes(
     ctx.fillText(portLabel, portLabelX, portLabelY)
 
     // Draw line from port to first cabinet
-    ctx.strokeStyle = "#3b82f6"
+    ctx.strokeStyle = lineColor
     ctx.beginPath()
     ctx.moveTo(portLabelX, portLabelY - labelHeight / 2)
     ctx.lineTo(portLabelX, firstPoint.y)
@@ -424,8 +429,8 @@ function drawPowerFeeds(
   cabinetTypes: CabinetType[],
   zoom: number,
 ) {
-  const lineWidth = Math.max(3, 3.5 / zoom)
-  const fontSize = Math.max(8, 9 / zoom)
+  const lineWidth = 6.5
+  const fontSize = 15
 
   const layoutBounds = getLayoutBoundsFromCabinets(cabinets, cabinetTypes)
   if (!layoutBounds) return
@@ -472,24 +477,21 @@ function drawPowerFeeds(
     }
 
     // Draw label box at bottom
-    const labelY = feedBounds.maxY + 110 / zoom
-    const labelPadding = 6 / zoom
+    const labelY = feedBounds.maxY + 110
+    const labelPadding = 7
 
     ctx.font = `bold ${fontSize}px Inter, sans-serif`
-    const labelText = feed.label
-    const breakerText = feed.breaker || feed.label
     const loadW = getPowerFeedLoadW(feed, cabinets, cabinetTypes)
-    const consumptionText = `Load: ${loadW} W`
+    const breakerText = feed.breaker || feed.label
+    const labelText = `${breakerText} | ${loadW}W`
     const connectorText = feed.connector
 
     const maxTextWidth = Math.max(
       ctx.measureText(labelText).width,
-      ctx.measureText(breakerText).width,
-      ctx.measureText(consumptionText).width,
       ctx.measureText(connectorText).width,
     )
     const boxWidth = maxTextWidth + labelPadding * 2
-    const boxHeight = fontSize * 4.6 + labelPadding * 2
+    const boxHeight = fontSize * 2.8 + labelPadding * 2
     const boxX = points[0].x
 
     // Background box
@@ -503,10 +505,7 @@ function drawPowerFeeds(
     ctx.font = `bold ${fontSize}px Inter, sans-serif`
     ctx.fillText(labelText, boxX, labelY + labelPadding)
     ctx.font = `${fontSize * 0.85}px Inter, sans-serif`
-    ctx.fillText(breakerText, boxX, labelY + labelPadding + fontSize * 1.1)
-    ctx.fillText(connectorText, boxX, labelY + labelPadding + fontSize * 2.2)
-    ctx.font = `bold ${fontSize * 0.9}px Inter, sans-serif`
-    ctx.fillText(consumptionText, boxX, labelY + labelPadding + fontSize * 3.3)
+    ctx.fillText(connectorText, boxX, labelY + labelPadding + fontSize * 1.1)
 
     // Draw line from breaker label to first cabinet
     ctx.strokeStyle = lineColor
@@ -816,6 +815,7 @@ export function LayoutCanvas() {
         zoom,
         showReceiverCards,
         receiverCardModel,
+        layout.project.pitch_mm,
       )
     }
 
