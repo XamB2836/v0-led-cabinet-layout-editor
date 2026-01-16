@@ -1,9 +1,9 @@
 import type { Cabinet, CabinetType, PowerFeed } from "./types"
 
 const POWER_DENSITY_W_M2 = 550
-const BREAKER_LIMITS: Record<string, { maxW: number; safeW: number }> = {
-  "220V 20A": { maxW: 3520, safeW: 2816 },
-  "110V 15A": { maxW: 1650, safeW: 1320 },
+const BREAKER_LIMITS: Record<string, { maxW: number }> = {
+  "220V 20A": { maxW: 3520 },
+  "110V 15A": { maxW: 1650 },
 }
 
 function getCabinetAreaM2(cabinet: Cabinet, types: CabinetType[]): number {
@@ -25,8 +25,14 @@ export function getPowerFeedLoadW(feed: PowerFeed, cabinets: Cabinet[], types: C
   return Math.round(total)
 }
 
-export function getBreakerSafeMaxW(breaker?: string | null): number | null {
+export function getBreakerMaxW(breaker?: string | null): number | null {
   if (!breaker) return null
   const limit = BREAKER_LIMITS[breaker]
-  return limit ? limit.safeW : null
+  return limit ? limit.maxW : null
+}
+
+export function isPowerFeedOverloaded(feed: PowerFeed, cabinets: Cabinet[], types: CabinetType[]): boolean {
+  const maxW = getBreakerMaxW(feed.breaker)
+  if (!maxW) return false
+  return getPowerFeedLoadW(feed, cabinets, types) > maxW
 }

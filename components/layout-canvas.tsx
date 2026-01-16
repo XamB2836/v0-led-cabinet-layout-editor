@@ -7,7 +7,7 @@ import { useEditor } from "@/lib/editor-context"
 import { getCabinetBounds, validateLayout } from "@/lib/validation"
 import type { Cabinet, CabinetType, DataRoute, PowerFeed } from "@/lib/types"
 import { computeGridLabel } from "@/lib/types"
-import { getBreakerSafeMaxW, getPowerFeedLoadW } from "@/lib/power-utils"
+import { getPowerFeedLoadW, isPowerFeedOverloaded } from "@/lib/power-utils"
 import { Button } from "@/components/ui/button"
 import { ZoomIn, ZoomOut, Maximize, Ruler } from "lucide-react"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
@@ -433,9 +433,12 @@ function drawPowerFeeds(
   powerFeeds.forEach((feed) => {
     if (feed.assignedCabinetIds.length === 0) return
 
+    const isOverloaded = isPowerFeedOverloaded(feed, cabinets, cabinetTypes)
+    const lineColor = isOverloaded ? "#ef4444" : "#f97316"
+
     ctx.save()
-    ctx.strokeStyle = "#f97316"
-    ctx.fillStyle = "#f97316"
+    ctx.strokeStyle = lineColor
+    ctx.fillStyle = lineColor
     ctx.lineWidth = lineWidth
     ctx.lineCap = "round"
     ctx.lineJoin = "round"
@@ -476,8 +479,7 @@ function drawPowerFeeds(
     const labelText = feed.label
     const breakerText = feed.breaker || feed.label
     const loadW = getPowerFeedLoadW(feed, cabinets, cabinetTypes)
-    const safeMaxW = getBreakerSafeMaxW(feed.breaker)
-    const consumptionText = safeMaxW ? `Load: ${loadW} W / ${safeMaxW} W` : `Load: ${loadW} W`
+    const consumptionText = `Load: ${loadW} W`
     const connectorText = feed.connector
 
     const maxTextWidth = Math.max(
@@ -507,7 +509,7 @@ function drawPowerFeeds(
     ctx.fillText(consumptionText, boxX, labelY + labelPadding + fontSize * 3.3)
 
     // Draw line from breaker label to first cabinet
-    ctx.strokeStyle = "#f97316"
+    ctx.strokeStyle = lineColor
     ctx.lineWidth = lineWidth
     ctx.beginPath()
     ctx.moveTo(boxX, labelY)

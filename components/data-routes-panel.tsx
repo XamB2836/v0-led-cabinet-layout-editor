@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Plus, Trash2, Zap, Cable, Wand2, MousePointer, X } from "lucide-react"
 import type { DataRoute, PowerFeed } from "@/lib/types"
-import { getBreakerSafeMaxW, getPowerFeedLoadW } from "@/lib/power-utils"
+import { getPowerFeedLoadW } from "@/lib/power-utils"
 
 export function DataRoutesPanel() {
   const { state, dispatch } = useEditor()
@@ -61,7 +61,8 @@ export function DataRoutesPanel() {
 
     // Sort columns left to right
     columns.sort((a, b) => a[0].centerX - b[0].centerX)
-    columns.forEach((col) => col.sort((a, b) => b.centerY - a.centerY))
+    // Power routes start from the bottom, so order each column bottom -> top.
+    columns.forEach((col) => col.sort((a, b) => a.centerY - b.centerY))
 
     // Since we're using Y-up coords internally, higher Y = top, so sort descending
     columns.forEach((col) => col.sort((a, b) => b.centerY - a.centerY))
@@ -516,8 +517,7 @@ export function DataRoutesPanel() {
                       <div className="h-8 px-3 rounded-md bg-zinc-950/60 border border-zinc-800 text-xs text-zinc-100 flex items-center">
                         {(() => {
                           const loadW = getPowerFeedLoadW(feed, layout.cabinets, layout.cabinetTypes)
-                          const safeMaxW = getBreakerSafeMaxW(feed.breaker)
-                          return safeMaxW ? `${loadW} W / ${safeMaxW} W` : `${loadW} W`
+                          return `${loadW} W`
                         })()}
                       </div>
                     </div>

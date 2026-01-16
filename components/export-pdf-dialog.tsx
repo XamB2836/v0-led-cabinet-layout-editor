@@ -4,7 +4,7 @@ import { useState, useCallback } from "react"
 import { useEditor } from "@/lib/editor-context"
 import { getCabinetBounds, getLayoutBounds } from "@/lib/validation"
 import { computeGridLabel } from "@/lib/types"
-import { getBreakerSafeMaxW, getPowerFeedLoadW } from "@/lib/power-utils"
+import { getBreakerMaxW, getPowerFeedLoadW } from "@/lib/power-utils"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -142,8 +142,10 @@ export function ExportPdfDialog() {
         const breakerText = feed.breaker || ""
         const detailText = breakerText ? `${breakerText} • ${feed.connector}` : feed.connector
         const loadW = getPowerFeedLoadW(feed, layout.cabinets, layout.cabinetTypes)
-        const safeMaxW = getBreakerSafeMaxW(feed.breaker)
-        const consumptionText = safeMaxW ? `Load: ${loadW}W / ${safeMaxW}W` : `Load: ${loadW}W`
+        const maxW = getBreakerMaxW(feed.breaker)
+        const isOverloaded = maxW ? loadW > maxW : false
+        const lineColor = isOverloaded ? "#ef4444" : "#f97316"
+        const consumptionText = `Load: ${loadW}W`
         const lineCount = 3
         const boxHeight = lineCount === 3 ? 36 : 28
 
@@ -151,8 +153,8 @@ export function ExportPdfDialog() {
         const labelY = offsetY + feedMaxY * scale + 110
 
         powerFeedElements += `
-          <path d="${pathD}" fill="none" stroke="#f97316" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"/>
-          <line x1="${labelX}" y1="${labelY}" x2="${points[0].x}" y2="${points[0].y}" stroke="#f97316" strokeWidth="3.5" strokeLinecap="round"/>
+          <path d="${pathD}" fill="none" stroke="${lineColor}" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"/>
+          <line x1="${labelX}" y1="${labelY}" x2="${points[0].x}" y2="${points[0].y}" stroke="${lineColor}" strokeWidth="3.5" strokeLinecap="round"/>
           <rect x="${labelX - 40}" y="${labelY}" width="80" height="${boxHeight}" fill="#f97316" rx="2"/>
           <text x="${labelX}" y="${labelY + 10}" textAnchor="middle" fontFamily="monospace" fontSize="8" fontWeight="bold" fill="white">${feed.label}</text>
           <text x="${labelX}" y="${labelY + 20}" textAnchor="middle" fontFamily="monospace" fontSize="7" fill="white">${detailText}</text>
