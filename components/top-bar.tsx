@@ -17,6 +17,8 @@ export function TopBar() {
   const { state, dispatch } = useEditor()
   const { layout } = state
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const pitchOptions = [1.25, 1.56, 1.86, 2.5, 4, 5]
+  const pitchValue = pitchOptions.includes(layout.project.pitch_mm) ? layout.project.pitch_mm : 2.5
 
   const handleExportJSON = () => {
     const json = JSON.stringify(layout, null, 2)
@@ -88,20 +90,27 @@ export function TopBar() {
         <Label htmlFor="pitch" className="text-xs text-muted-foreground">
           Pitch
         </Label>
-        <Input
-          id="pitch"
-          type="number"
-          step="0.5"
-          value={layout.project.pitch_mm}
-          onChange={(e) =>
+        <Select
+          value={String(pitchValue)}
+          onValueChange={(value) =>
             dispatch({
               type: "UPDATE_PROJECT",
-              payload: { pitch_mm: Number.parseFloat(e.target.value) || 2.5 },
+              payload: { pitch_mm: Number.parseFloat(value) || 2.5 },
             })
           }
-          className="h-8 w-20 bg-secondary text-sm"
-        />
-        <span className="text-xs text-muted-foreground">mm</span>
+        >
+          <SelectTrigger id="pitch" className="h-8 w-24 bg-secondary text-sm">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="1.25">P 1.25</SelectItem>
+            <SelectItem value="1.56">P 1.56</SelectItem>
+            <SelectItem value="1.86">P 1.86</SelectItem>
+            <SelectItem value="2.5">P 2.5</SelectItem>
+            <SelectItem value="4">P 4</SelectItem>
+            <SelectItem value="5">P 5</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       {/* Grid Settings */}

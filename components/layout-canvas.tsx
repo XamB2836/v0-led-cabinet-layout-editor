@@ -294,11 +294,6 @@ function drawRoundedRect(
   height: number,
   radius: number,
 ) {
-  ctx.beginPath()
-  if ("roundRect" in ctx) {
-    ctx.roundRect(x, y, width, height, radius)
-    return
-  }
   const r = Math.min(radius, width / 2, height / 2)
   ctx.beginPath()
   ctx.moveTo(x + r, y)
