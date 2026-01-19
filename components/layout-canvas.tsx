@@ -527,6 +527,9 @@ function drawPowerFeeds(
 
   const layoutBounds = getLayoutBoundsFromCabinets(cabinets, cabinetTypes)
   if (!layoutBounds) return
+  const routePadding = 200
+  const routeTopY = layoutBounds.minY - routePadding
+  const routeRightX = layoutBounds.maxX + routePadding
 
   powerFeeds.forEach((feed) => {
     if (feed.assignedCabinetIds.length === 0) return
@@ -637,8 +640,10 @@ function drawPowerFeeds(
         } else if (dx < 10) {
           ctx.lineTo(curr.x, curr.y)
         } else {
-          // Keep the horizontal segment on the previous cabinet row to avoid "H" shapes.
-          ctx.lineTo(curr.x, prev.y)
+          // Route around the top/right edges to create a wide U path.
+          ctx.lineTo(prev.x, routeTopY)
+          ctx.lineTo(routeRightX, routeTopY)
+          ctx.lineTo(routeRightX, curr.y)
           ctx.lineTo(curr.x, curr.y)
         }
       }
@@ -660,8 +665,10 @@ function drawPowerFeeds(
         } else if (dx < 10) {
           ctx.lineTo(curr.x, curr.y)
         } else {
-          // Keep the horizontal segment on the previous cabinet row to avoid "H" shapes.
-          ctx.lineTo(curr.x, prev.y)
+          // Route around the top/right edges to create a wide U path.
+          ctx.lineTo(prev.x, routeTopY)
+          ctx.lineTo(routeRightX, routeTopY)
+          ctx.lineTo(routeRightX, curr.y)
           ctx.lineTo(curr.x, curr.y)
         }
       }
