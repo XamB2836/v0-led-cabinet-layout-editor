@@ -6,7 +6,12 @@ import { useRef, useEffect, useState, useCallback } from "react"
 import { useEditor } from "@/lib/editor-context"
 import { getCabinetBounds, validateLayout } from "@/lib/validation"
 import type { Cabinet, CabinetType, DataRoute, PowerFeed } from "@/lib/types"
-import { computeGridLabel } from "@/lib/types"
+import {
+  computeGridLabel,
+  formatRouteCabinetId,
+  getCabinetReceiverCardCount,
+  parseRouteCabinetId,
+} from "@/lib/types"
 import { isDataRouteOverCapacity } from "@/lib/data-utils"
 import { getPowerFeedLoadW, isPowerFeedOverloaded } from "@/lib/power-utils"
 import { Button } from "@/components/ui/button"
@@ -175,7 +180,18 @@ function drawOverallDimensions(
   drawDimension(ctx, maxX, minY, maxX, maxY, totalHeight, zoom, "vertical", 80, "#f59e0b", heightPx)
 }
 
-function getReceiverCardRect(bounds: { x: number; y: number; width: number; height: number }, zoom: number) {
+type ReceiverCardRect = {
+  x: number
+  y: number
+  width: number
+  height: number
+  centerX: number
+  centerY: number
+  connectorX: number
+  connectorY: number
+}
+
+function getReceiverCardRect(bounds: { x: number; y: number; width: number; height: number }, zoom: number): ReceiverCardRect {
   const minWidth = 48 / zoom
   const maxWidth = 84 / zoom
   const minHeight = 12 / zoom
@@ -199,6 +215,91 @@ function getReceiverCardRect(bounds: { x: number; y: number; width: number; heig
   }
 }
 
+function getReceiverCardRects(
+  bounds: { x: number; y: number; width: number; height: number },
+  zoom: number,
+  count: 0 | 1 | 2,
+): ReceiverCardRect[] {
+  if (count <= 0) return []
+  const base = getReceiverCardRect(bounds, zoom)
+  if (count === 1) return [base]
+
+  const gap = Math.min(10 / zoom, base.height)
+  const totalHeight = base.height * 2 + gap
+  const startY = bounds.y + bounds.height / 2 - totalHeight / 2
+  const cardX = base.x
+  const connectorOffset = 6 / zoom
+
+  const top: ReceiverCardRect = {
+    ...base,
+    x: cardX,
+    y: startY,
+    centerX: cardX + base.width / 2,
+    centerY: startY + base.height / 2,
+    connectorX: cardX + base.width / 2,
+    connectorY: startY + base.height + connectorOffset,
+  }
+  const bottomY = startY + base.height + gap
+  const bottom: ReceiverCardRect = {
+    ...base,
+    x: cardX,
+    y: bottomY,
+    centerX: cardX + base.width / 2,
+    centerY: bottomY + base.height / 2,
+    connectorX: cardX + base.width / 2,
+    connectorY: bottomY + base.height + connectorOffset,
+  }
+  return [top, bottom]
+}
+
+function getReceiverCardIndexAtPoint(
+  bounds: { x: number; y: number; width: number; height: number },
+  zoom: number,
+  count: 0 | 1 | 2,
+  pointX: number,
+  pointY: number,
+): number | null {
+  const rects = getReceiverCardRects(bounds, zoom, count)
+  if (rects.length === 0) return null
+  const hitIndex = rects.findIndex(
+    (rect) => pointX >= rect.x && pointX <= rect.x + rect.width && pointY >= rect.y && pointY <= rect.y + rect.height,
+  )
+  if (hitIndex !== -1) return hitIndex
+  let bestIndex = 0
+  let bestDistance = Number.POSITIVE_INFINITY
+  rects.forEach((rect, index) => {
+    const distance = Math.abs(pointY - rect.centerY)
+    if (distance < bestDistance) {
+      bestDistance = distance
+      bestIndex = index
+    }
+  })
+  return bestIndex
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value))
+}
+
+function scaledWorldSize(basePx: number, zoom: number, minPx: number, maxPx: number) {
+  const sizePx = clamp(basePx * zoom, minPx, maxPx)
+  return sizePx / zoom
+}
+
+function getPowerAnchorPoint(cardRect: ReceiverCardRect, zoom: number) {
+  const anchorOffset = 6 / zoom
+  return { x: cardRect.x - anchorOffset, y: cardRect.centerY }
+}
+
+function drawPowerAnchorDot(ctx: CanvasRenderingContext2D, cardRect: ReceiverCardRect, zoom: number) {
+  const { x, y } = getPowerAnchorPoint(cardRect, zoom)
+  const radius = 3.2 / zoom
+  ctx.beginPath()
+  ctx.arc(x, y, radius, 0, Math.PI * 2)
+  ctx.fillStyle = "#f97316"
+  ctx.fill()
+}
+
 function fitTextToWidth(
   ctx: CanvasRenderingContext2D,
   text: string,
@@ -215,11 +316,11 @@ function fitTextToWidth(
 
 function drawReceiverCard(
   ctx: CanvasRenderingContext2D,
-  bounds: { x: number; y: number; width: number; height: number },
+  rect: ReceiverCardRect,
   model: string,
   zoom: number,
 ) {
-  const { x, y, width, height, centerX, centerY, connectorX, connectorY } = getReceiverCardRect(bounds, zoom)
+  const { x, y, width, height, centerX, centerY, connectorX, connectorY } = rect
   const fontSize = 8 / zoom
   const padding = 4 / zoom
 
@@ -277,15 +378,6 @@ function drawGridLabel(
   ctx.fillText(label, boxX + 4 / zoom, boxY + 3 / zoom)
 }
 
-function clamp(value: number, min: number, max: number) {
-  return Math.max(min, Math.min(max, value))
-}
-
-function scaledWorldSize(basePx: number, zoom: number, minPx: number, maxPx: number) {
-  const sizePx = clamp(basePx * zoom, minPx, maxPx)
-  return sizePx / zoom
-}
-
 function drawRoundedRect(
   ctx: CanvasRenderingContext2D,
   x: number,
@@ -325,11 +417,22 @@ function drawDataRoutes(
   const labelPadding = scaledWorldSize(8, zoom, 6, 12)
   const labelRadius = scaledWorldSize(6, zoom, 4, 10)
   const labelOffset = 90
+  const labelSideGap = scaledWorldSize(60, zoom, 40, 90)
 
   const layoutBounds = getLayoutBoundsFromCabinets(cabinets, cabinetTypes)
   if (!layoutBounds) return
 
   const { maxY } = layoutBounds
+  const rowCenters: number[] = []
+  const rowTolerance = 50
+  cabinets.forEach((cabinet) => {
+    const bounds = getCabinetBounds(cabinet, cabinetTypes)
+    if (!bounds) return
+    const centerY = bounds.y + bounds.height / 2
+    const existingRow = rowCenters.find((rowY) => Math.abs(rowY - centerY) < rowTolerance)
+    if (!existingRow) rowCenters.push(centerY)
+  })
+  rowCenters.sort((a, b) => a - b)
 
   dataRoutes.forEach((route) => {
     if (route.cabinetIds.length === 0) return
@@ -345,23 +448,35 @@ function drawDataRoutes(
     ctx.lineJoin = "round"
 
     // Get cabinet centers in order
-    const points: { x: number; y: number; bounds: ReturnType<typeof getCabinetBounds>; hasReceiverCard: boolean }[] =
-      []
-    route.cabinetIds.forEach((id) => {
-      const cabinet = cabinets.find((c) => c.id === id)
+    const points: {
+      x: number
+      y: number
+      bounds: ReturnType<typeof getCabinetBounds>
+      hasReceiverCard: boolean
+      cardIndex?: number
+    }[] = []
+    route.cabinetIds.forEach((endpointId) => {
+      const { cabinetId, cardIndex } = parseRouteCabinetId(endpointId)
+      const cabinet = cabinets.find((c) => c.id === cabinetId)
       if (!cabinet) return
       const bounds = getCabinetBounds(cabinet, cabinetTypes)
       if (!bounds) return
+      const cardCount = getCabinetReceiverCardCount(cabinet)
+      if (cardCount === 0) return
+      const rects = getReceiverCardRects(bounds, zoom, cardCount)
+      const resolvedIndex = cardIndex === undefined ? 0 : Math.max(0, Math.min(rects.length - 1, cardIndex))
+      const anchorRect = rects[resolvedIndex]
       const hasReceiverCard =
         showReceiverCards &&
         (cabinet.receiverCardOverride === null ? false : !!(cabinet.receiverCardOverride || receiverCardModel))
-      const anchor = hasReceiverCard
-        ? getReceiverCardRect(bounds, zoom)
+      const anchor = anchorRect
+        ? { connectorX: anchorRect.connectorX, connectorY: anchorRect.connectorY }
         : { connectorX: bounds.x + bounds.width / 2, connectorY: bounds.y + bounds.height / 2 }
       points.push({
         x: anchor.connectorX,
         y: anchor.connectorY,
         bounds,
+        cardIndex: resolvedIndex,
         hasReceiverCard,
       })
     })
@@ -371,21 +486,38 @@ function drawDataRoutes(
       return
     }
 
-    // Draw port label at bottom (screen-size driven)
-    const portLabelY = maxY + labelOffset
     const firstPoint = points[0]
-    const portLabelX = firstPoint.x
-
-    // Port label box
+    const firstBounds = firstPoint.bounds
     const portLabel = `Port ${route.port}`
     ctx.font = `bold ${fontSize}px Inter, sans-serif`
     const labelWidth = ctx.measureText(portLabel).width + labelPadding * 2
     const labelHeight = fontSize + labelPadding * 1.6
+    const portLabelCenterY = firstPoint.y
+
+    let placeLeft = false
+    if (firstBounds && rowCenters.length > 1) {
+      const centerY = firstBounds.y + firstBounds.height / 2
+      let rowIndex = rowCenters.findIndex((rowY) => Math.abs(rowY - centerY) < rowTolerance)
+      if (rowIndex === -1) {
+        rowIndex = rowCenters.reduce((bestIndex, rowY, index) => {
+          const bestDistance = Math.abs(rowCenters[bestIndex] - centerY)
+          const distance = Math.abs(rowY - centerY)
+          return distance < bestDistance ? index : bestIndex
+        }, 0)
+      }
+      placeLeft = rowIndex < rowCenters.length - 1
+    }
+
+    const portLabelX = placeLeft
+      ? (firstBounds?.x ?? firstPoint.x) - labelSideGap - labelWidth / 2
+      : firstPoint.x
+    const portLabelY = placeLeft ? portLabelCenterY : maxY + labelOffset
+    const labelBoxY = placeLeft ? portLabelCenterY - labelHeight / 2 : portLabelY - labelHeight / 2
 
     ctx.fillStyle = "rgba(15, 23, 42, 0.95)"
     ctx.strokeStyle = lineColor
     ctx.lineWidth = scaledWorldSize(2, zoom, 1.5, 3)
-    drawRoundedRect(ctx, portLabelX - labelWidth / 2, portLabelY - labelHeight / 2, labelWidth, labelHeight, labelRadius)
+    drawRoundedRect(ctx, portLabelX - labelWidth / 2, labelBoxY, labelWidth, labelHeight, labelRadius)
     ctx.fill()
     ctx.stroke()
 
@@ -395,18 +527,20 @@ function drawDataRoutes(
     ctx.fillText(portLabel, portLabelX, portLabelY)
 
     // Draw line from port to first cabinet
+    const lineStartX = placeLeft ? portLabelX + labelWidth / 2 : portLabelX
+    const lineStartY = placeLeft ? portLabelCenterY : portLabelY - labelHeight / 2
     ctx.strokeStyle = "rgba(2, 6, 23, 0.9)"
     ctx.lineWidth = outlineWidth
     ctx.beginPath()
-    ctx.moveTo(portLabelX, portLabelY - labelHeight / 2)
-    ctx.lineTo(portLabelX, firstPoint.y)
+    ctx.moveTo(lineStartX, lineStartY)
+    ctx.lineTo(firstPoint.x, firstPoint.y)
     ctx.stroke()
 
     ctx.strokeStyle = lineColor
     ctx.lineWidth = lineWidth
     ctx.beginPath()
-    ctx.moveTo(portLabelX, portLabelY - labelHeight / 2)
-    ctx.lineTo(portLabelX, firstPoint.y)
+    ctx.moveTo(lineStartX, lineStartY)
+    ctx.lineTo(firstPoint.x, firstPoint.y)
     ctx.stroke()
 
     // Draw connections between cabinets with orthogonal lines
@@ -524,6 +658,9 @@ function drawPowerFeeds(
   const labelPadding = scaledWorldSize(9, zoom, 6, 13)
   const labelRadius = scaledWorldSize(7, zoom, 4.5, 11)
   const labelOffset = 140
+  const breakBarSize = scaledWorldSize(14, zoom, 10, 20)
+  const breakStemSize = scaledWorldSize(10, zoom, 7, 16)
+  const breakHeadSize = scaledWorldSize(12, zoom, 8, 18)
 
   const layoutBounds = getLayoutBoundsFromCabinets(cabinets, cabinetTypes)
   if (!layoutBounds) return
@@ -544,18 +681,34 @@ function drawPowerFeeds(
     ctx.lineCap = "round"
     ctx.lineJoin = "round"
 
-    const points: { x: number; y: number; bounds: ReturnType<typeof getCabinetBounds> }[] = []
+    const points: {
+      x: number
+      y: number
+      bounds: ReturnType<typeof getCabinetBounds>
+      cardRect?: ReceiverCardRect
+    }[] = []
+    const layoutMidY = (layoutBounds.minY + layoutBounds.maxY) / 2
     feed.assignedCabinetIds.forEach((id) => {
       const cabinet = cabinets.find((c) => c.id === id)
       if (!cabinet) return
       const bounds = getCabinetBounds(cabinet, cabinetTypes)
       if (!bounds) return
-      const receiverRect = getReceiverCardRect(bounds, zoom)
-      const anchorX = receiverRect.centerX - bounds.width * 0.18
+      const cardCount = getCabinetReceiverCardCount(cabinet)
+      const rects = getReceiverCardRects(bounds, zoom, cardCount)
+      let anchorX = bounds.x + bounds.width / 2
+      let anchorY = bounds.y + bounds.height / 2
+      let anchorRect: ReceiverCardRect | undefined
+      if (rects.length > 0) {
+        anchorRect = rects.length === 1 ? rects[0] : bounds.y + bounds.height / 2 > layoutMidY ? rects[1] : rects[0]
+        const anchor = getPowerAnchorPoint(anchorRect, zoom)
+        anchorX = anchor.x
+        anchorY = anchor.y
+      }
       points.push({
         x: anchorX,
-        y: bounds.y + bounds.height / 2,
+        y: anchorY,
         bounds,
+        cardRect: anchorRect,
       })
     })
 
@@ -624,6 +777,7 @@ function drawPowerFeeds(
 
     // Draw connections between cabinets with orthogonal lines
     if (points.length > 1) {
+      const rowGap = scaledWorldSize(30, zoom, 18, 30)
       ctx.strokeStyle = "rgba(2, 6, 23, 0.9)"
       ctx.lineWidth = outlineWidth
       ctx.beginPath()
@@ -636,6 +790,15 @@ function drawPowerFeeds(
         const dy = Math.abs(curr.y - prev.y)
 
         if (dy < 10) {
+          const prevCard = prev.cardRect ?? getReceiverCardRect(prev.bounds, zoom)
+          const currCard = curr.cardRect ?? getReceiverCardRect(curr.bounds, zoom)
+          const rowCenterY = (prev.y + curr.y) / 2
+          const isBottomRow = rowCenterY > (layoutBounds.minY + layoutBounds.maxY) / 2
+          const liftY = isBottomRow
+            ? Math.max(prevCard.y + prevCard.height, currCard.y + currCard.height) + rowGap
+            : Math.min(prevCard.y, currCard.y) - rowGap
+          ctx.lineTo(prev.x, liftY)
+          ctx.lineTo(curr.x, liftY)
           ctx.lineTo(curr.x, curr.y)
         } else if (dx < 10) {
           ctx.lineTo(curr.x, curr.y)
@@ -661,6 +824,15 @@ function drawPowerFeeds(
         const dy = Math.abs(curr.y - prev.y)
 
         if (dy < 10) {
+          const prevCard = prev.cardRect ?? getReceiverCardRect(prev.bounds, zoom)
+          const currCard = curr.cardRect ?? getReceiverCardRect(curr.bounds, zoom)
+          const rowCenterY = (prev.y + curr.y) / 2
+          const isBottomRow = rowCenterY > (layoutBounds.minY + layoutBounds.maxY) / 2
+          const liftY = isBottomRow
+            ? Math.max(prevCard.y + prevCard.height, currCard.y + currCard.height) + rowGap
+            : Math.min(prevCard.y, currCard.y) - rowGap
+          ctx.lineTo(prev.x, liftY)
+          ctx.lineTo(curr.x, liftY)
           ctx.lineTo(curr.x, curr.y)
         } else if (dx < 10) {
           ctx.lineTo(curr.x, curr.y)
@@ -672,6 +844,85 @@ function drawPowerFeeds(
           ctx.lineTo(curr.x, curr.y)
         }
       }
+      ctx.stroke()
+    }
+
+    if (points.length > 0) {
+      const lastPoint = points[points.length - 1]
+      const secondLast =
+        points.length > 1 ? points[points.length - 2] : { x: boxX, y: labelY }
+      let angle: number
+      if (Math.abs(lastPoint.x - secondLast.x) < 10) {
+        angle = lastPoint.y > secondLast.y ? Math.PI / 2 : -Math.PI / 2
+      } else {
+        angle = lastPoint.x > secondLast.x ? 0 : Math.PI
+      }
+
+      const perp = angle + Math.PI / 2
+      const stemEnd = {
+        x: lastPoint.x + Math.cos(angle) * breakStemSize,
+        y: lastPoint.y + Math.sin(angle) * breakStemSize,
+      }
+      const arrowTip = {
+        x: stemEnd.x + Math.cos(angle) * breakHeadSize,
+        y: stemEnd.y + Math.sin(angle) * breakHeadSize,
+      }
+      const arrowHalf = breakHeadSize * 0.55
+      const arrowLeft = {
+        x: stemEnd.x + Math.cos(perp) * arrowHalf,
+        y: stemEnd.y + Math.sin(perp) * arrowHalf,
+      }
+      const arrowRight = {
+        x: stemEnd.x - Math.cos(perp) * arrowHalf,
+        y: stemEnd.y - Math.sin(perp) * arrowHalf,
+      }
+      const barHalf = breakBarSize / 2
+      const barStart = {
+        x: arrowTip.x + Math.cos(perp) * barHalf,
+        y: arrowTip.y + Math.sin(perp) * barHalf,
+      }
+      const barEnd = {
+        x: arrowTip.x - Math.cos(perp) * barHalf,
+        y: arrowTip.y - Math.sin(perp) * barHalf,
+      }
+
+      ctx.strokeStyle = "rgba(2, 6, 23, 0.9)"
+      ctx.lineWidth = outlineWidth
+      ctx.beginPath()
+      ctx.moveTo(lastPoint.x, lastPoint.y)
+      ctx.lineTo(stemEnd.x, stemEnd.y)
+      ctx.stroke()
+
+      ctx.strokeStyle = lineColor
+      ctx.lineWidth = lineWidth
+      ctx.beginPath()
+      ctx.moveTo(lastPoint.x, lastPoint.y)
+      ctx.lineTo(stemEnd.x, stemEnd.y)
+      ctx.stroke()
+
+      ctx.beginPath()
+      ctx.moveTo(arrowTip.x, arrowTip.y)
+      ctx.lineTo(arrowLeft.x, arrowLeft.y)
+      ctx.lineTo(arrowRight.x, arrowRight.y)
+      ctx.closePath()
+      ctx.strokeStyle = "rgba(2, 6, 23, 0.9)"
+      ctx.lineWidth = scaledWorldSize(2, zoom, 1.5, 3)
+      ctx.stroke()
+      ctx.fillStyle = lineColor
+      ctx.fill()
+
+      ctx.strokeStyle = "rgba(2, 6, 23, 0.9)"
+      ctx.lineWidth = outlineWidth
+      ctx.beginPath()
+      ctx.moveTo(barStart.x, barStart.y)
+      ctx.lineTo(barEnd.x, barEnd.y)
+      ctx.stroke()
+
+      ctx.strokeStyle = lineColor
+      ctx.lineWidth = lineWidth
+      ctx.beginPath()
+      ctx.moveTo(barStart.x, barStart.y)
+      ctx.lineTo(barEnd.x, barEnd.y)
       ctx.stroke()
     }
 
@@ -733,7 +984,10 @@ export function LayoutCanvas() {
   const activeCabinetIds = new Set<string>()
   if (routingMode.type === "data") {
     const route = layout.project.dataRoutes.find((r) => r.id === routingMode.routeId)
-    route?.cabinetIds.forEach((id) => activeCabinetIds.add(id))
+    route?.cabinetIds.forEach((endpointId) => {
+      const { cabinetId } = parseRouteCabinetId(endpointId)
+      activeCabinetIds.add(cabinetId)
+    })
   } else if (routingMode.type === "power") {
     const feed = layout.project.powerFeeds.find((f) => f.id === routingMode.feedId)
     feed?.assignedCabinetIds.forEach((id) => activeCabinetIds.add(id))
@@ -853,6 +1107,7 @@ export function LayoutCanvas() {
     const receiverCardModel = overview?.receiverCardModel || "5A75-E"
     const showDataRoutes = overview?.showDataRoutes ?? true
     const showPowerRoutes = overview?.showPowerRoutes ?? true
+    const routeBadges: { x: number; y: number; size: number; label: string }[] = []
 
     // Draw cabinets
     layout.cabinets.forEach((cabinet) => {
@@ -863,26 +1118,40 @@ export function LayoutCanvas() {
       const hasError = errorCabinetIds.has(cabinet.id)
       const isInActiveRoute = activeCabinetIds.has(cabinet.id)
 
-      let fillColor = "rgba(56, 189, 248, 0.15)"
-      let strokeColor = "#3b82f6"
+      let fillStart = "rgba(26, 44, 60, 0.75)"
+      let fillEnd = "rgba(40, 70, 92, 0.6)"
+      let strokeColor = "#2b4f66"
 
       if (hasError) {
-        fillColor = "rgba(220, 38, 38, 0.3)"
+        fillStart = "rgba(170, 40, 40, 0.6)"
+        fillEnd = "rgba(110, 24, 24, 0.45)"
         strokeColor = "#dc2626"
       } else if (isSelected) {
-        fillColor = "rgba(56, 189, 248, 0.3)"
+        fillStart = "rgba(66, 120, 170, 0.45)"
+        fillEnd = "rgba(44, 92, 140, 0.3)"
         strokeColor = "#38bdf8"
       } else if (isInActiveRoute) {
         if (routingMode.type === "data") {
-          fillColor = "rgba(59, 130, 246, 0.3)"
-          strokeColor = "#3b82f6"
+          fillStart = "rgba(60, 120, 190, 0.35)"
+          fillEnd = "rgba(36, 90, 150, 0.25)"
+          strokeColor = "#60a5fa"
         } else if (routingMode.type === "power") {
-          fillColor = "rgba(249, 115, 22, 0.3)"
-          strokeColor = "#f97316"
+          fillStart = "rgba(200, 110, 40, 0.3)"
+          fillEnd = "rgba(140, 80, 28, 0.2)"
+          strokeColor = "#fb923c"
         }
       }
 
-      ctx.fillStyle = fillColor
+      const fillGradient = ctx.createLinearGradient(
+        bounds.x,
+        bounds.y,
+        bounds.x + bounds.width,
+        bounds.y + bounds.height,
+      )
+      fillGradient.addColorStop(0, fillStart)
+      fillGradient.addColorStop(1, fillEnd)
+
+      ctx.fillStyle = fillGradient
       ctx.fillRect(bounds.x, bounds.y, bounds.width, bounds.height)
 
       ctx.strokeStyle = strokeColor
@@ -914,23 +1183,24 @@ export function LayoutCanvas() {
       if (routingMode.type === "data" && isInActiveRoute) {
         const route = layout.project.dataRoutes.find((r) => r.id === routingMode.routeId)
         if (route) {
-          const chainIndex = route.cabinetIds.indexOf(cabinet.id) + 1
-          if (chainIndex > 0) {
-            const badgeSize = 20 / zoom
-            const badgeX = bounds.x + bounds.width - badgeSize - 4 / zoom
-            const badgeY = bounds.y + bounds.height - badgeSize - 4 / zoom
-
-            ctx.fillStyle = "#3b82f6"
-            ctx.beginPath()
-            ctx.arc(badgeX + badgeSize / 2, badgeY + badgeSize / 2, badgeSize / 2, 0, Math.PI * 2)
-            ctx.fill()
-
-            ctx.fillStyle = "#ffffff"
-            ctx.font = `bold ${Math.max(9, 10 / zoom)}px Inter, sans-serif`
-            ctx.textAlign = "center"
-            ctx.textBaseline = "middle"
-            ctx.fillText(`${chainIndex}`, badgeX + badgeSize / 2, badgeY + badgeSize / 2)
-          }
+          const cardCount = getCabinetReceiverCardCount(cabinet)
+          const rects = getReceiverCardRects(bounds, zoom, cardCount)
+          if (rects.length === 0) return
+          route.cabinetIds.forEach((endpointId, index) => {
+            const { cabinetId, cardIndex } = parseRouteCabinetId(endpointId)
+            if (cabinetId !== cabinet.id) return
+            const resolvedIndex = cardIndex === undefined ? 0 : Math.max(0, Math.min(rects.length - 1, cardIndex))
+            const anchorRect = rects[resolvedIndex]
+            const badgeSize = 18 / zoom
+            const badgeX = anchorRect ? anchorRect.x + anchorRect.width - badgeSize * 0.6 : bounds.x + bounds.width - badgeSize
+            const badgeY = anchorRect ? anchorRect.y + badgeSize * 0.1 : bounds.y + bounds.height - badgeSize
+            routeBadges.push({
+              x: badgeX + badgeSize / 2,
+              y: badgeY + badgeSize / 2,
+              size: badgeSize,
+              label: `${index + 1}`,
+            })
+          })
         }
       }
 
@@ -986,12 +1256,35 @@ export function LayoutCanvas() {
       layout.cabinets.forEach((cabinet) => {
         const bounds = getCabinetBounds(cabinet, layout.cabinetTypes)
         if (!bounds) return
+        const cardCount = getCabinetReceiverCardCount(cabinet)
+        if (cardCount === 0) return
         const cardModel =
           cabinet.receiverCardOverride === null ? null : cabinet.receiverCardOverride || receiverCardModel
-        if (cardModel) {
-          drawReceiverCard(ctx, bounds, cardModel, zoom)
-        }
+        if (!cardModel) return
+        const rects = getReceiverCardRects(bounds, zoom, cardCount)
+        rects.forEach((rect) => {
+          drawReceiverCard(ctx, rect, cardModel, zoom)
+          drawPowerAnchorDot(ctx, rect, zoom)
+        })
       })
+    }
+
+    if (routeBadges.length > 0) {
+      const fontSize = Math.max(9, 10 / zoom)
+      ctx.save()
+      ctx.fillStyle = "#3b82f6"
+      ctx.textAlign = "center"
+      ctx.textBaseline = "middle"
+      ctx.font = `bold ${fontSize}px Inter, sans-serif`
+      routeBadges.forEach((badge) => {
+        ctx.beginPath()
+        ctx.arc(badge.x, badge.y, badge.size / 2, 0, Math.PI * 2)
+        ctx.fill()
+        ctx.fillStyle = "#ffffff"
+        ctx.fillText(badge.label, badge.x, badge.y)
+        ctx.fillStyle = "#3b82f6"
+      })
+      ctx.restore()
     }
 
     // Draw controller
@@ -1052,7 +1345,8 @@ export function LayoutCanvas() {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && routingMode.type !== "none") {
+      if (e.key !== "Escape") return
+      if (routingMode.type !== "none") {
         dispatch({ type: "SET_ROUTING_MODE", payload: { type: "none" } })
         dispatch({ type: "PUSH_HISTORY" })
       }
@@ -1062,6 +1356,7 @@ export function LayoutCanvas() {
   }, [routingMode, dispatch])
 
   const handleMouseDown = (e: React.MouseEvent) => {
+    if (e.button === 2) return
     const world = screenToWorld(e.clientX, e.clientY)
     const cabinet = findCabinetAt(world.x, world.y)
 
@@ -1070,9 +1365,20 @@ export function LayoutCanvas() {
       setLastPanPos({ x: e.clientX, y: e.clientY })
     } else if (cabinet) {
       if (routingMode.type === "data") {
+        const bounds = getCabinetBounds(cabinet, layout.cabinetTypes)
+        const cardCount = getCabinetReceiverCardCount(cabinet)
+        if (!bounds || cardCount === 0) return
+        const route = layout.project.dataRoutes.find((r) => r.id === routingMode.routeId)
+        const cardIndex = getReceiverCardIndexAtPoint(bounds, zoom, cardCount, world.x, world.y)
+        const existingEndpoint =
+          cardCount === 1 ? route?.cabinetIds.find((id) => parseRouteCabinetId(id).cabinetId === cabinet.id) : undefined
+        const endpointId =
+          cardCount === 1
+            ? existingEndpoint ?? cabinet.id
+            : formatRouteCabinetId(cabinet.id, cardIndex ?? undefined)
         dispatch({
           type: "ADD_CABINET_TO_ROUTE",
-          payload: { routeId: routingMode.routeId, cabinetId: cabinet.id },
+          payload: { routeId: routingMode.routeId, endpointId },
         })
       } else if (routingMode.type === "power") {
         dispatch({

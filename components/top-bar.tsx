@@ -55,7 +55,6 @@ export function TopBar() {
   const handleRedo = () => dispatch({ type: "REDO" })
   const canUndo = state.historyIndex > 0
   const canRedo = state.historyIndex < state.history.length - 1
-
   return (
     <div className="h-14 bg-card border-b border-border px-4 flex items-center gap-6">
       {/* Project Name */}
@@ -120,30 +119,11 @@ export function TopBar() {
           onCheckedChange={(checked) =>
             dispatch({
               type: "UPDATE_PROJECT",
-              payload: { grid: { ...layout.project.grid, enabled: checked } },
+              payload: { grid: { ...layout.project.grid, enabled: checked, step_mm: 160 } },
             })
           }
         />
-        <Select
-          value={String(layout.project.grid.step_mm)}
-          onValueChange={(value) =>
-            dispatch({
-              type: "UPDATE_PROJECT",
-              payload: { grid: { ...layout.project.grid, step_mm: Number.parseInt(value) } },
-            })
-          }
-        >
-          <SelectTrigger className="h-8 w-24 bg-secondary">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="10">10 mm</SelectItem>
-            <SelectItem value="20">20 mm</SelectItem>
-            <SelectItem value="80">80 mm</SelectItem>
-            <SelectItem value="160">160 mm</SelectItem>
-            <SelectItem value="320">320 mm</SelectItem>
-          </SelectContent>
-        </Select>
+        <span className="text-xs text-muted-foreground">160 mm</span>
       </div>
 
       <div className="flex items-center gap-2">

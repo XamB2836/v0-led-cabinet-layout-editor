@@ -3,7 +3,7 @@ import type { Cabinet, CabinetType, PowerFeed } from "./types"
 const POWER_DENSITY_W_M2 = 550
 const BREAKER_LIMITS: Record<string, { maxW: number }> = {
   "220V 20A": { maxW: 3520 },
-  "110V 15A": { maxW: 1650 },
+  "110V 15A": { maxW: 1320 },
 }
 
 function getCabinetAreaM2(cabinet: Cabinet, types: CabinetType[]): number {

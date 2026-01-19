@@ -29,8 +29,8 @@ type EditorAction =
   | { type: "SET_PAN"; payload: { x: number; y: number } }
   | { type: "TOGGLE_DIMENSIONS" }
   | { type: "SET_ROUTING_MODE"; payload: RoutingMode } // New action for routing mode
-  | { type: "ADD_CABINET_TO_ROUTE"; payload: { routeId: string; cabinetId: string } } // Add cabinet to data route
-  | { type: "REMOVE_CABINET_FROM_ROUTE"; payload: { routeId: string; cabinetId: string } } // Remove cabinet from route
+  | { type: "ADD_CABINET_TO_ROUTE"; payload: { routeId: string; endpointId: string } } // Add endpoint to data route
+  | { type: "REMOVE_CABINET_FROM_ROUTE"; payload: { routeId: string; endpointId: string } } // Remove endpoint from route
   | { type: "ADD_CABINET_TO_POWER_FEED"; payload: { feedId: string; cabinetId: string } } // Add cabinet to power feed
   | { type: "REMOVE_CABINET_FROM_POWER_FEED"; payload: { feedId: string; cabinetId: string } } // Remove from power
   | { type: "UNDO" }
@@ -259,13 +259,13 @@ function editorReducer(state: EditorState, action: EditorAction): EditorState {
       const route = state.layout.project.dataRoutes.find((r) => r.id === action.payload.routeId)
       if (!route) return state
 
-      const cabinetId = action.payload.cabinetId
-      const isAlreadyInRoute = route.cabinetIds.includes(cabinetId)
+      const endpointId = action.payload.endpointId
+      const isAlreadyInRoute = route.cabinetIds.includes(endpointId)
 
       // Toggle: if already in route, remove it; otherwise add it
       const newCabinetIds = isAlreadyInRoute
-        ? route.cabinetIds.filter((id) => id !== cabinetId)
-        : [...route.cabinetIds, cabinetId]
+        ? route.cabinetIds.filter((id) => id !== endpointId)
+        : [...route.cabinetIds, endpointId]
 
       return {
         ...state,
@@ -293,7 +293,7 @@ function editorReducer(state: EditorState, action: EditorAction): EditorState {
             ...state.layout.project,
             dataRoutes: state.layout.project.dataRoutes.map((r) =>
               r.id === action.payload.routeId
-                ? { ...r, cabinetIds: r.cabinetIds.filter((id) => id !== action.payload.cabinetId) }
+                ? { ...r, cabinetIds: r.cabinetIds.filter((id) => id !== action.payload.endpointId) }
                 : r,
             ),
           },

@@ -5,14 +5,25 @@ import { getCabinetBounds, getLayoutBounds } from "@/lib/validation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Plus, Trash2, Zap, Cable, Wand2, MousePointer, X } from "lucide-react"
 import type { DataRoute, PowerFeed } from "@/lib/types"
+import {
+  computeGridLabel,
+  formatRouteCabinetId,
+  getCabinetReceiverCardCount,
+  parseRouteCabinetId,
+} from "@/lib/types"
 import { getPowerFeedLoadW } from "@/lib/power-utils"
-import { getControllerLimits, getDataRouteLoadPx, getLayoutPixelLoad, isDataRouteOverCapacity } from "@/lib/data-utils"
+import {
+  getControllerLimits,
+  getDataRouteLoadPx,
+  getLayoutPixelLoad,
+  isDataRouteOverCapacity,
+  isLayoutOverControllerLimits,
+} from "@/lib/data-utils"
 
 export function DataRoutesPanel() {
   const { state, dispatch } = useEditor()
@@ -23,6 +34,8 @@ export function DataRoutesPanel() {
   const pitchMm = layout.project.pitch_mm
   const controllerLimits = getControllerLimits(controller)
   const totalPixelLoad = getLayoutPixelLoad(layout.cabinets, layout.cabinetTypes, pitchMm)
+  const isOverA100 = isLayoutOverControllerLimits(layout, "A100")
+  const invalidA100Ports = controller === "A100" && dataRoutes.some((route) => route.port > 2)
   const bounds = getLayoutBounds(layout)
   const layoutWidthPx = Math.round(bounds.width / pitchMm)
   const layoutHeightPx = Math.round(bounds.height / pitchMm)
@@ -36,6 +49,19 @@ export function DataRoutesPanel() {
       ? "h-7 px-3 bg-blue-500/80 text-zinc-950 hover:bg-blue-400"
       : "h-7 px-3 bg-orange-500/80 text-zinc-950 hover:bg-orange-400"
 
+  const formatRouteEndpointLabel = (endpointId: string) => {
+    const { cabinetId, cardIndex } = parseRouteCabinetId(endpointId)
+    const cabinet = layout.cabinets.find((c) => c.id === cabinetId)
+    if (!cabinet) return endpointId
+    const label = computeGridLabel(cabinet, layout.cabinets, layout.cabinetTypes)
+    if (cardIndex === undefined) {
+      const cardCount = getCabinetReceiverCardCount(cabinet)
+      return cardCount > 1 ? `${label}a` : label
+    }
+    const suffix = String.fromCharCode(97 + Math.max(0, cardIndex))
+    return `${label}${suffix}`
+  }
+
   const handleAutoRoute = () => {
     if (layout.cabinets.length === 0) return
 
@@ -44,10 +70,19 @@ export function DataRoutesPanel() {
       .map((c) => {
         const bounds = getCabinetBounds(c, layout.cabinetTypes)
         if (!bounds) return null
-        return { cabinet: c, centerX: bounds.x + bounds.width / 2, centerY: bounds.y + bounds.height / 2, bounds }
+        const cardCount = getCabinetReceiverCardCount(c)
+        if (cardCount === 0) return null
+        return {
+          cabinet: c,
+          cardCount,
+          centerX: bounds.x + bounds.width / 2,
+          centerY: bounds.y + bounds.height / 2,
+          bounds,
+        }
       })
       .filter(Boolean) as {
       cabinet: (typeof layout.cabinets)[0]
+      cardCount: 0 | 1 | 2
       centerX: number
       centerY: number
       bounds: ReturnType<typeof getCabinetBounds>
@@ -68,11 +103,8 @@ export function DataRoutesPanel() {
 
     // Sort columns left to right
     columns.sort((a, b) => a[0].centerX - b[0].centerX)
-    // Power routes start from the bottom, so order each column bottom -> top.
-    columns.forEach((col) => col.sort((a, b) => a.centerY - b.centerY))
-
-    // Since we're using Y-up coords internally, lower Y = bottom, so sort ascending for bottom-to-top routing
-    columns.forEach((col) => col.sort((a, b) => a.centerY - b.centerY))
+    // Order each column bottom -> top (higher Y is lower on the canvas)
+    columns.forEach((col) => col.sort((a, b) => b.centerY - a.centerY))
 
     // Distribute columns across available ports
     const newRoutes: DataRoute[] = []
@@ -86,11 +118,23 @@ export function DataRoutesPanel() {
       const cabinetIds: string[] = []
       for (let c = startCol; c < endCol; c++) {
         // Alternate direction for snake pattern
-        const colCabinets = columns[c].map((item) => item.cabinet.id)
-        if ((c - startCol) % 2 === 1) {
+        const isReversed = (c - startCol) % 2 === 1
+        const colCabinets = [...columns[c]]
+        if (isReversed) {
           colCabinets.reverse()
         }
-        cabinetIds.push(...colCabinets)
+        const cardOrder = isReversed ? [0, 1] : [1, 0]
+
+        colCabinets.forEach((item) => {
+          if (item.cardCount === 1) {
+            cabinetIds.push(item.cabinet.id)
+            return
+          }
+          cardOrder.forEach((index) => {
+            if (index >= item.cardCount) return
+            cabinetIds.push(formatRouteCabinetId(item.cabinet.id, index))
+          })
+        })
       }
 
       if (cabinetIds.length > 0) {
@@ -195,9 +239,9 @@ export function DataRoutesPanel() {
       .map((c) => {
         const bounds = getCabinetBounds(c, layout.cabinetTypes)
         if (!bounds) return null
-        return { cabinet: c, centerX: bounds.x + bounds.width / 2 }
+        return { cabinet: c, centerX: bounds.x + bounds.width / 2, centerY: bounds.y + bounds.height / 2 }
       })
-      .filter(Boolean) as { cabinet: (typeof layout.cabinets)[0]; centerX: number }[]
+      .filter(Boolean) as { cabinet: (typeof layout.cabinets)[0]; centerX: number; centerY: number }[]
 
     // Group by columns
     const tolerance = 100
@@ -213,6 +257,8 @@ export function DataRoutesPanel() {
     })
 
     columns.sort((a, b) => a[0].centerX - b[0].centerX)
+    // Order each column bottom -> top (higher Y is lower on the canvas)
+    columns.forEach((col) => col.sort((a, b) => b.centerY - a.centerY))
 
     // Distribute columns across power feeds
     const colsPerFeed = Math.ceil(columns.length / powerFeeds.length)
@@ -240,8 +286,7 @@ export function DataRoutesPanel() {
   }
 
   return (
-    <ScrollArea className="flex-1">
-      <div className="p-3 space-y-4">
+    <div className="space-y-4">
         {routingMode.type !== "none" && (
           <div className={routingBannerClass}>
             <div className="flex items-center justify-between">
@@ -312,6 +357,32 @@ export function DataRoutesPanel() {
               Max dims: {controllerLimits.maxWidthPx} x {controllerLimits.maxHeightPx} px
             </p>
           )}
+          {invalidA100Ports && (
+            <div className="flex items-center justify-between rounded-md border border-red-500/40 bg-red-500/10 px-2 py-1 text-xs text-red-300">
+              <span>A100 supports 2 ports. Remove extra routes or switch to A200.</span>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => dispatch({ type: "UPDATE_PROJECT", payload: { controller: "A200" } })}
+                className="h-6 px-2 text-xs bg-red-400 text-zinc-950 hover:bg-red-300"
+              >
+                Switch
+              </Button>
+            </div>
+          )}
+          {controller === "A100" && isOverA100 && (
+            <div className="flex items-center justify-between rounded-md border border-red-500/40 bg-red-500/10 px-2 py-1 text-xs text-red-300">
+              <span>A100 limit exceeded. Switch to A200.</span>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => dispatch({ type: "UPDATE_PROJECT", payload: { controller: "A200" } })}
+                className="h-6 px-2 text-xs bg-red-400 text-zinc-950 hover:bg-red-300"
+              >
+                Switch
+              </Button>
+            </div>
+          )}
 
           {dataRoutes.length === 0 ? (
             <p className="text-xs text-zinc-500 italic">No data routes. Click "Auto" or "+" to add.</p>
@@ -338,7 +409,7 @@ export function DataRoutesPanel() {
                           <div className="text-xs text-zinc-500">Port {route.port}</div>
                         </div>
                         <Badge variant="secondary" className="text-xs">
-                          {route.cabinetIds.length} cabs
+                          {route.cabinetIds.length} cards
                         </Badge>
                       </div>
                       <div className="flex gap-1">
@@ -385,9 +456,11 @@ export function DataRoutesPanel() {
                     </div>
                     <div className="text-xs text-zinc-400">
                       {route.cabinetIds.length > 0 ? (
-                        <span className="font-mono text-zinc-200">{route.cabinetIds.join(" -> ")}</span>
+                        <span className="font-mono text-zinc-200">
+                          {route.cabinetIds.map(formatRouteEndpointLabel).join(" -> ")}
+                        </span>
                       ) : (
-                        <span className="italic">No cabinets - click "Route" to add</span>
+                        <span className="italic">No cards - click "Route" to add</span>
                       )}
                     </div>
                     <div
@@ -573,8 +646,7 @@ export function DataRoutesPanel() {
             </div>
           )}
         </div>
-      </div>
-    </ScrollArea>
+    </div>
   )
 }
 

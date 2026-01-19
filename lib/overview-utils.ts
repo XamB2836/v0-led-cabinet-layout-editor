@@ -1,4 +1,5 @@
 import type { Cabinet, LabelsMode, LayoutData } from "./types"
+import { getCabinetReceiverCardCount } from "./types"
 import { getCabinetBounds, getLayoutBounds } from "./validation"
 
 const LABEL_TOLERANCE_MM = 1
@@ -61,6 +62,7 @@ export function getGridLabelMap(layout: LayoutData) {
 
 export function getReceiverCardLabel(layout: LayoutData, cabinet: Cabinet) {
   if (!layout.project.overview.showReceiverCards) return null
+  if (getCabinetReceiverCardCount(cabinet) === 0) return null
   if (cabinet.receiverCardOverride === null) return null
   if (cabinet.receiverCardOverride && cabinet.receiverCardOverride.trim().length > 0) {
     return cabinet.receiverCardOverride.trim()

@@ -14,6 +14,7 @@ export interface Cabinet {
   rot_deg: 0 | 90 | 180 | 270
   port?: number
   chainIndex?: number
+  receiverCardCount?: 0 | 1 | 2
   receiverCardOverride?: string | null // null = hide, undefined = use global, string = custom label
 }
 
@@ -36,7 +37,7 @@ export interface OverviewSettings {
 export interface DataRoute {
   id: string
   port: number
-  cabinetIds: string[] // ordered cabinet IDs in chain
+  cabinetIds: string[] // ordered cabinet endpoint IDs in chain
 }
 
 export interface PowerFeed {
@@ -186,9 +187,41 @@ export function computeGridLabel(cabinet: Cabinet, allCabinets: Cabinet[], cabin
 
   if (colIndex === -1 || rowIndex === -1) return "?"
 
-  // Column letter (A, B, C...) and row number (1, 2, 3...)
-  const colLetter = String.fromCharCode(65 + colIndex) // A=65
-  const rowNumber = rowIndex + 1
+  const useNumberForColumns = columns.length >= rows.length
+  const letterIndex = useNumberForColumns ? rowIndex : colIndex
+  const numberIndex = useNumberForColumns ? colIndex : rowIndex
 
-  return `${colLetter}${rowNumber}`
+  // Letter index (A, B, C...) and number index (1, 2, 3...)
+  const letter = String.fromCharCode(65 + letterIndex) // A=65
+  const number = numberIndex + 1
+
+  return `${letter}${number}`
+}
+
+const CABINET_ENDPOINT_DELIMITER = "::"
+
+export function formatRouteCabinetId(cabinetId: string, cardIndex?: number) {
+  if (cardIndex === undefined) return cabinetId
+  return `${cabinetId}${CABINET_ENDPOINT_DELIMITER}${cardIndex + 1}`
+}
+
+export function parseRouteCabinetId(endpointId: string): { cabinetId: string; cardIndex?: number } {
+  const delimiterIndex = endpointId.indexOf(CABINET_ENDPOINT_DELIMITER)
+  if (delimiterIndex === -1) {
+    return { cabinetId: endpointId }
+  }
+  const cabinetId = endpointId.slice(0, delimiterIndex)
+  const cardPart = endpointId.slice(delimiterIndex + CABINET_ENDPOINT_DELIMITER.length)
+  const cardNumber = Number.parseInt(cardPart, 10)
+  if (!Number.isFinite(cardNumber) || cardNumber <= 0) {
+    return { cabinetId: endpointId }
+  }
+  return { cabinetId, cardIndex: cardNumber - 1 }
+}
+
+export function getCabinetReceiverCardCount(cabinet: Cabinet): 0 | 1 | 2 {
+  if (cabinet.receiverCardOverride === null) return 0
+  if (cabinet.receiverCardCount === 0) return 0
+  if (cabinet.receiverCardCount === 2) return 2
+  return 1
 }

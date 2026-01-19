@@ -1,4 +1,5 @@
 import type { Cabinet, CabinetType, DataRoute, LayoutData } from "./types"
+import { getCabinetReceiverCardCount, parseRouteCabinetId } from "./types"
 import { getLayoutBounds } from "./validation"
 
 const PER_PORT_MAX_PX = 650_000
@@ -27,10 +28,16 @@ export function getDataRouteLoadPx(
   pitchMm: number,
 ): number {
   const cabinetMap = new Map(cabinets.map((c) => [c.id, c]))
-  return route.cabinetIds.reduce((sum, id) => {
-    const cabinet = cabinetMap.get(id)
+  return route.cabinetIds.reduce((sum, endpointId) => {
+    const { cabinetId, cardIndex } = parseRouteCabinetId(endpointId)
+    const cabinet = cabinetMap.get(cabinetId)
     if (!cabinet) return sum
-    return sum + getCabinetPixelArea(cabinet, types, pitchMm)
+    const cardCount = getCabinetReceiverCardCount(cabinet)
+    if (cardCount === 0) return sum
+    const effectiveCards = cardCount === 2 ? 2 : 1
+    const load = getCabinetPixelArea(cabinet, types, pitchMm) / effectiveCards
+    if (cardIndex === undefined && cardCount === 1) return sum + load
+    return sum + load
   }, 0)
 }
 
@@ -52,7 +59,11 @@ export function getControllerLimits(controller: ControllerType) {
 }
 
 export function isControllerOverCapacity(layout: LayoutData): boolean {
-  const limits = CONTROLLER_LIMITS[layout.project.controller]
+  return isLayoutOverControllerLimits(layout, layout.project.controller)
+}
+
+export function isLayoutOverControllerLimits(layout: LayoutData, controller: ControllerType): boolean {
+  const limits = CONTROLLER_LIMITS[controller]
   const totalLoad = getLayoutPixelLoad(layout.cabinets, layout.cabinetTypes, layout.project.pitch_mm)
   if (totalLoad > limits.totalMaxPx) return true
   if (limits.maxWidthPx || limits.maxHeightPx) {
