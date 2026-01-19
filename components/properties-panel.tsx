@@ -2,6 +2,7 @@
 
 import { useEditor } from "@/lib/editor-context"
 import { getLayoutBounds, validateLayout } from "@/lib/validation"
+import { computeGridLabel } from "@/lib/types"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -19,6 +20,7 @@ export function PropertiesPanel() {
   const selectedCabinet = layout.cabinets.find((c) => c.id === selectedCabinetId)
   const errors = validateLayout(layout)
   const bounds = getLayoutBounds(layout)
+  const labelsMode = layout.project.overview.labelsMode
 
   const pitch = layout.project.pitch_mm
   const widthPx = bounds.width > 0 ? Math.round(bounds.width / pitch) : 0
@@ -67,6 +69,37 @@ export function PropertiesPanel() {
 
   const errorCount = errors.filter((e) => e.type === "error").length
   const warningCount = errors.filter((e) => e.type === "warning").length
+
+  const getCabinetLabel = (cabinetId: string) => {
+    if (labelsMode !== "grid") return cabinetId
+    const cabinet = layout.cabinets.find((c) => c.id === cabinetId)
+    if (!cabinet) return cabinetId
+    return computeGridLabel(cabinet, layout.cabinets, layout.cabinetTypes)
+  }
+
+  const getErrorMessage = (error: (typeof errors)[number]) => {
+    const [firstId, secondId] = error.cabinetIds
+    const firstLabel = firstId ? getCabinetLabel(firstId) : "?"
+    const secondLabel = secondId ? getCabinetLabel(secondId) : "?"
+
+    switch (error.code) {
+      case "DUPLICATE_ID":
+        return `Duplicate cabinet ID: ${firstLabel}`
+      case "MISSING_TYPE": {
+        const cabinet = firstId ? layout.cabinets.find((c) => c.id === firstId) : null
+        const typeId = cabinet?.typeId || "?"
+        return `Cabinet ${firstLabel} has unknown type: ${typeId}`
+      }
+      case "OVERLAP":
+        return `Cabinets ${firstLabel} and ${secondLabel} overlap`
+      case "OUT_OF_GRID":
+        return `Cabinet ${firstLabel} is not aligned to grid (${layout.project.grid.step_mm}mm)`
+      case "ISOLATED_CABINET":
+        return `Cabinet ${firstLabel} has no adjacent neighbors`
+      default:
+        return error.message
+    }
+  }
 
   return (
     <div className="w-80 bg-sidebar border-l border-sidebar-border flex flex-col">
@@ -356,7 +389,7 @@ export function PropertiesPanel() {
                           ) : (
                             <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0" />
                           )}
-                          <span>{error.message}</span>
+                          <span>{getErrorMessage(error)}</span>
                         </div>
                       </button>
                     ))}

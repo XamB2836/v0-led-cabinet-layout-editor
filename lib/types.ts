@@ -174,8 +174,8 @@ export function computeGridLabel(cabinet: Cabinet, allCabinets: Cabinet[], cabin
 
   // Sort columns left to right
   columns.sort((a, b) => a - b)
-  // In our coordinate system, Y increases upward, so highest Y = top = row 1
-  rows.sort((a, b) => b - a) // Descending: highest Y first (top row = row 1)
+  // Y increases downward on the canvas, so smallest Y = top = row 1
+  rows.sort((a, b) => a - b) // Ascending: smallest Y first (top row = row 1)
 
   // Find this cabinet's column and row
   const thisCabinet = cabinetsWithBounds.find((c) => c.cabinet.id === cabinet.id)

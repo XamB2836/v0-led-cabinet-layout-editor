@@ -277,6 +277,42 @@ function drawGridLabel(
   ctx.fillText(label, boxX + 4 / zoom, boxY + 3 / zoom)
 }
 
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value))
+}
+
+function scaledWorldSize(basePx: number, zoom: number, minPx: number, maxPx: number) {
+  const sizePx = clamp(basePx * zoom, minPx, maxPx)
+  return sizePx / zoom
+}
+
+function drawRoundedRect(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  radius: number,
+) {
+  ctx.beginPath()
+  if ("roundRect" in ctx) {
+    ctx.roundRect(x, y, width, height, radius)
+    return
+  }
+  const r = Math.min(radius, width / 2, height / 2)
+  ctx.beginPath()
+  ctx.moveTo(x + r, y)
+  ctx.lineTo(x + width - r, y)
+  ctx.quadraticCurveTo(x + width, y, x + width, y + r)
+  ctx.lineTo(x + width, y + height - r)
+  ctx.quadraticCurveTo(x + width, y + height, x + width - r, y + height)
+  ctx.lineTo(x + r, y + height)
+  ctx.quadraticCurveTo(x, y + height, x, y + height - r)
+  ctx.lineTo(x, y + r)
+  ctx.quadraticCurveTo(x, y, x + r, y)
+  ctx.closePath()
+}
+
 function drawDataRoutes(
   ctx: CanvasRenderingContext2D,
   dataRoutes: DataRoute[],
@@ -287,9 +323,13 @@ function drawDataRoutes(
   receiverCardModel: string,
   pitchMm: number,
 ) {
-  const lineWidth = 6
-  const arrowSize = 14
-  const fontSize = 16
+  const lineWidth = scaledWorldSize(5, zoom, 3, 9)
+  const outlineWidth = lineWidth + scaledWorldSize(3, zoom, 2, 6)
+  const arrowSize = scaledWorldSize(12, zoom, 8, 20)
+  const fontSize = scaledWorldSize(14, zoom, 12, 18)
+  const labelPadding = scaledWorldSize(8, zoom, 6, 12)
+  const labelRadius = scaledWorldSize(6, zoom, 4, 10)
+  const labelOffset = scaledWorldSize(90, zoom, 70, 130)
 
   const layoutBounds = getLayoutBoundsFromCabinets(cabinets, cabinetTypes)
   if (!layoutBounds) return
@@ -310,7 +350,8 @@ function drawDataRoutes(
     ctx.lineJoin = "round"
 
     // Get cabinet centers in order
-    const points: { x: number; y: number; bounds: ReturnType<typeof getCabinetBounds> }[] = []
+    const points: { x: number; y: number; bounds: ReturnType<typeof getCabinetBounds>; hasReceiverCard: boolean }[] =
+      []
     route.cabinetIds.forEach((id) => {
       const cabinet = cabinets.find((c) => c.id === id)
       if (!cabinet) return
@@ -326,6 +367,7 @@ function drawDataRoutes(
         x: anchor.connectorX,
         y: anchor.connectorY,
         bounds,
+        hasReceiverCard,
       })
     })
 
@@ -334,26 +376,39 @@ function drawDataRoutes(
       return
     }
 
-    // Draw port label at bottom
-    const portLabelY = maxY + 60
+    // Draw port label at bottom (screen-size driven)
+    const portLabelY = maxY + labelOffset
     const firstPoint = points[0]
     const portLabelX = firstPoint.x
 
     // Port label box
     const portLabel = `Port ${route.port}`
     ctx.font = `bold ${fontSize}px Inter, sans-serif`
-    const labelWidth = ctx.measureText(portLabel).width + 16
-    const labelHeight = fontSize + 10
+    const labelWidth = ctx.measureText(portLabel).width + labelPadding * 2
+    const labelHeight = fontSize + labelPadding * 1.6
 
-    ctx.fillStyle = lineColor
-    ctx.fillRect(portLabelX - labelWidth / 2, portLabelY - labelHeight / 2, labelWidth, labelHeight)
-    ctx.fillStyle = "#ffffff"
+    ctx.fillStyle = "rgba(15, 23, 42, 0.95)"
+    ctx.strokeStyle = lineColor
+    ctx.lineWidth = scaledWorldSize(2, zoom, 1.5, 3)
+    drawRoundedRect(ctx, portLabelX - labelWidth / 2, portLabelY - labelHeight / 2, labelWidth, labelHeight, labelRadius)
+    ctx.fill()
+    ctx.stroke()
+
+    ctx.fillStyle = "#f8fafc"
     ctx.textAlign = "center"
     ctx.textBaseline = "middle"
     ctx.fillText(portLabel, portLabelX, portLabelY)
 
     // Draw line from port to first cabinet
+    ctx.strokeStyle = "rgba(2, 6, 23, 0.9)"
+    ctx.lineWidth = outlineWidth
+    ctx.beginPath()
+    ctx.moveTo(portLabelX, portLabelY - labelHeight / 2)
+    ctx.lineTo(portLabelX, firstPoint.y)
+    ctx.stroke()
+
     ctx.strokeStyle = lineColor
+    ctx.lineWidth = lineWidth
     ctx.beginPath()
     ctx.moveTo(portLabelX, portLabelY - labelHeight / 2)
     ctx.lineTo(portLabelX, firstPoint.y)
@@ -361,6 +416,8 @@ function drawDataRoutes(
 
     // Draw connections between cabinets with orthogonal lines
     if (points.length > 1) {
+      ctx.strokeStyle = "rgba(2, 6, 23, 0.9)"
+      ctx.lineWidth = outlineWidth
       ctx.beginPath()
       ctx.moveTo(points[0].x, points[0].y)
 
@@ -390,32 +447,69 @@ function drawDataRoutes(
       }
       ctx.stroke()
 
-      // Draw arrow at end
+      ctx.strokeStyle = lineColor
+      ctx.lineWidth = lineWidth
+      ctx.beginPath()
+      ctx.moveTo(points[0].x, points[0].y)
+
+      for (let i = 1; i < points.length; i++) {
+        const prev = points[i - 1]
+        const curr = points[i]
+
+        // Simple orthogonal routing: go vertical first, then horizontal
+        const midY = (prev.y + curr.y) / 2
+
+        // Check if primarily horizontal or vertical movement
+        const dx = Math.abs(curr.x - prev.x)
+        const dy = Math.abs(curr.y - prev.y)
+
+        if (dy < 10) {
+          // Same row - direct horizontal line
+          ctx.lineTo(curr.x, curr.y)
+        } else if (dx < 10) {
+          // Same column - direct vertical line
+          ctx.lineTo(curr.x, curr.y)
+        } else {
+          // Different row and column - L-shaped path
+          ctx.lineTo(prev.x, midY)
+          ctx.lineTo(curr.x, midY)
+          ctx.lineTo(curr.x, curr.y)
+        }
+      }
+      ctx.stroke()
+
+      // Draw arrow at end when it won't overlap the receiver card
       const lastPoint = points[points.length - 1]
       const secondLast = points[points.length - 2]
 
-      // Arrow pointing in direction of last segment
-      let angle: number
-      if (Math.abs(lastPoint.x - secondLast.x) < 10) {
-        // Vertical movement
-        angle = lastPoint.y > secondLast.y ? Math.PI / 2 : -Math.PI / 2
-      } else {
-        // Horizontal movement
-        angle = lastPoint.x > secondLast.x ? 0 : Math.PI
-      }
+      if (!lastPoint.hasReceiverCard) {
+        // Arrow pointing in direction of last segment
+        let angle: number
+        if (Math.abs(lastPoint.x - secondLast.x) < 10) {
+          // Vertical movement
+          angle = lastPoint.y > secondLast.y ? Math.PI / 2 : -Math.PI / 2
+        } else {
+          // Horizontal movement
+          angle = lastPoint.x > secondLast.x ? 0 : Math.PI
+        }
 
-      ctx.beginPath()
-      ctx.moveTo(lastPoint.x + arrowSize * Math.cos(angle), lastPoint.y + arrowSize * Math.sin(angle))
-      ctx.lineTo(
-        lastPoint.x - arrowSize * 0.5 * Math.cos(angle - Math.PI / 4),
-        lastPoint.y - arrowSize * 0.5 * Math.sin(angle - Math.PI / 4),
-      )
-      ctx.lineTo(
-        lastPoint.x - arrowSize * 0.5 * Math.cos(angle + Math.PI / 4),
-        lastPoint.y - arrowSize * 0.5 * Math.sin(angle + Math.PI / 4),
-      )
-      ctx.closePath()
-      ctx.fill()
+        ctx.beginPath()
+        ctx.moveTo(lastPoint.x + arrowSize * Math.cos(angle), lastPoint.y + arrowSize * Math.sin(angle))
+        ctx.lineTo(
+          lastPoint.x - arrowSize * 0.5 * Math.cos(angle - Math.PI / 4),
+          lastPoint.y - arrowSize * 0.5 * Math.sin(angle - Math.PI / 4),
+        )
+        ctx.lineTo(
+          lastPoint.x - arrowSize * 0.5 * Math.cos(angle + Math.PI / 4),
+          lastPoint.y - arrowSize * 0.5 * Math.sin(angle + Math.PI / 4),
+        )
+        ctx.closePath()
+        ctx.strokeStyle = "rgba(2, 6, 23, 0.9)"
+        ctx.lineWidth = scaledWorldSize(2, zoom, 1.5, 3)
+        ctx.stroke()
+        ctx.fillStyle = lineColor
+        ctx.fill()
+      }
     }
 
     ctx.restore()
@@ -429,8 +523,12 @@ function drawPowerFeeds(
   cabinetTypes: CabinetType[],
   zoom: number,
 ) {
-  const lineWidth = 6.5
-  const fontSize = 15
+  const lineWidth = scaledWorldSize(5.5, zoom, 3, 9.5)
+  const outlineWidth = lineWidth + scaledWorldSize(3, zoom, 2, 6)
+  const fontSize = scaledWorldSize(14, zoom, 12, 18)
+  const labelPadding = scaledWorldSize(9, zoom, 6, 13)
+  const labelRadius = scaledWorldSize(7, zoom, 4.5, 11)
+  const labelOffset = scaledWorldSize(140, zoom, 100, 180)
 
   const layoutBounds = getLayoutBoundsFromCabinets(cabinets, cabinetTypes)
   if (!layoutBounds) return
@@ -477,8 +575,7 @@ function drawPowerFeeds(
     }
 
     // Draw label box at bottom
-    const labelY = feedBounds.maxY + 110
-    const labelPadding = 7
+    const labelY = feedBounds.maxY + labelOffset
 
     ctx.font = `bold ${fontSize}px Inter, sans-serif`
     const loadW = getPowerFeedLoadW(feed, cabinets, cabinetTypes)
@@ -495,8 +592,12 @@ function drawPowerFeeds(
     const boxX = points[0].x
 
     // Background box
-    ctx.fillStyle = "rgba(249, 115, 22, 0.95)"
-    ctx.fillRect(boxX - boxWidth / 2, labelY, boxWidth, boxHeight)
+    ctx.fillStyle = "rgba(15, 23, 42, 0.95)"
+    ctx.strokeStyle = lineColor
+    ctx.lineWidth = scaledWorldSize(2, zoom, 1.5, 3)
+    drawRoundedRect(ctx, boxX - boxWidth / 2, labelY, boxWidth, boxHeight, labelRadius)
+    ctx.fill()
+    ctx.stroke()
 
     // Text
     ctx.fillStyle = "#ffffff"
@@ -508,6 +609,13 @@ function drawPowerFeeds(
     ctx.fillText(connectorText, boxX, labelY + labelPadding + fontSize * 1.1)
 
     // Draw line from breaker label to first cabinet
+    ctx.strokeStyle = "rgba(2, 6, 23, 0.9)"
+    ctx.lineWidth = outlineWidth
+    ctx.beginPath()
+    ctx.moveTo(boxX, labelY)
+    ctx.lineTo(points[0].x, points[0].y)
+    ctx.stroke()
+
     ctx.strokeStyle = lineColor
     ctx.lineWidth = lineWidth
     ctx.beginPath()
@@ -517,6 +625,31 @@ function drawPowerFeeds(
 
     // Draw connections between cabinets with orthogonal lines
     if (points.length > 1) {
+      ctx.strokeStyle = "rgba(2, 6, 23, 0.9)"
+      ctx.lineWidth = outlineWidth
+      ctx.beginPath()
+      ctx.moveTo(points[0].x, points[0].y)
+
+      for (let i = 1; i < points.length; i++) {
+        const prev = points[i - 1]
+        const curr = points[i]
+        const dx = Math.abs(curr.x - prev.x)
+        const dy = Math.abs(curr.y - prev.y)
+
+        if (dy < 10) {
+          ctx.lineTo(curr.x, curr.y)
+        } else if (dx < 10) {
+          ctx.lineTo(curr.x, curr.y)
+        } else {
+          // Keep the horizontal segment on the previous cabinet row to avoid "H" shapes.
+          ctx.lineTo(curr.x, prev.y)
+          ctx.lineTo(curr.x, curr.y)
+        }
+      }
+      ctx.stroke()
+
+      ctx.strokeStyle = lineColor
+      ctx.lineWidth = lineWidth
       ctx.beginPath()
       ctx.moveTo(points[0].x, points[0].y)
 
