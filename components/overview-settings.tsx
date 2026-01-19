@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
-import { Cpu, Tag, Ruler, Cable, Zap } from "lucide-react"
+import { Cpu, Tag, Ruler, Cable, Zap, LayoutGrid } from "lucide-react"
 
 export function OverviewSettings() {
   const { state, dispatch } = useEditor()
@@ -78,6 +78,69 @@ export function OverviewSettings() {
             Grid labels show column letters (A-Z) and row numbers (1-9) like SolidWorks
           </p>
         </div>
+      </div>
+
+      <Separator />
+
+      {/* Module Grid Section */}
+      <div className="space-y-3">
+        <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+          <LayoutGrid className="w-3 h-3" />
+          LED Modules
+        </div>
+
+        <div className="flex items-center justify-between">
+          <Label htmlFor="show-module-grid" className="text-sm">
+            Show Module Grid
+          </Label>
+          <Switch
+            id="show-module-grid"
+            checked={overview?.showModuleGrid ?? true}
+            onCheckedChange={(checked) =>
+              dispatch({ type: "UPDATE_OVERVIEW", payload: { showModuleGrid: checked } })
+            }
+          />
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1.5">
+            <Label className="text-xs">Module Size</Label>
+            <Select
+              value={overview?.moduleSize || "320x160"}
+              onValueChange={(value: "320x160" | "160x160") =>
+                dispatch({ type: "UPDATE_OVERVIEW", payload: { moduleSize: value } })
+              }
+            >
+              <SelectTrigger className="h-8 bg-input text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="320x160">320 x 160 mm</SelectItem>
+                <SelectItem value="160x160">160 x 160 mm</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Orientation</Label>
+            <Select
+              value={overview?.moduleOrientation || "landscape"}
+              onValueChange={(value: "landscape" | "portrait") =>
+                dispatch({ type: "UPDATE_OVERVIEW", payload: { moduleOrientation: value } })
+              }
+            >
+              <SelectTrigger className="h-8 bg-input text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="landscape">Landscape</SelectItem>
+                <SelectItem value="portrait">Portrait</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Module grid helps technicians align tile orientation and seams.
+        </p>
       </div>
 
       <Separator />

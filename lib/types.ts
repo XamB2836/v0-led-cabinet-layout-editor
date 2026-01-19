@@ -32,6 +32,9 @@ export interface OverviewSettings {
   showPixels: boolean
   showDataRoutes: boolean
   showPowerRoutes: boolean
+  showModuleGrid: boolean
+  moduleSize: "320x160" | "160x160"
+  moduleOrientation: "landscape" | "portrait"
 }
 
 export interface DataRoute {
@@ -125,6 +128,9 @@ export const DEFAULT_LAYOUT: LayoutData = {
       showPixels: true,
       showDataRoutes: true,
       showPowerRoutes: true,
+      showModuleGrid: true,
+      moduleSize: "320x160",
+      moduleOrientation: "landscape",
     },
     dataRoutes: [],
     powerFeeds: [],

@@ -1107,6 +1107,12 @@ export function LayoutCanvas() {
     const receiverCardModel = overview?.receiverCardModel || "5A75-E"
     const showDataRoutes = overview?.showDataRoutes ?? true
     const showPowerRoutes = overview?.showPowerRoutes ?? true
+    const showModuleGrid = overview?.showModuleGrid ?? true
+    const moduleSize = overview?.moduleSize || "320x160"
+    const moduleOrientation = overview?.moduleOrientation || "landscape"
+    const baseModule = moduleSize === "160x160" ? { width: 160, height: 160 } : { width: 320, height: 160 }
+    const moduleWidth = moduleOrientation === "portrait" ? baseModule.height : baseModule.width
+    const moduleHeight = moduleOrientation === "portrait" ? baseModule.width : baseModule.height
     const routeBadges: { x: number; y: number; size: number; label: string }[] = []
 
     // Draw cabinets
@@ -1118,27 +1124,27 @@ export function LayoutCanvas() {
       const hasError = errorCabinetIds.has(cabinet.id)
       const isInActiveRoute = activeCabinetIds.has(cabinet.id)
 
-      let fillStart = "rgba(26, 44, 60, 0.75)"
-      let fillEnd = "rgba(40, 70, 92, 0.6)"
-      let strokeColor = "#2b4f66"
+      let fillStart = "rgba(44, 86, 120, 0.85)"
+      let fillEnd = "rgba(30, 56, 78, 0.9)"
+      let strokeColor = "#5aa9c6"
 
       if (hasError) {
-        fillStart = "rgba(170, 40, 40, 0.6)"
-        fillEnd = "rgba(110, 24, 24, 0.45)"
+        fillStart = "rgba(190, 50, 50, 0.6)"
+        fillEnd = "rgba(120, 30, 30, 0.65)"
         strokeColor = "#dc2626"
       } else if (isSelected) {
-        fillStart = "rgba(66, 120, 170, 0.45)"
-        fillEnd = "rgba(44, 92, 140, 0.3)"
+        fillStart = "rgba(92, 150, 210, 0.6)"
+        fillEnd = "rgba(60, 110, 170, 0.55)"
         strokeColor = "#38bdf8"
       } else if (isInActiveRoute) {
         if (routingMode.type === "data") {
-          fillStart = "rgba(60, 120, 190, 0.35)"
-          fillEnd = "rgba(36, 90, 150, 0.25)"
-          strokeColor = "#60a5fa"
+          fillStart = "rgba(72, 140, 210, 0.5)"
+          fillEnd = "rgba(44, 100, 170, 0.55)"
+          strokeColor = "#7fb9ef"
         } else if (routingMode.type === "power") {
-          fillStart = "rgba(200, 110, 40, 0.3)"
-          fillEnd = "rgba(140, 80, 28, 0.2)"
-          strokeColor = "#fb923c"
+          fillStart = "rgba(210, 120, 54, 0.45)"
+          fillEnd = "rgba(150, 90, 40, 0.5)"
+          strokeColor = "#fbbf83"
         }
       }
 
@@ -1154,8 +1160,29 @@ export function LayoutCanvas() {
       ctx.fillStyle = fillGradient
       ctx.fillRect(bounds.x, bounds.y, bounds.width, bounds.height)
 
+      if (showModuleGrid && moduleWidth > 0 && moduleHeight > 0) {
+        ctx.save()
+        const inset = 1 / zoom
+        ctx.beginPath()
+        ctx.rect(bounds.x + inset, bounds.y + inset, bounds.width - inset * 2, bounds.height - inset * 2)
+        ctx.clip()
+        ctx.strokeStyle = "rgba(148, 163, 184, 0.22)"
+        ctx.lineWidth = Math.max(0.8 / zoom, 0.6 / zoom)
+        ctx.beginPath()
+        for (let x = bounds.x + moduleWidth; x < bounds.x + bounds.width - inset; x += moduleWidth) {
+          ctx.moveTo(x, bounds.y + inset)
+          ctx.lineTo(x, bounds.y + bounds.height - inset)
+        }
+        for (let y = bounds.y + moduleHeight; y < bounds.y + bounds.height - inset; y += moduleHeight) {
+          ctx.moveTo(bounds.x + inset, y)
+          ctx.lineTo(bounds.x + bounds.width - inset, y)
+        }
+        ctx.stroke()
+        ctx.restore()
+      }
+
       ctx.strokeStyle = strokeColor
-      ctx.lineWidth = isSelected || isInActiveRoute ? 3 / zoom : 2 / zoom
+      ctx.lineWidth = isSelected || isInActiveRoute ? 3 / zoom : 2.5 / zoom
       ctx.strokeRect(bounds.x, bounds.y, bounds.width, bounds.height)
 
       if (labelsMode === "grid") {
