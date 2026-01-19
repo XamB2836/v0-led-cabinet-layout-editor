@@ -324,7 +324,7 @@ function drawDataRoutes(
   const fontSize = scaledWorldSize(14, zoom, 12, 18)
   const labelPadding = scaledWorldSize(8, zoom, 6, 12)
   const labelRadius = scaledWorldSize(6, zoom, 4, 10)
-  const labelOffset = scaledWorldSize(90, zoom, 70, 130)
+  const labelOffset = 90
 
   const layoutBounds = getLayoutBoundsFromCabinets(cabinets, cabinetTypes)
   if (!layoutBounds) return
@@ -523,7 +523,7 @@ function drawPowerFeeds(
   const fontSize = scaledWorldSize(14, zoom, 12, 18)
   const labelPadding = scaledWorldSize(9, zoom, 6, 13)
   const labelRadius = scaledWorldSize(7, zoom, 4.5, 11)
-  const labelOffset = scaledWorldSize(140, zoom, 100, 180)
+  const labelOffset = 140
 
   const layoutBounds = getLayoutBoundsFromCabinets(cabinets, cabinetTypes)
   if (!layoutBounds) return
@@ -547,7 +547,8 @@ function drawPowerFeeds(
       if (!cabinet) return
       const bounds = getCabinetBounds(cabinet, cabinetTypes)
       if (!bounds) return
-      const anchorX = bounds.x + bounds.width * 0.65
+      const receiverRect = getReceiverCardRect(bounds, zoom)
+      const anchorX = receiverRect.centerX - bounds.width * 0.18
       points.push({
         x: anchorX,
         y: bounds.y + bounds.height / 2,
@@ -740,6 +741,27 @@ export function LayoutCanvas() {
       return { x, y }
     },
     [zoom, panX, panY],
+  )
+
+  const handleWheelZoom = useCallback(
+    (deltaY: number, clientX: number, clientY: number) => {
+      const delta = deltaY > 0 ? 0.9 : 1.1
+      const newZoom = Math.max(0.1, Math.min(5, zoom * delta))
+
+      const rect = canvasRef.current?.getBoundingClientRect()
+      if (rect) {
+        const mouseX = clientX - rect.left
+        const mouseY = clientY - rect.top
+        const worldX = (mouseX - panX) / zoom
+        const worldY = (mouseY - panY) / zoom
+        const newPanX = mouseX - worldX * newZoom
+        const newPanY = mouseY - worldY * newZoom
+
+        dispatch({ type: "SET_ZOOM", payload: newZoom })
+        dispatch({ type: "SET_PAN", payload: { x: newPanX, y: newPanY } })
+      }
+    },
+    [dispatch, panX, panY, zoom],
   )
 
   const snapToGrid = useCallback(
@@ -1011,6 +1033,17 @@ export function LayoutCanvas() {
   }, [draw])
 
   useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const onWheel = (event: WheelEvent) => {
+      event.preventDefault()
+      handleWheelZoom(event.deltaY, event.clientX, event.clientY)
+    }
+    canvas.addEventListener("wheel", onWheel, { passive: false })
+    return () => canvas.removeEventListener("wheel", onWheel)
+  }, [handleWheelZoom])
+
+  useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape" && routingMode.type !== "none") {
         dispatch({ type: "SET_ROUTING_MODE", payload: { type: "none" } })
@@ -1080,24 +1113,6 @@ export function LayoutCanvas() {
     setIsDraggingCabinet(false)
   }
 
-  const handleWheel = (e: React.WheelEvent) => {
-    e.preventDefault()
-    const delta = e.deltaY > 0 ? 0.9 : 1.1
-    const newZoom = Math.max(0.1, Math.min(5, zoom * delta))
-
-    const rect = canvasRef.current?.getBoundingClientRect()
-    if (rect) {
-      const mouseX = e.clientX - rect.left
-      const mouseY = e.clientY - rect.top
-      const worldX = (mouseX - panX) / zoom
-      const worldY = (mouseY - panY) / zoom
-      const newPanX = mouseX - worldX * newZoom
-      const newPanY = mouseY - worldY * newZoom
-
-      dispatch({ type: "SET_ZOOM", payload: newZoom })
-      dispatch({ type: "SET_PAN", payload: { x: newPanX, y: newPanY } })
-    }
-  }
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault()
@@ -1168,7 +1183,7 @@ export function LayoutCanvas() {
   const cursorClass = routingMode.type !== "none" ? "cursor-pointer" : "cursor-crosshair"
 
   return (
-    <div ref={containerRef} className="flex-1 relative bg-[#0f0f0f] overflow-hidden">
+    <div ref={containerRef} className="flex-1 relative bg-[#0f0f0f] overflow-hidden overscroll-none touch-none">
       <canvas
         ref={canvasRef}
         className={`absolute inset-0 w-full h-full ${cursorClass}`}
@@ -1176,7 +1191,6 @@ export function LayoutCanvas() {
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
-        onWheel={handleWheel}
         onDrop={handleDrop}
         onDragOver={handleDragOver}
       />

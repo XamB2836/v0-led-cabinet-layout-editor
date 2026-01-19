@@ -11,7 +11,6 @@ import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Download, Upload, Undo2, Redo2, Grid3X3 } from "lucide-react"
-import { ExportPdfDialog } from "./export-pdf-dialog"
 
 export function TopBar() {
   const { state, dispatch } = useEditor()
@@ -189,7 +188,6 @@ export function TopBar() {
           <Download className="w-4 h-4 mr-2" />
           JSON
         </Button>
-        <ExportPdfDialog />
       </div>
     </div>
   )
