@@ -684,7 +684,7 @@ function drawPowerFeeds(
     const points: {
       x: number
       y: number
-      bounds: ReturnType<typeof getCabinetBounds>
+      bounds: NonNullable<ReturnType<typeof getCabinetBounds>>
       cardRect?: ReceiverCardRect
     }[] = []
     const layoutMidY = (layoutBounds.minY + layoutBounds.maxY) / 2
