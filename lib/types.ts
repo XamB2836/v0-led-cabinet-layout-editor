@@ -93,6 +93,7 @@ export type RoutingMode = { type: "none" } | { type: "data"; routeId: string } |
 export interface EditorState {
   layout: LayoutData
   selectedCabinetId: string | null
+  selectedCabinetIds: string[]
   zoom: number
   panX: number
   panY: number
@@ -124,7 +125,7 @@ export const DEFAULT_LAYOUT: LayoutData = {
     units: "mm",
     pitch_mm: 2.5,
     pitch_is_gob: true,
-    controller: "A200",
+    controller: "A100",
     grid: { enabled: true, step_mm: 160 },
     overview: {
       showReceiverCards: true,

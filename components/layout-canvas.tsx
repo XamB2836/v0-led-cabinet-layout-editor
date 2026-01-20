@@ -450,7 +450,7 @@ function drawDataRoutes(
     const points: {
       x: number
       y: number
-      bounds: ReturnType<typeof getCabinetBounds>
+      bounds: NonNullable<ReturnType<typeof getCabinetBounds>>
       hasReceiverCard: boolean
       cardIndex?: number
     }[] = []
@@ -989,13 +989,20 @@ export function LayoutCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const { state, dispatch, generateCabinetId } = useEditor()
-  const { layout, zoom, panX, panY, selectedCabinetId, showDimensions, routingMode } = state
+  const { layout, zoom, panX, panY, selectedCabinetId, selectedCabinetIds, showDimensions, routingMode } = state
 
   const [isPanning, setIsPanning] = useState(false)
   const [lastPanPos, setLastPanPos] = useState({ x: 0, y: 0 })
   const isDraggingCabinetRef = useRef(false)
   const draggingCabinetIdRef = useRef<string | null>(null)
   const dragOffsetRef = useRef({ x: 0, y: 0 })
+  const dragStartWorldRef = useRef({ x: 0, y: 0 })
+  const dragStartPositionsRef = useRef<Map<string, { x: number; y: number }>>(new Map())
+  const [selectionBox, setSelectionBox] = useState<{
+    start: { x: number; y: number }
+    end: { x: number; y: number }
+    additive: boolean
+  } | null>(null)
 
   const errors = validateLayout(layout)
   const errorCabinetIds = new Set(errors.filter((e) => e.type === "error").flatMap((e) => e.cabinetIds))
@@ -1139,7 +1146,7 @@ export function LayoutCanvas() {
       const bounds = getCabinetBounds(cabinet, layout.cabinetTypes)
       if (!bounds) return
 
-      const isSelected = cabinet.id === selectedCabinetId
+    const isSelected = selectedCabinetIds.includes(cabinet.id)
       const hasError = errorCabinetIds.has(cabinet.id)
       const isInActiveRoute = activeCabinetIds.has(cabinet.id)
 
@@ -1427,6 +1434,20 @@ export function LayoutCanvas() {
       drawOverallDimensions(ctx, layout.cabinets, layout.cabinetTypes, zoom, layout.project.pitch_mm, showPixels)
     }
 
+    if (selectionBox) {
+      const minX = Math.min(selectionBox.start.x, selectionBox.end.x)
+      const maxX = Math.max(selectionBox.start.x, selectionBox.end.x)
+      const minY = Math.min(selectionBox.start.y, selectionBox.end.y)
+      const maxY = Math.max(selectionBox.start.y, selectionBox.end.y)
+      ctx.save()
+      ctx.fillStyle = "rgba(56, 189, 248, 0.12)"
+      ctx.strokeStyle = "rgba(56, 189, 248, 0.9)"
+      ctx.lineWidth = 1 / zoom
+      ctx.fillRect(minX, minY, maxX - minX, maxY - minY)
+      ctx.strokeRect(minX, minY, maxX - minX, maxY - minY)
+      ctx.restore()
+    }
+
     ctx.restore()
 
     // UI overlay
@@ -1450,7 +1471,19 @@ export function LayoutCanvas() {
       ctx.font = "11px Inter, sans-serif"
       ctx.fillText("Press ESC to exit routing mode", rect.width / 2, 42)
     }
-  }, [layout, zoom, panX, panY, selectedCabinetId, errorCabinetIds, showDimensions, routingMode, activeCabinetIds])
+  }, [
+    layout,
+    zoom,
+    panX,
+    panY,
+    selectedCabinetId,
+    selectedCabinetIds,
+    selectionBox,
+    errorCabinetIds,
+    showDimensions,
+    routingMode,
+    activeCabinetIds,
+  ])
 
   useEffect(() => {
     draw()
@@ -1489,6 +1522,7 @@ export function LayoutCanvas() {
     if (e.button === 2) return
     const world = screenToWorld(e.clientX, e.clientY)
     const cabinet = findCabinetAt(world.x, world.y)
+    const isMultiSelect = e.shiftKey || e.metaKey || e.ctrlKey
 
     if (e.button === 1 || (e.button === 0 && e.altKey)) {
       setIsPanning(true)
@@ -1515,9 +1549,24 @@ export function LayoutCanvas() {
           type: "ADD_CABINET_TO_POWER_FEED",
           payload: { feedId: routingMode.feedId, cabinetId: cabinet.id },
         })
+      } else if (isMultiSelect) {
+        dispatch({ type: "TOGGLE_CABINET_SELECTION", payload: cabinet.id })
       } else {
         // Normal selection/drag
-        dispatch({ type: "SELECT_CABINET", payload: cabinet.id })
+        if (!selectedCabinetIds.includes(cabinet.id)) {
+          dispatch({ type: "SELECT_CABINET", payload: cabinet.id })
+        }
+
+        const dragIds = selectedCabinetIds.includes(cabinet.id) ? selectedCabinetIds : [cabinet.id]
+        const positions = new Map<string, { x: number; y: number }>()
+        dragIds.forEach((id) => {
+          const target = layout.cabinets.find((c) => c.id === id)
+          if (!target) return
+          positions.set(id, { x: target.x_mm, y: target.y_mm })
+        })
+        dragStartPositionsRef.current = positions
+        dragStartWorldRef.current = { x: world.x, y: world.y }
+
         isDraggingCabinetRef.current = true
         draggingCabinetIdRef.current = cabinet.id
         dragOffsetRef.current = {
@@ -1526,36 +1575,87 @@ export function LayoutCanvas() {
         }
       }
     } else {
-      dispatch({ type: "SELECT_CABINET", payload: null })
+      if (routingMode.type === "none" && e.button === 0 && !e.altKey) {
+        setSelectionBox({ start: world, end: world, additive: isMultiSelect })
+      } else {
+        dispatch({ type: "SELECT_CABINET", payload: null })
+      }
     }
   }
 
   const handleMouseMove = (e: React.MouseEvent) => {
-    if (isPanning) {
+    if (selectionBox) {
+      const world = screenToWorld(e.clientX, e.clientY)
+      setSelectionBox((prev) => (prev ? { ...prev, end: world } : prev))
+    } else if (isPanning) {
       const dx = e.clientX - lastPanPos.x
       const dy = e.clientY - lastPanPos.y
       dispatch({ type: "SET_PAN", payload: { x: panX + dx, y: panY + dy } })
       setLastPanPos({ x: e.clientX, y: e.clientY })
     } else if (isDraggingCabinetRef.current && draggingCabinetIdRef.current && routingMode.type === "none") {
       const world = screenToWorld(e.clientX, e.clientY)
-      const snapped = snapToGrid(world.x - dragOffsetRef.current.x, world.y - dragOffsetRef.current.y)
-      dispatch({
-        type: "UPDATE_CABINET",
-        payload: {
-          id: draggingCabinetIdRef.current,
-          updates: { x_mm: snapped.x, y_mm: snapped.y },
-        },
-      })
+      const dragIds = Array.from(dragStartPositionsRef.current.keys())
+      if (dragIds.length <= 1) {
+        const snapped = snapToGrid(world.x - dragOffsetRef.current.x, world.y - dragOffsetRef.current.y)
+        dispatch({
+          type: "UPDATE_CABINET",
+          payload: {
+            id: draggingCabinetIdRef.current,
+            updates: { x_mm: snapped.x, y_mm: snapped.y },
+          },
+        })
+      } else {
+        const primaryId = draggingCabinetIdRef.current
+        const primaryStart = dragStartPositionsRef.current.get(primaryId)
+        if (!primaryStart) return
+        const dx = world.x - dragStartWorldRef.current.x
+        const dy = world.y - dragStartWorldRef.current.y
+        const desired = snapToGrid(primaryStart.x + dx, primaryStart.y + dy)
+        const snappedDx = desired.x - primaryStart.x
+        const snappedDy = desired.y - primaryStart.y
+
+        dragStartPositionsRef.current.forEach((pos, id) => {
+          dispatch({
+            type: "UPDATE_CABINET",
+            payload: {
+              id,
+              updates: { x_mm: pos.x + snappedDx, y_mm: pos.y + snappedDy },
+            },
+          })
+        })
+      }
     }
   }
 
   const handleMouseUp = () => {
+    if (selectionBox) {
+      const minX = Math.min(selectionBox.start.x, selectionBox.end.x)
+      const maxX = Math.max(selectionBox.start.x, selectionBox.end.x)
+      const minY = Math.min(selectionBox.start.y, selectionBox.end.y)
+      const maxY = Math.max(selectionBox.start.y, selectionBox.end.y)
+      const hits = layout.cabinets
+        .map((cabinet) => {
+          const bounds = getCabinetBounds(cabinet, layout.cabinetTypes)
+          if (!bounds) return null
+          const intersects =
+            bounds.x <= maxX && bounds.x2 >= minX && bounds.y <= maxY && bounds.y2 >= minY
+          return intersects ? cabinet.id : null
+        })
+        .filter((id): id is string => !!id)
+
+      const nextSelection = selectionBox.additive
+        ? Array.from(new Set([...selectedCabinetIds, ...hits]))
+        : hits
+      dispatch({ type: "SET_CABINET_SELECTION", payload: nextSelection })
+      setSelectionBox(null)
+    }
     if (isDraggingCabinetRef.current) {
       dispatch({ type: "PUSH_HISTORY" })
     }
     setIsPanning(false)
     isDraggingCabinetRef.current = false
     draggingCabinetIdRef.current = null
+    dragStartPositionsRef.current = new Map()
   }
 
 

@@ -10,7 +10,10 @@ import { normalizeLayout } from "./layout-io"
 type EditorAction =
   | { type: "SET_LAYOUT"; payload: LayoutData }
   | { type: "SELECT_CABINET"; payload: string | null }
+  | { type: "SET_CABINET_SELECTION"; payload: string[] }
+  | { type: "TOGGLE_CABINET_SELECTION"; payload: string }
   | { type: "ADD_CABINET"; payload: Cabinet }
+  | { type: "ADD_CABINETS"; payload: Cabinet[] }
   | { type: "UPDATE_CABINET"; payload: { id: string; updates: Partial<Cabinet> } }
   | { type: "DELETE_CABINET"; payload: string }
   | { type: "DUPLICATE_CABINET"; payload: string }
@@ -48,12 +51,44 @@ function editorReducer(state: EditorState, action: EditorAction): EditorState {
         ...state,
         layout: normalized,
         selectedCabinetId: null,
+        selectedCabinetIds: [],
         history: [normalized],
         historyIndex: 0,
       }
 
     case "SELECT_CABINET":
-      return { ...state, selectedCabinetId: action.payload }
+      return {
+        ...state,
+        selectedCabinetId: action.payload,
+        selectedCabinetIds: action.payload ? [action.payload] : [],
+      }
+
+    case "SET_CABINET_SELECTION": {
+      const ids = action.payload
+      return {
+        ...state,
+        selectedCabinetId: ids.length > 0 ? ids[ids.length - 1] : null,
+        selectedCabinetIds: ids,
+      }
+    }
+
+    case "TOGGLE_CABINET_SELECTION": {
+      const exists = state.selectedCabinetIds.includes(action.payload)
+      const nextIds = exists
+        ? state.selectedCabinetIds.filter((id) => id !== action.payload)
+        : [...state.selectedCabinetIds, action.payload]
+      let nextPrimary = state.selectedCabinetId
+      if (!exists) {
+        nextPrimary = action.payload
+      } else if (state.selectedCabinetId === action.payload) {
+        nextPrimary = nextIds[0] ?? null
+      }
+      return {
+        ...state,
+        selectedCabinetId: nextPrimary,
+        selectedCabinetIds: nextIds,
+      }
+    }
 
     case "ADD_CABINET":
       return {
@@ -63,7 +98,22 @@ function editorReducer(state: EditorState, action: EditorAction): EditorState {
           cabinets: [...state.layout.cabinets, action.payload],
         },
         selectedCabinetId: action.payload.id,
+        selectedCabinetIds: [action.payload.id],
       }
+
+    case "ADD_CABINETS": {
+      if (action.payload.length === 0) return state
+      const ids = action.payload.map((cabinet) => cabinet.id)
+      return {
+        ...state,
+        layout: {
+          ...state.layout,
+          cabinets: [...state.layout.cabinets, ...action.payload],
+        },
+        selectedCabinetId: ids[ids.length - 1] ?? null,
+        selectedCabinetIds: ids,
+      }
+    }
 
     case "UPDATE_CABINET":
       return {
@@ -77,13 +127,16 @@ function editorReducer(state: EditorState, action: EditorAction): EditorState {
       }
 
     case "DELETE_CABINET":
+      const remainingSelection = state.selectedCabinetIds.filter((id) => id !== action.payload)
       return {
         ...state,
         layout: {
           ...state.layout,
           cabinets: state.layout.cabinets.filter((c) => c.id !== action.payload),
         },
-        selectedCabinetId: state.selectedCabinetId === action.payload ? null : state.selectedCabinetId,
+        selectedCabinetId:
+          state.selectedCabinetId === action.payload ? remainingSelection[0] ?? null : state.selectedCabinetId,
+        selectedCabinetIds: remainingSelection,
       }
 
     case "DUPLICATE_CABINET": {
@@ -114,6 +167,7 @@ function editorReducer(state: EditorState, action: EditorAction): EditorState {
           cabinets: [...state.layout.cabinets, newCabinet],
         },
         selectedCabinetId: newId,
+        selectedCabinetIds: [newId],
       }
     }
 
@@ -377,6 +431,7 @@ function editorReducer(state: EditorState, action: EditorAction): EditorState {
           historyIndex: state.historyIndex - 1,
           layout: JSON.parse(JSON.stringify(state.history[state.historyIndex - 1])),
           selectedCabinetId: null,
+          selectedCabinetIds: [],
         }
       }
       return state
@@ -388,6 +443,7 @@ function editorReducer(state: EditorState, action: EditorAction): EditorState {
           historyIndex: state.historyIndex + 1,
           layout: JSON.parse(JSON.stringify(state.history[state.historyIndex + 1])),
           selectedCabinetId: null,
+          selectedCabinetIds: [],
         }
       }
       return state
@@ -400,6 +456,7 @@ function editorReducer(state: EditorState, action: EditorAction): EditorState {
 const initialState: EditorState = {
   layout: DEFAULT_LAYOUT,
   selectedCabinetId: null,
+  selectedCabinetIds: [],
   zoom: 0.5,
   panX: 100,
   panY: 100,

@@ -1,11 +1,13 @@
 "use client"
 
-import { useEffect } from "react"
+import { useEffect, useRef } from "react"
 import { useEditor } from "@/lib/editor-context"
+import type { Cabinet } from "@/lib/types"
 
 export function KeyboardHandler() {
   const { state, dispatch } = useEditor()
-  const { selectedCabinetId, layout } = state
+  const { selectedCabinetId, selectedCabinetIds, layout } = state
+  const clipboardRef = useRef<Cabinet[]>([])
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -14,25 +16,34 @@ export function KeyboardHandler() {
         return
       }
 
+      const selection = selectedCabinetIds.length > 0
+        ? selectedCabinetIds
+        : selectedCabinetId
+          ? [selectedCabinetId]
+          : []
       const selectedCabinet = layout.cabinets.find((c) => c.id === selectedCabinetId)
 
       // Delete
       if (e.key === "Delete" || e.key === "Backspace") {
-        if (selectedCabinetId) {
+        if (selection.length > 0) {
           e.preventDefault()
-          dispatch({ type: "DELETE_CABINET", payload: selectedCabinetId })
+          selection.forEach((id) => dispatch({ type: "DELETE_CABINET", payload: id }))
           dispatch({ type: "PUSH_HISTORY" })
         }
       }
 
       // Rotate
       if (e.key === "r" || e.key === "R") {
-        if (selectedCabinet) {
+        if (selection.length > 0) {
           e.preventDefault()
-          const newRot = ((selectedCabinet.rot_deg + 90) % 360) as 0 | 90 | 180 | 270
-          dispatch({
-            type: "UPDATE_CABINET",
-            payload: { id: selectedCabinet.id, updates: { rot_deg: newRot } },
+          selection.forEach((id) => {
+            const cabinet = layout.cabinets.find((c) => c.id === id)
+            if (!cabinet) return
+            const newRot = ((cabinet.rot_deg + 90) % 360) as 0 | 90 | 180 | 270
+            dispatch({
+              type: "UPDATE_CABINET",
+              payload: { id: cabinet.id, updates: { rot_deg: newRot } },
+            })
           })
           dispatch({ type: "PUSH_HISTORY" })
         }
@@ -52,6 +63,44 @@ export function KeyboardHandler() {
         }
       }
 
+      // Copy
+      if ((e.ctrlKey || e.metaKey) && e.key === "c") {
+        if (selection.length > 0) {
+          e.preventDefault()
+          clipboardRef.current = layout.cabinets
+            .filter((c) => selection.includes(c.id))
+            .map((c) => ({ ...c }))
+        }
+      }
+
+      // Paste
+      if ((e.ctrlKey || e.metaKey) && e.key === "v") {
+        if (clipboardRef.current.length > 0) {
+          e.preventDefault()
+          const existingIds = new Set(layout.cabinets.map((c) => c.id))
+          let counter = layout.cabinets.length + 1
+          const nextId = () => {
+            let newId = `C${String(counter).padStart(2, "0")}`
+            while (existingIds.has(newId)) {
+              counter++
+              newId = `C${String(counter).padStart(2, "0")}`
+            }
+            existingIds.add(newId)
+            counter++
+            return newId
+          }
+          const offset = layout.project.grid.step_mm
+          const additions = clipboardRef.current.map((cabinet) => ({
+            ...cabinet,
+            id: nextId(),
+            x_mm: cabinet.x_mm + offset,
+            y_mm: cabinet.y_mm + offset,
+          }))
+          dispatch({ type: "ADD_CABINETS", payload: additions })
+          dispatch({ type: "PUSH_HISTORY" })
+        }
+      }
+
       // Undo
       if ((e.ctrlKey || e.metaKey) && e.key === "z" && !e.shiftKey) {
         e.preventDefault()
@@ -65,7 +114,7 @@ export function KeyboardHandler() {
       }
 
       // Arrow keys for nudging
-      if (selectedCabinet && ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)) {
+      if (selection.length > 0 && ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)) {
         e.preventDefault()
         const step = e.shiftKey ? layout.project.grid.step_mm : 10
         let dx = 0,
@@ -75,15 +124,19 @@ export function KeyboardHandler() {
         if (e.key === "ArrowLeft") dx = -step
         if (e.key === "ArrowRight") dx = step
 
-        dispatch({
-          type: "UPDATE_CABINET",
-          payload: {
-            id: selectedCabinet.id,
-            updates: {
-              x_mm: selectedCabinet.x_mm + dx,
-              y_mm: selectedCabinet.y_mm + dy,
+        selection.forEach((id) => {
+          const cabinet = layout.cabinets.find((c) => c.id === id)
+          if (!cabinet) return
+          dispatch({
+            type: "UPDATE_CABINET",
+            payload: {
+              id: cabinet.id,
+              updates: {
+                x_mm: cabinet.x_mm + dx,
+                y_mm: cabinet.y_mm + dy,
+              },
             },
-          },
+          })
         })
         dispatch({ type: "PUSH_HISTORY" })
       }
@@ -96,7 +149,7 @@ export function KeyboardHandler() {
 
     window.addEventListener("keydown", handleKeyDown)
     return () => window.removeEventListener("keydown", handleKeyDown)
-  }, [dispatch, selectedCabinetId, layout])
+  }, [dispatch, selectedCabinetId, selectedCabinetIds, layout])
 
   return null
 }

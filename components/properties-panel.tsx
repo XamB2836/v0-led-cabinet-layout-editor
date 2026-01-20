@@ -1,5 +1,6 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import { useEditor } from "@/lib/editor-context"
 import { getLayoutBounds, validateLayout } from "@/lib/validation"
 import type { Cabinet } from "@/lib/types"
@@ -31,13 +32,13 @@ export function PropertiesPanel() {
   const widthPx = bounds.width > 0 ? Math.round(bounds.width / pitch) : 0
   const heightPx = bounds.height > 0 ? Math.round(bounds.height / pitch) : 0
 
-  const receiverCardMode =
-    selectedCabinet?.receiverCardOverride === null
-      ? "none"
-      : selectedCabinet?.receiverCardOverride
-        ? "custom"
-        : "default"
   const receiverCardCount = selectedCabinet ? getCabinetReceiverCardCount(selectedCabinet) : 1
+  const receiverModelDefault = layout.project.overview.receiverCardModel || "5A75-E"
+  const [receiverModelDraft, setReceiverModelDraft] = useState(receiverModelDefault)
+
+  useEffect(() => {
+    setReceiverModelDraft(receiverModelDefault)
+  }, [receiverModelDefault])
 
   const handleDelete = () => {
     if (!selectedCabinet) return
@@ -45,27 +46,12 @@ export function PropertiesPanel() {
     dispatch({ type: "PUSH_HISTORY" })
   }
 
-  const handleUpdateField = (field: string, value: string | number | null | undefined) => {
-    if (!selectedCabinet) return
-    dispatch({
-      type: "UPDATE_CABINET",
-      payload: { id: selectedCabinet.id, updates: { [field]: value } },
-    })
-  }
-
   const handleReceiverCardCount = (count: 0 | 1 | 2) => {
     if (!selectedCabinet) return
 
-    const updates: Partial<Cabinet> = { receiverCardCount: count }
-    if (count === 0) {
-      updates.receiverCardOverride = null
-    } else if (selectedCabinet.receiverCardOverride === null) {
-      updates.receiverCardOverride = undefined
-    }
-
     dispatch({
       type: "UPDATE_CABINET",
-      payload: { id: selectedCabinet.id, updates },
+      payload: { id: selectedCabinet.id, updates: { receiverCardCount: count, receiverCardOverride: undefined } },
     })
 
     const routeUpdates = layout.project.dataRoutes
@@ -122,8 +108,29 @@ export function PropertiesPanel() {
     dispatch({ type: "PUSH_HISTORY" })
   }
 
-  const handleBlur = () => {
-    dispatch({ type: "PUSH_HISTORY" })
+  const handleApplyReceiverModel = () => {
+    const nextModel = receiverModelDraft.trim() || "5A75-E"
+    let changed = false
+
+    if (nextModel !== layout.project.overview.receiverCardModel) {
+      dispatch({ type: "UPDATE_OVERVIEW", payload: { receiverCardModel: nextModel } })
+      changed = true
+    }
+
+    layout.cabinets.forEach((cabinet) => {
+      if (cabinet.receiverCardOverride !== undefined) {
+        const updates: Partial<Cabinet> = { receiverCardOverride: undefined }
+        if (cabinet.receiverCardOverride === null) {
+          updates.receiverCardCount = 0
+        }
+        dispatch({ type: "UPDATE_CABINET", payload: { id: cabinet.id, updates } })
+        changed = true
+      }
+    })
+
+    if (changed) {
+      dispatch({ type: "PUSH_HISTORY" })
+    }
   }
 
   const errorCount = errors.filter((e) => e.type === "error").length
@@ -188,56 +195,23 @@ export function PropertiesPanel() {
                   <div className="space-y-3">
                     <div className="space-y-2">
                       <div className="flex items-center justify-between">
-                        <Label className="text-xs">Receiver Card</Label>
-                        <span className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">Display</span>
-                      </div>
-                      <div className="grid grid-cols-3 gap-2">
+                        <Label className="text-xs">Receiver Cards</Label>
                         <Button
                           type="button"
-                          variant={receiverCardMode === "default" ? "secondary" : "outline"}
+                          variant="outline"
                           size="sm"
-                          className="h-8 text-xs"
-                          onClick={() => {
-                            handleUpdateField("receiverCardOverride", undefined)
-                            dispatch({ type: "PUSH_HISTORY" })
-                          }}
+                          className="h-7 text-[11px]"
+                          onClick={handleApplyReceiverModel}
                         >
-                          Default
-                        </Button>
-                        <Button
-                          type="button"
-                          variant={receiverCardMode === "none" ? "secondary" : "outline"}
-                          size="sm"
-                          className="h-8 text-xs"
-                          onClick={() => {
-                            handleUpdateField("receiverCardOverride", null)
-                            dispatch({ type: "PUSH_HISTORY" })
-                          }}
-                        >
-                          Hidden
-                        </Button>
-                        <Button
-                          type="button"
-                          variant={receiverCardMode === "custom" ? "secondary" : "outline"}
-                          size="sm"
-                          className="h-8 text-xs"
-                          onClick={() => {
-                            handleUpdateField("receiverCardOverride", layout.project.overview.receiverCardModel)
-                            dispatch({ type: "PUSH_HISTORY" })
-                          }}
-                        >
-                          Custom
+                          Apply to all
                         </Button>
                       </div>
-                      {receiverCardMode === "custom" && (
-                        <Input
-                          value={selectedCabinet.receiverCardOverride || ""}
-                          onChange={(e) => handleUpdateField("receiverCardOverride", e.target.value)}
-                          onBlur={handleBlur}
-                          className="h-8 bg-input text-sm font-mono"
-                          placeholder={layout.project.overview.receiverCardModel}
-                        />
-                      )}
+                      <Input
+                        value={receiverModelDraft}
+                        onChange={(e) => setReceiverModelDraft(e.target.value)}
+                        className="h-8 bg-input text-sm font-mono"
+                        placeholder="5A75-E"
+                      />
                       <div className="space-y-2">
                         <div className="flex items-center justify-between">
                           <Label className="text-xs">Cards</Label>
@@ -275,19 +249,6 @@ export function PropertiesPanel() {
                         <div className="text-[11px] text-zinc-500">
                           Two cards split routing as A1a/A1b to optimize mapping.
                         </div>
-                      </div>
-                      <div className="flex items-center justify-between rounded-md border border-zinc-800 bg-zinc-950/60 px-2 py-1">
-                        <span className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">Preview</span>
-                        <span className="rounded bg-white px-2 py-0.5 text-[10px] font-mono font-semibold text-zinc-900">
-                          {receiverCardMode === "none"
-                            ? "Hidden"
-                            : receiverCardMode === "custom"
-                              ? selectedCabinet.receiverCardOverride || layout.project.overview.receiverCardModel
-                              : layout.project.overview.receiverCardModel}
-                        </span>
-                        <span className="rounded border border-zinc-800 px-2 py-0.5 text-[10px] font-mono text-zinc-300">
-                          {receiverCardCount} card{receiverCardCount === 1 ? "" : "s"}
-                        </span>
                       </div>
                     </div>
 
