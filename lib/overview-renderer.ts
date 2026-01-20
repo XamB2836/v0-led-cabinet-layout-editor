@@ -882,6 +882,7 @@ function drawControllerPorts(
   controller: "A100" | "A200",
   layout: LayoutData,
   zoom: number,
+  minY?: number,
 ) {
   const bounds = getLayoutBounds(layout)
   if (bounds.width === 0 && bounds.height === 0) return
@@ -892,7 +893,8 @@ function drawControllerPorts(
   const fontSize = scaledWorldSize(11, zoom, 10, 14)
 
   const boxX = (minX + maxX) / 2 - boxWidth / 2
-  const boxY = maxY + scaledWorldSize(100, zoom, 70, 160)
+  const baseY = maxY + scaledWorldSize(100, zoom, 70, 160)
+  const boxY = Math.max(baseY, minY ?? baseY)
 
   ctx.save()
   ctx.fillStyle = "#1e293b"
@@ -1099,7 +1101,90 @@ export function drawOverview(ctx: CanvasRenderingContext2D, layout: LayoutData, 
   }
 
   if (layout.cabinets.length > 0) {
-    drawControllerPorts(ctx, layout.project.controller, layout, uiZoom)
+    const layoutBounds = getLayoutBoundsFromCabinets(layout.cabinets, layout.cabinetTypes)
+    if (layoutBounds) {
+      const rowCenters: number[] = []
+      const rowTolerance = 50
+      layout.cabinets.forEach((cabinet) => {
+        const bounds = getCabinetBounds(cabinet, layout.cabinetTypes)
+        if (!bounds) return
+        const centerY = bounds.y + bounds.height / 2
+        const existingRow = rowCenters.find((rowY) => Math.abs(rowY - centerY) < rowTolerance)
+        if (!existingRow) rowCenters.push(centerY)
+      })
+      rowCenters.sort((a, b) => a - b)
+
+      let dataPortBottom: number | null = null
+      if (showDataRoutes && layout.project.dataRoutes.length > 0) {
+        const fontSize = scaledWorldSize(14, uiZoom, 12, 18)
+        const labelPadding = scaledWorldSize(8, uiZoom, 6, 12)
+        const labelHeight = fontSize + labelPadding * 1.6
+        const labelOffset = 90
+
+        for (const route of layout.project.dataRoutes) {
+          const firstEndpoint = route.cabinetIds.find((endpointId) => {
+            const { cabinetId } = parseRouteCabinetId(endpointId)
+            const cabinet = layout.cabinets.find((c) => c.id === cabinetId)
+            if (!cabinet) return false
+            return getCabinetReceiverCardCount(cabinet) > 0
+          })
+          if (!firstEndpoint) continue
+
+          const { cabinetId } = parseRouteCabinetId(firstEndpoint)
+          const cabinet = layout.cabinets.find((c) => c.id === cabinetId)
+          if (!cabinet) continue
+          const bounds = getCabinetBounds(cabinet, layout.cabinetTypes)
+          if (!bounds) continue
+
+          let placeLeft = false
+          if (rowCenters.length > 1) {
+            const centerY = bounds.y + bounds.height / 2
+            let rowIndex = rowCenters.findIndex((rowY) => Math.abs(rowY - centerY) < rowTolerance)
+            if (rowIndex === -1) {
+              rowIndex = rowCenters.reduce((bestIndex, rowY, index) => {
+                const bestDistance = Math.abs(rowCenters[bestIndex] - centerY)
+                const distance = Math.abs(rowY - centerY)
+                return distance < bestDistance ? index : bestIndex
+              }, 0)
+            }
+            placeLeft = rowIndex < rowCenters.length - 1
+          }
+
+          if (!placeLeft) {
+            dataPortBottom = layoutBounds.maxY + labelOffset + labelHeight / 2
+            break
+          }
+        }
+      }
+
+      let powerLabelBottom: number | null = null
+      if (showPowerRoutes && layout.project.powerFeeds.length > 0) {
+        const fontSize = scaledWorldSize(14, uiZoom, 12, 18)
+        const labelPaddingY = scaledWorldSize(6, uiZoom, 4, 9)
+        const labelOffset = 140
+        const boxHeight = fontSize * 2.4 + labelPaddingY * 2
+
+        layout.project.powerFeeds.forEach((feed) => {
+          if (feed.assignedCabinetIds.length === 0) return
+          const feedBounds = getLayoutBoundsFromCabinets(
+            layout.cabinets.filter((c) => feed.assignedCabinetIds.includes(c.id)),
+            layout.cabinetTypes,
+          )
+          if (!feedBounds) return
+          const labelY = feedBounds.maxY + labelOffset
+          const bottom = labelY + boxHeight
+          powerLabelBottom = powerLabelBottom === null ? bottom : Math.max(powerLabelBottom, bottom)
+        })
+      }
+
+      const clearance = scaledWorldSize(24, uiZoom, 16, 40)
+      const controllerMinY = Math.max(
+        layoutBounds.maxY + scaledWorldSize(120, uiZoom, 80, 200),
+        (dataPortBottom ?? -Infinity) + clearance,
+        (powerLabelBottom ?? -Infinity) + clearance,
+      )
+      drawControllerPorts(ctx, layout.project.controller, layout, uiZoom, controllerMinY)
+    }
   }
 
   if (options.showDimensions) {

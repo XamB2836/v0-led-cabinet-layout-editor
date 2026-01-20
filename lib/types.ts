@@ -65,6 +65,7 @@ export interface Project {
   client?: string
   units: "mm"
   pitch_mm: number
+  pitch_is_gob: boolean
   controller: "A100" | "A200"
   grid: GridSettings
   overview: OverviewSettings
@@ -104,21 +105,25 @@ export interface EditorState {
 }
 
 // Default cabinet types
-export const DEFAULT_CABINET_TYPES: CabinetType[] = [
-  { typeId: "STD_1120x640", width_mm: 1120, height_mm: 640 },
-  { typeId: "STD_960x640", width_mm: 960, height_mm: 640 },
-  { typeId: "STD_480x640", width_mm: 480, height_mm: 640 },
-  { typeId: "STD_1280x640", width_mm: 1280, height_mm: 640 },
-  { typeId: "STD_640x640", width_mm: 640, height_mm: 640 },
-]
+const DEFAULT_WIDTHS_MM = [1120, 960, 800, 640, 480, 320, 160]
+const DEFAULT_HEIGHTS_MM = [640, 480, 320, 160]
+
+export const DEFAULT_CABINET_TYPES: CabinetType[] = DEFAULT_HEIGHTS_MM.flatMap((height) =>
+  DEFAULT_WIDTHS_MM.map((width) => ({
+    typeId: `STD_${width}x${height}`,
+    width_mm: width,
+    height_mm: height,
+  })),
+)
 
 export const DEFAULT_LAYOUT: LayoutData = {
   schemaVersion: 2,
   project: {
-    name: "New Layout",
+    name: "NC",
     client: "",
     units: "mm",
     pitch_mm: 2.5,
+    pitch_is_gob: true,
     controller: "A200",
     grid: { enabled: true, step_mm: 160 },
     overview: {

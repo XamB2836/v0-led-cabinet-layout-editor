@@ -94,7 +94,8 @@ export function getTitleParts(layout: LayoutData) {
     parts.push(`${bounds.width}x${bounds.height} mm`)
   }
   if (pitch) {
-    parts.push(`${pitch} GOB`)
+    const isGob = layout.project.pitch_is_gob ?? false
+    parts.push(`P${pitch}${isGob ? " GOB" : ""}`)
   }
   return parts
 }

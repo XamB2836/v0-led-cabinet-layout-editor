@@ -952,6 +952,7 @@ function drawControllerPorts(
   cabinets: Cabinet[],
   cabinetTypes: CabinetType[],
   zoom: number,
+  minY?: number,
 ) {
   const layoutBounds = getLayoutBoundsFromCabinets(cabinets, cabinetTypes)
   if (!layoutBounds) return
@@ -964,7 +965,8 @@ function drawControllerPorts(
   const fontSize = Math.max(10, 11 / zoom)
 
   const boxX = (minX + maxX) / 2 - boxWidth / 2
-  const boxY = maxY + 100 / zoom
+  const baseY = maxY + scaledWorldSize(100, zoom, 70, 160)
+  const boxY = Math.max(baseY, minY ?? baseY)
 
   ctx.save()
 
@@ -1210,11 +1212,12 @@ export function LayoutCanvas() {
       ctx.fillStyle = "#64748b"
       const smallFontSize = Math.max(8, 9 / zoom)
       ctx.font = `${smallFontSize}px Inter, sans-serif`
-      ctx.textAlign = "center"
+      ctx.textAlign = "right"
+      ctx.textBaseline = "alphabetic"
       ctx.fillText(
         cabinet.typeId.replace("STD_", ""),
-        bounds.x + bounds.width / 2,
-        bounds.y + bounds.height - 25 / zoom,
+        bounds.x + bounds.width - 6 / zoom,
+        bounds.y + bounds.height - 6 / zoom,
       )
 
       if (cabinet.rot_deg !== 0) {
@@ -1333,7 +1336,90 @@ export function LayoutCanvas() {
 
     // Draw controller
     if (layout.cabinets.length > 0) {
-      drawControllerPorts(ctx, controller, layout.cabinets, layout.cabinetTypes, zoom)
+      const layoutBounds = getLayoutBoundsFromCabinets(layout.cabinets, layout.cabinetTypes)
+      if (layoutBounds) {
+        const rowCenters: number[] = []
+        const rowTolerance = 50
+        layout.cabinets.forEach((cabinet) => {
+          const bounds = getCabinetBounds(cabinet, layout.cabinetTypes)
+          if (!bounds) return
+          const centerY = bounds.y + bounds.height / 2
+          const existingRow = rowCenters.find((rowY) => Math.abs(rowY - centerY) < rowTolerance)
+          if (!existingRow) rowCenters.push(centerY)
+        })
+        rowCenters.sort((a, b) => a - b)
+
+        let dataPortBottom: number | null = null
+        if (showDataRoutes && dataRoutes && dataRoutes.length > 0) {
+          const fontSize = scaledWorldSize(14, zoom, 12, 18)
+          const labelPadding = scaledWorldSize(8, zoom, 6, 12)
+          const labelHeight = fontSize + labelPadding * 1.6
+          const labelOffset = 90
+
+          for (const route of dataRoutes) {
+            const firstEndpoint = route.cabinetIds.find((endpointId) => {
+              const { cabinetId } = parseRouteCabinetId(endpointId)
+              const cabinet = layout.cabinets.find((c) => c.id === cabinetId)
+              if (!cabinet) return false
+              return getCabinetReceiverCardCount(cabinet) > 0
+            })
+            if (!firstEndpoint) continue
+
+            const { cabinetId } = parseRouteCabinetId(firstEndpoint)
+            const cabinet = layout.cabinets.find((c) => c.id === cabinetId)
+            if (!cabinet) continue
+            const bounds = getCabinetBounds(cabinet, layout.cabinetTypes)
+            if (!bounds) continue
+
+            let placeLeft = false
+            if (rowCenters.length > 1) {
+              const centerY = bounds.y + bounds.height / 2
+              let rowIndex = rowCenters.findIndex((rowY) => Math.abs(rowY - centerY) < rowTolerance)
+              if (rowIndex === -1) {
+                rowIndex = rowCenters.reduce((bestIndex, rowY, index) => {
+                  const bestDistance = Math.abs(rowCenters[bestIndex] - centerY)
+                  const distance = Math.abs(rowY - centerY)
+                  return distance < bestDistance ? index : bestIndex
+                }, 0)
+              }
+              placeLeft = rowIndex < rowCenters.length - 1
+            }
+
+            if (!placeLeft) {
+              dataPortBottom = layoutBounds.maxY + labelOffset + labelHeight / 2
+              break
+            }
+          }
+        }
+
+        let powerLabelBottom: number | null = null
+        if (showPowerRoutes && powerFeeds && powerFeeds.length > 0) {
+          const fontSize = scaledWorldSize(14, zoom, 12, 18)
+          const labelPadding = scaledWorldSize(9, zoom, 6, 13)
+          const labelOffset = 140
+          const boxHeight = fontSize * 2.8 + labelPadding * 2
+
+          powerFeeds.forEach((feed) => {
+            if (feed.assignedCabinetIds.length === 0) return
+            const feedBounds = getLayoutBoundsFromCabinets(
+              layout.cabinets.filter((c) => feed.assignedCabinetIds.includes(c.id)),
+              layout.cabinetTypes,
+            )
+            if (!feedBounds) return
+            const labelY = feedBounds.maxY + labelOffset
+            const bottom = labelY + boxHeight
+            powerLabelBottom = powerLabelBottom === null ? bottom : Math.max(powerLabelBottom, bottom)
+          })
+        }
+
+        const clearance = scaledWorldSize(24, zoom, 16, 40)
+        const controllerMinY = Math.max(
+          layoutBounds.maxY + scaledWorldSize(120, zoom, 80, 200),
+          (dataPortBottom ?? -Infinity) + clearance,
+          (powerLabelBottom ?? -Infinity) + clearance,
+        )
+        drawControllerPorts(ctx, controller, layout.cabinets, layout.cabinetTypes, zoom, controllerMinY)
+      }
     }
 
     if (showDimensions && layout.cabinets.length > 0) {

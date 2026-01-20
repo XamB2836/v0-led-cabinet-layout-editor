@@ -11,14 +11,16 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Download, Upload, Undo2, Redo2, Grid3X3, FileDown } from "lucide-react"
+import { Download, Upload, Undo2, Redo2, Grid3X3, FileDown, Trash2 } from "lucide-react"
 
 export function TopBar() {
-  const { state, dispatch } = useEditor()
+  const { state, dispatch, resetEditor } = useEditor()
   const { layout } = state
   const fileInputRef = useRef<HTMLInputElement>(null)
   const pitchOptions = [1.25, 1.56, 1.86, 2.5, 4, 5]
   const pitchValue = pitchOptions.includes(layout.project.pitch_mm) ? layout.project.pitch_mm : 2.5
+  const pitchMode = layout.project.pitch_is_gob ? "gob" : "std"
+  const projectNumber = layout.project.name.replace(/\D/g, "")
 
   const handleExportJSON = () => {
     const json = JSON.stringify(layout, null, 2)
@@ -56,18 +58,26 @@ export function TopBar() {
   const handleRedo = () => dispatch({ type: "REDO" })
   const canUndo = state.historyIndex > 0
   const canRedo = state.historyIndex < state.history.length - 1
+  const handleReset = () => {
+    if (!window.confirm("Reset the layout? This clears the autosaved cache.")) return
+    resetEditor()
+  }
   return (
     <div className="h-14 bg-card border-b border-border px-4 flex items-center gap-6">
       {/* Project Name */}
       <div className="flex items-center gap-2">
         <Label htmlFor="project-name" className="text-xs text-muted-foreground">
-          Project
+          NC
         </Label>
         <Input
           id="project-name"
-          value={layout.project.name}
-          onChange={(e) => dispatch({ type: "UPDATE_PROJECT", payload: { name: e.target.value } })}
-          className="h-8 w-40 bg-secondary text-sm"
+          inputMode="numeric"
+          value={projectNumber}
+          onChange={(e) => {
+            const digits = e.target.value.replace(/\D/g, "")
+            dispatch({ type: "UPDATE_PROJECT", payload: { name: digits ? `NC${digits}` : "NC" } })
+          }}
+          className="h-8 w-24 bg-secondary text-sm"
         />
       </div>
 
@@ -90,24 +100,35 @@ export function TopBar() {
           Pitch
         </Label>
         <Select
-          value={String(pitchValue)}
-          onValueChange={(value) =>
+          value={`${pitchValue}|${pitchMode}`}
+          onValueChange={(value) => {
+            const [pitchRaw, mode] = value.split("|")
+            const pitch = Number.parseFloat(pitchRaw)
             dispatch({
               type: "UPDATE_PROJECT",
-              payload: { pitch_mm: Number.parseFloat(value) || 2.5 },
+              payload: {
+                pitch_mm: Number.isFinite(pitch) ? pitch : 2.5,
+                pitch_is_gob: mode === "gob",
+              },
             })
-          }
+          }}
         >
           <SelectTrigger id="pitch" className="h-8 w-24 bg-secondary text-sm">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="1.25">P 1.25</SelectItem>
-            <SelectItem value="1.56">P 1.56</SelectItem>
-            <SelectItem value="1.86">P 1.86</SelectItem>
-            <SelectItem value="2.5">P 2.5</SelectItem>
-            <SelectItem value="4">P 4</SelectItem>
-            <SelectItem value="5">P 5</SelectItem>
+            <SelectItem value="1.25|std">P 1.25</SelectItem>
+            <SelectItem value="1.25|gob">P 1.25 GOB</SelectItem>
+            <SelectItem value="1.56|std">P 1.56</SelectItem>
+            <SelectItem value="1.56|gob">P 1.56 GOB</SelectItem>
+            <SelectItem value="1.86|std">P 1.86</SelectItem>
+            <SelectItem value="1.86|gob">P 1.86 GOB</SelectItem>
+            <SelectItem value="2.5|std">P 2.5</SelectItem>
+            <SelectItem value="2.5|gob">P 2.5 GOB</SelectItem>
+            <SelectItem value="4|std">P 4</SelectItem>
+            <SelectItem value="4|gob">P 4 GOB</SelectItem>
+            <SelectItem value="5|std">P 5</SelectItem>
+            <SelectItem value="5|gob">P 5 GOB</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -172,6 +193,15 @@ export function TopBar() {
         <Button variant="outline" size="sm" onClick={handleExportJSON}>
           <Download className="w-4 h-4 mr-2" />
           JSON
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleReset}
+          className="text-destructive border-destructive/40 hover:bg-destructive/10"
+        >
+          <Trash2 className="w-4 h-4 mr-2" />
+          Reset
         </Button>
       </div>
     </div>

@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { createContext, useContext, useReducer, useCallback, type ReactNode } from "react"
+import { createContext, useContext, useReducer, useCallback, useEffect, type ReactNode } from "react"
 import type { Cabinet, CabinetType, LayoutData, EditorState, DataRoute, PowerFeed, RoutingMode } from "./types"
 import { DEFAULT_LAYOUT } from "./types"
 import { normalizeLayout } from "./layout-io"
@@ -33,6 +33,7 @@ type EditorAction =
   | { type: "REMOVE_CABINET_FROM_ROUTE"; payload: { routeId: string; endpointId: string } } // Remove endpoint from route
   | { type: "ADD_CABINET_TO_POWER_FEED"; payload: { feedId: string; cabinetId: string } } // Add cabinet to power feed
   | { type: "REMOVE_CABINET_FROM_POWER_FEED"; payload: { feedId: string; cabinetId: string } } // Remove from power
+  | { type: "RESET_EDITOR" }
   | { type: "UNDO" }
   | { type: "REDO" }
   | { type: "PUSH_HISTORY" }
@@ -359,6 +360,16 @@ function editorReducer(state: EditorState, action: EditorAction): EditorState {
       }
     }
 
+    case "RESET_EDITOR": {
+      const normalized = normalizeLayout(DEFAULT_LAYOUT)
+      return {
+        ...initialState,
+        layout: normalized,
+        history: [normalized],
+        historyIndex: 0,
+      }
+    }
+
     case "UNDO":
       if (state.historyIndex > 0) {
         return {
@@ -400,16 +411,49 @@ const initialState: EditorState = {
   routingMode: { type: "none" }, // Initialize routing mode
 }
 
+const STORAGE_KEY = "led-layout-editor:v1"
+
 interface EditorContextValue {
   state: EditorState
   dispatch: React.Dispatch<EditorAction>
   generateCabinetId: () => string
+  resetEditor: () => void
 }
 
 const EditorContext = createContext<EditorContextValue | null>(null)
 
 export function EditorProvider({ children }: { children: ReactNode }) {
-  const [state, dispatch] = useReducer(editorReducer, initialState)
+  const [state, dispatch] = useReducer(editorReducer, initialState, (init) => {
+    if (typeof window === "undefined") return init
+    try {
+      const raw = window.localStorage.getItem(STORAGE_KEY)
+      if (!raw) return init
+      const parsed = JSON.parse(raw) as {
+        layout?: LayoutData
+        zoom?: number
+        panX?: number
+        panY?: number
+        showDimensions?: boolean
+      }
+      if (!parsed.layout) return init
+      const normalized = normalizeLayout(parsed.layout)
+      const restored: EditorState = {
+        ...init,
+        layout: normalized,
+        history: [normalized],
+        historyIndex: 0,
+        zoom: parsed.zoom ?? init.zoom,
+        panX: parsed.panX ?? init.panX,
+        panY: parsed.panY ?? init.panY,
+        showDimensions: parsed.showDimensions ?? init.showDimensions,
+        selectedCabinetId: null,
+        routingMode: { type: "none" },
+      }
+      return restored
+    } catch {
+      return init
+    }
+  })
 
   const generateCabinetId = useCallback(() => {
     const existingIds = state.layout.cabinets.map((c) => c.id)
@@ -422,7 +466,33 @@ export function EditorProvider({ children }: { children: ReactNode }) {
     return newId
   }, [state.layout.cabinets])
 
-  return <EditorContext.Provider value={{ state, dispatch, generateCabinetId }}>{children}</EditorContext.Provider>
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    const handle = window.setTimeout(() => {
+      const payload = {
+        layout: state.layout,
+        zoom: state.zoom,
+        panX: state.panX,
+        panY: state.panY,
+        showDimensions: state.showDimensions,
+      }
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload))
+    }, 400)
+    return () => window.clearTimeout(handle)
+  }, [state.layout, state.zoom, state.panX, state.panY, state.showDimensions])
+
+  const resetEditor = useCallback(() => {
+    if (typeof window !== "undefined") {
+      window.localStorage.removeItem(STORAGE_KEY)
+    }
+    dispatch({ type: "RESET_EDITOR" })
+  }, [dispatch])
+
+  return (
+    <EditorContext.Provider value={{ state, dispatch, generateCabinetId, resetEditor }}>
+      {children}
+    </EditorContext.Provider>
+  )
 }
 
 export function useEditor() {
