@@ -10,7 +10,8 @@ const PAGE_SIZES_MM = {
 }
 
 export function exportOverviewPdf(layout: LayoutData) {
-  const { pageSize, orientation } = layout.project.exportSettings
+  const { pageSize } = layout.project.exportSettings
+  const orientation: "portrait" | "landscape" = "landscape"
   const baseSize = PAGE_SIZES_MM[pageSize]
   const pageWidthMm = orientation === "landscape" ? baseSize.height : baseSize.width
   const pageHeightMm = orientation === "landscape" ? baseSize.width : baseSize.height
@@ -24,21 +25,39 @@ export function exportOverviewPdf(layout: LayoutData) {
   const ctx = canvas.getContext("2d")
   if (!ctx) return
 
-  const headerMm = 18
-  const marginMm = 12
+  const headerMm = 8
+  const marginMm = 6
   const headerPx = Math.round(headerMm * pxPerMm)
   const marginPx = Math.round(marginMm * pxPerMm)
 
   const bounds = getLayoutBounds(layout)
+  const dimensionOffsetMm = 260
+  const extraLeftMm = 320
+  const extraRightMm = 380
+  const extraTopMm = dimensionOffsetMm + 120
+  const extraBottomMm = 520
+
+  const extraHorizontalMm = Math.max(extraLeftMm, extraRightMm)
+  const extraVerticalMm = Math.max(extraTopMm, extraBottomMm)
+  const printBounds = {
+    minX: bounds.minX - extraHorizontalMm,
+    maxX: bounds.maxX + extraHorizontalMm,
+    minY: bounds.minY - extraVerticalMm,
+    maxY: bounds.maxY + extraVerticalMm,
+  }
+  const contentWidth = printBounds.maxX - printBounds.minX
+  const contentHeight = printBounds.maxY - printBounds.minY
   const availableWidth = canvas.width - marginPx * 2
   const availableHeight = canvas.height - headerPx - marginPx * 2
   const zoom =
-    bounds.width && bounds.height
-      ? Math.min(availableWidth / bounds.width, availableHeight / bounds.height)
+    contentWidth && contentHeight
+      ? Math.min(availableWidth / contentWidth, availableHeight / contentHeight)
       : 1
 
-  const panX = marginPx + (availableWidth - bounds.width * zoom) / 2 - bounds.minX * zoom
-  const panY = headerPx + marginPx + (availableHeight - bounds.height * zoom) / 2 - bounds.minY * zoom
+  const extraX = Math.max(0, (availableWidth - contentWidth * zoom) / 2)
+  const extraY = Math.max(0, (availableHeight - contentHeight * zoom) / 2)
+  const panX = marginPx + extraX - printBounds.minX * zoom
+  const panY = headerPx + marginPx + extraY - printBounds.minY * zoom
 
   drawOverview(ctx, layout, {
     zoom,
@@ -46,33 +65,41 @@ export function exportOverviewPdf(layout: LayoutData) {
     panY,
     viewportWidth: canvas.width,
     viewportHeight: canvas.height,
-    showGrid: false,
+    showGrid: true,
     showOrigin: false,
     labelsMode: layout.project.overview.labelsMode,
     showDimensions: true,
     showPixels: layout.project.overview.showPixels,
     showReceiverCards: layout.project.overview.showReceiverCards,
+    showDataRoutes: layout.project.overview.showDataRoutes,
+    showPowerRoutes: layout.project.overview.showPowerRoutes,
+    showModuleGrid: layout.project.overview.showModuleGrid,
+    uiScale: 3.0,
+    dimensionOffsetMm,
+    dimensionSide: "right",
     palette: {
       background: "#ffffff",
-      gridLine: "#dddddd",
-      cabinetFill: "rgba(59, 130, 246, 0.08)",
+      gridLine: "#e5e7eb",
+      cabinetFill: "rgba(224, 242, 254, 0.9)",
+      cabinetFillAlt: "rgba(191, 219, 254, 0.9)",
       cabinetStroke: "#1d4ed8",
       cabinetSelected: "#1d4ed8",
-      cabinetErrorFill: "rgba(220, 38, 38, 0.2)",
+      cabinetErrorFill: "rgba(248, 113, 113, 0.25)",
       cabinetErrorStroke: "#b91c1c",
-      labelPrimary: "#111827",
-      labelSecondary: "#4b5563",
-      receiverCardFill: "#ffffff",
-      receiverCardStroke: "#111111",
-      receiverCardText: "#111111",
-      dimensionLine: "#374151",
+      labelPrimary: "#0f172a",
+      labelSecondary: "#334155",
+      receiverCardFill: "#0b1220",
+      receiverCardStroke: "#1f2a44",
+      receiverCardText: "#f8fafc",
+      dimensionLine: "#1f2937",
       dimensionText: "#111827",
+      moduleGridLine: "rgba(148, 163, 184, 0.35)",
     },
   })
 
   // Title
   ctx.fillStyle = "#0f172a"
-  ctx.font = `${Math.round(12 * pxPerMm)}px Geist, sans-serif`
+  ctx.font = `700 ${Math.round(5 * pxPerMm)}px Geist, sans-serif`
   ctx.textAlign = "center"
   ctx.textBaseline = "middle"
   const title = getTitleParts(layout).join(" - ")

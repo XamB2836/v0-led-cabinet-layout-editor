@@ -67,7 +67,8 @@ export function getReceiverCardLabel(layout: LayoutData, cabinet: Cabinet) {
   if (cabinet.receiverCardOverride && cabinet.receiverCardOverride.trim().length > 0) {
     return cabinet.receiverCardOverride.trim()
   }
-  return layout.project.overview.receiverCardModel
+  const model = layout.project.overview.receiverCardModel?.trim()
+  return model && model.length > 0 ? model : "5A75-E"
 }
 
 export function getLayoutPixelDimensions(layout: LayoutData) {

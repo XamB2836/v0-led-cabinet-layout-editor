@@ -5,12 +5,13 @@ import type React from "react"
 import { useRef } from "react"
 import { useEditor } from "@/lib/editor-context"
 import type { LayoutData } from "@/lib/types"
+import { exportOverviewPdf } from "@/lib/export-pdf"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Download, Upload, Undo2, Redo2, Grid3X3 } from "lucide-react"
+import { Download, Upload, Undo2, Redo2, Grid3X3, FileDown } from "lucide-react"
 
 export function TopBar() {
   const { state, dispatch } = useEditor()
@@ -163,6 +164,10 @@ export function TopBar() {
         <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
           <Upload className="w-4 h-4 mr-2" />
           Import
+        </Button>
+        <Button variant="outline" size="sm" onClick={() => exportOverviewPdf(layout)}>
+          <FileDown className="w-4 h-4 mr-2" />
+          PDF
         </Button>
         <Button variant="outline" size="sm" onClick={handleExportJSON}>
           <Download className="w-4 h-4 mr-2" />

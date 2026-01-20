@@ -167,7 +167,6 @@ function drawOverallDimensions(
 ) {
   const layoutBounds = getLayoutBoundsFromCabinets(cabinets, cabinetTypes)
   if (!layoutBounds) return
-
   const { minX, minY, maxX, maxY } = layoutBounds
 
   const totalWidth = Math.round(maxX - minX)
@@ -664,9 +663,29 @@ function drawPowerFeeds(
 
   const layoutBounds = getLayoutBoundsFromCabinets(cabinets, cabinetTypes)
   if (!layoutBounds) return
-  const routePadding = 200
-  const routeTopY = layoutBounds.minY - routePadding
-  const routeRightX = layoutBounds.maxX + routePadding
+  const layoutMidY = (layoutBounds.minY + layoutBounds.maxY) / 2
+  const rowEdges = cabinets
+    .map((cabinet) => getCabinetBounds(cabinet, cabinetTypes))
+    .filter((bounds): bounds is NonNullable<ReturnType<typeof getCabinetBounds>> => !!bounds)
+    .flatMap((bounds) => [bounds.y, bounds.y2])
+    .sort((a, b) => a - b)
+  const edgeTolerance = scaledWorldSize(8, zoom, 6, 12)
+  const edgeOffset = scaledWorldSize(14, zoom, 10, 18)
+  const nudgeAwayFromEdges = (y: number) => {
+    if (rowEdges.length === 0) return y
+    let nearest = rowEdges[0]
+    let minDist = Math.abs(y - nearest)
+    for (let i = 1; i < rowEdges.length; i++) {
+      const dist = Math.abs(y - rowEdges[i])
+      if (dist < minDist) {
+        minDist = dist
+        nearest = rowEdges[i]
+      }
+    }
+    if (minDist > edgeTolerance) return y
+    const direction = y === nearest ? (y >= layoutMidY ? 1 : -1) : Math.sign(y - nearest)
+    return y + (direction || 1) * edgeOffset
+  }
 
   powerFeeds.forEach((feed) => {
     if (feed.assignedCabinetIds.length === 0) return
@@ -687,7 +706,6 @@ function drawPowerFeeds(
       bounds: NonNullable<ReturnType<typeof getCabinetBounds>>
       cardRect?: ReceiverCardRect
     }[] = []
-    const layoutMidY = (layoutBounds.minY + layoutBounds.maxY) / 2
     feed.assignedCabinetIds.forEach((id) => {
       const cabinet = cabinets.find((c) => c.id === id)
       if (!cabinet) return
@@ -803,10 +821,9 @@ function drawPowerFeeds(
         } else if (dx < 10) {
           ctx.lineTo(curr.x, curr.y)
         } else {
-          // Route around the top/right edges to create a wide U path.
-          ctx.lineTo(prev.x, routeTopY)
-          ctx.lineTo(routeRightX, routeTopY)
-          ctx.lineTo(routeRightX, curr.y)
+          const midY = nudgeAwayFromEdges((prev.y + curr.y) / 2)
+          ctx.lineTo(prev.x, midY)
+          ctx.lineTo(curr.x, midY)
           ctx.lineTo(curr.x, curr.y)
         }
       }
@@ -837,10 +854,9 @@ function drawPowerFeeds(
         } else if (dx < 10) {
           ctx.lineTo(curr.x, curr.y)
         } else {
-          // Route around the top/right edges to create a wide U path.
-          ctx.lineTo(prev.x, routeTopY)
-          ctx.lineTo(routeRightX, routeTopY)
-          ctx.lineTo(routeRightX, curr.y)
+          const midY = nudgeAwayFromEdges((prev.y + curr.y) / 2)
+          ctx.lineTo(prev.x, midY)
+          ctx.lineTo(curr.x, midY)
           ctx.lineTo(curr.x, curr.y)
         }
       }
@@ -975,8 +991,9 @@ export function LayoutCanvas() {
 
   const [isPanning, setIsPanning] = useState(false)
   const [lastPanPos, setLastPanPos] = useState({ x: 0, y: 0 })
-  const [isDraggingCabinet, setIsDraggingCabinet] = useState(false)
-  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
+  const isDraggingCabinetRef = useRef(false)
+  const draggingCabinetIdRef = useRef<string | null>(null)
+  const dragOffsetRef = useRef({ x: 0, y: 0 })
 
   const errors = validateLayout(layout)
   const errorCabinetIds = new Set(errors.filter((e) => e.type === "error").flatMap((e) => e.cabinetIds))
@@ -1415,11 +1432,12 @@ export function LayoutCanvas() {
       } else {
         // Normal selection/drag
         dispatch({ type: "SELECT_CABINET", payload: cabinet.id })
-        setIsDraggingCabinet(true)
-        setDragOffset({
+        isDraggingCabinetRef.current = true
+        draggingCabinetIdRef.current = cabinet.id
+        dragOffsetRef.current = {
           x: world.x - cabinet.x_mm,
           y: world.y - cabinet.y_mm,
-        })
+        }
       }
     } else {
       dispatch({ type: "SELECT_CABINET", payload: null })
@@ -1432,13 +1450,13 @@ export function LayoutCanvas() {
       const dy = e.clientY - lastPanPos.y
       dispatch({ type: "SET_PAN", payload: { x: panX + dx, y: panY + dy } })
       setLastPanPos({ x: e.clientX, y: e.clientY })
-    } else if (isDraggingCabinet && selectedCabinetId && routingMode.type === "none") {
+    } else if (isDraggingCabinetRef.current && draggingCabinetIdRef.current && routingMode.type === "none") {
       const world = screenToWorld(e.clientX, e.clientY)
-      const snapped = snapToGrid(world.x - dragOffset.x, world.y - dragOffset.y)
+      const snapped = snapToGrid(world.x - dragOffsetRef.current.x, world.y - dragOffsetRef.current.y)
       dispatch({
         type: "UPDATE_CABINET",
         payload: {
-          id: selectedCabinetId,
+          id: draggingCabinetIdRef.current,
           updates: { x_mm: snapped.x, y_mm: snapped.y },
         },
       })
@@ -1446,11 +1464,12 @@ export function LayoutCanvas() {
   }
 
   const handleMouseUp = () => {
-    if (isDraggingCabinet) {
+    if (isDraggingCabinetRef.current) {
       dispatch({ type: "PUSH_HISTORY" })
     }
     setIsPanning(false)
-    setIsDraggingCabinet(false)
+    isDraggingCabinetRef.current = false
+    draggingCabinetIdRef.current = null
   }
 
 
