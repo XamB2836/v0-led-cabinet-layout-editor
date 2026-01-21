@@ -1203,11 +1203,8 @@ export function drawOverview(ctx: CanvasRenderingContext2D, layout: LayoutData, 
     ctx.font = `${smallFontSize}px ${FONT_FAMILY}`
     ctx.textAlign = "right"
     ctx.textBaseline = "alphabetic"
-    ctx.fillText(
-      cabinet.typeId.replace("STD_", ""),
-      bounds.x + bounds.width - 6 / uiZoom,
-      bounds.y + bounds.height - 6 / uiZoom,
-    )
+    const sizeLabel = `${Math.round(bounds.width)}x${Math.round(bounds.height)}`
+    ctx.fillText(sizeLabel, bounds.x + bounds.width - 6 / uiZoom, bounds.y + bounds.height - 6 / uiZoom)
 
   })
 

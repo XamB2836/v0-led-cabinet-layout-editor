@@ -1382,18 +1382,9 @@ export function LayoutCanvas() {
       ctx.font = `${smallFontSize}px Inter, sans-serif`
       ctx.textAlign = "right"
       ctx.textBaseline = "alphabetic"
-      ctx.fillText(
-        cabinet.typeId.replace("STD_", ""),
-        bounds.x + bounds.width - 6 / zoom,
-        bounds.y + bounds.height - 6 / zoom,
-      )
+      const sizeLabel = `${Math.round(bounds.width)}x${Math.round(bounds.height)}`
+      ctx.fillText(sizeLabel, bounds.x + bounds.width - 6 / zoom, bounds.y + bounds.height - 6 / zoom)
 
-      if (cabinet.rot_deg !== 0) {
-        ctx.fillStyle = "#94a3b8"
-        ctx.font = `${smallFontSize}px Inter, sans-serif`
-        ctx.textAlign = "right"
-        ctx.fillText(`${cabinet.rot_deg}°`, bounds.x + bounds.width - 4, bounds.y + smallFontSize + 4)
-      }
 
       if (routingMode.type === "data" && isInActiveRoute) {
         const route = layout.project.dataRoutes.find((r) => r.id === routingMode.routeId)

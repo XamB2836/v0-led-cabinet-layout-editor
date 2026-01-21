@@ -35,10 +35,15 @@ export function PropertiesPanel() {
   const receiverCardCount = selectedCabinet ? getCabinetReceiverCardCount(selectedCabinet) : 1
   const receiverModelDefault = layout.project.overview.receiverCardModel || "5A75-E"
   const [receiverModelDraft, setReceiverModelDraft] = useState(receiverModelDefault)
+  const [gridLabelDraft, setGridLabelDraft] = useState("")
 
   useEffect(() => {
     setReceiverModelDraft(receiverModelDefault)
   }, [receiverModelDefault])
+
+  useEffect(() => {
+    setGridLabelDraft(selectedCabinet?.gridLabelOverride ?? "")
+  }, [selectedCabinet?.id, selectedCabinet?.gridLabelOverride])
 
   const handleDelete = () => {
     if (!selectedCabinet) return
@@ -133,6 +138,18 @@ export function PropertiesPanel() {
     }
   }
 
+  const handleApplyGridLabelOverride = () => {
+    if (!selectedCabinet) return
+    const trimmed = gridLabelDraft.trim()
+    const nextValue = trimmed.length === 0 ? undefined : trimmed
+    if ((selectedCabinet.gridLabelOverride ?? "") === (nextValue ?? "")) return
+    dispatch({
+      type: "UPDATE_CABINET",
+      payload: { id: selectedCabinet.id, updates: { gridLabelOverride: nextValue } },
+    })
+    dispatch({ type: "PUSH_HISTORY" })
+  }
+
   const errorCount = errors.filter((e) => e.type === "error").length
   const warningCount = errors.filter((e) => e.type === "warning").length
 
@@ -193,6 +210,25 @@ export function PropertiesPanel() {
 
                 {selectedCabinet ? (
                   <div className="space-y-3">
+                    {labelsMode === "grid" ? (
+                      <div className="space-y-2">
+                        <Label className="text-xs">Grid Label Override</Label>
+                        <Input
+                          value={gridLabelDraft}
+                          onChange={(e) => setGridLabelDraft(e.target.value)}
+                          onBlur={handleApplyGridLabelOverride}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault()
+                              ;(e.target as HTMLInputElement).blur()
+                            }
+                          }}
+                          className="h-8 bg-input text-sm font-mono"
+                          placeholder="Auto"
+                        />
+                        <div className="text-[11px] text-zinc-500">Leave empty to use auto grid labels.</div>
+                      </div>
+                    ) : null}
                     <div className="space-y-2">
                       <div className="flex items-center justify-between">
                         <Label className="text-xs">Receiver Cards</Label>

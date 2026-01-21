@@ -16,6 +16,7 @@ export interface Cabinet {
   chainIndex?: number
   receiverCardCount?: 0 | 1 | 2
   receiverCardOverride?: string | null // null = hide, undefined = use global, string = custom label
+  gridLabelOverride?: string
 }
 
 export interface GridSettings {
@@ -161,7 +162,9 @@ export const DEFAULT_LAYOUT: LayoutData = {
 }
 
 export function computeGridLabel(cabinet: Cabinet, allCabinets: Cabinet[], cabinetTypes: CabinetType[]): string {
-  // Get all cabinet bounds
+  const override = cabinet.gridLabelOverride?.trim()
+  if (override) return override
+
   const cabinetsWithBounds = allCabinets
     .map((c) => {
       const type = cabinetTypes.find((t) => t.typeId === c.typeId)
