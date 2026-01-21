@@ -10,7 +10,7 @@ const PAGE_SIZES_MM = {
 }
 
 export function exportOverviewPdf(layout: LayoutData) {
-  const { pageSize } = layout.project.exportSettings
+  const { pageSize, viewSide } = layout.project.exportSettings
   const orientation: "portrait" | "landscape" = "landscape"
   const baseSize = PAGE_SIZES_MM[pageSize]
   const pageWidthMm = orientation === "landscape" ? baseSize.height : baseSize.width
@@ -68,6 +68,7 @@ export function exportOverviewPdf(layout: LayoutData) {
     showGrid: true,
     showOrigin: false,
     labelsMode: layout.project.overview.labelsMode,
+    showCabinetLabels: layout.project.overview.showCabinetLabels,
     showDimensions: true,
     showPixels: layout.project.overview.showPixels,
     showReceiverCards: layout.project.overview.showReceiverCards,
@@ -105,6 +106,12 @@ export function exportOverviewPdf(layout: LayoutData) {
   ctx.textBaseline = "middle"
   const title = getTitleParts(layout).join(" - ")
   ctx.fillText(title, canvas.width / 2, headerPx / 2)
+
+  const viewLabel = viewSide === "back" ? "Back View" : "Front View"
+  ctx.font = `600 ${Math.round(3.2 * pxPerMm)}px Geist, sans-serif`
+  ctx.textAlign = "right"
+  ctx.textBaseline = "middle"
+  ctx.fillText(viewLabel, canvas.width - marginPx, headerPx / 2)
 
   const pdf = new jsPDF({
     orientation,

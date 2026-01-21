@@ -1138,6 +1138,7 @@ export function LayoutCanvas() {
 
     const { overview, dataRoutes, powerFeeds, controller } = layout.project
     const labelsMode = overview?.labelsMode || "internal"
+    const showCabinetLabels = overview?.showCabinetLabels ?? true
     const showReceiverCards = overview?.showReceiverCards ?? true
     const receiverCardModel = overview?.receiverCardModel || "5A75-E"
     const showDataRoutes = overview?.showDataRoutes ?? true
@@ -1229,9 +1230,18 @@ export function LayoutCanvas() {
       ctx.lineWidth = isSelected || isInActiveRoute ? 3 / zoom : 2.5 / zoom
       ctx.strokeRect(bounds.x, bounds.y, bounds.width, bounds.height)
 
-      if (labelsMode === "grid") {
-        const displayLabel = computeGridLabel(cabinet, layout.cabinets, layout.cabinetTypes)
-        drawGridLabel(ctx, bounds, displayLabel, zoom)
+      if (showCabinetLabels) {
+        if (labelsMode === "grid") {
+          const displayLabel = computeGridLabel(cabinet, layout.cabinets, layout.cabinetTypes)
+          drawGridLabel(ctx, bounds, displayLabel, zoom)
+        } else {
+          const fontSize = Math.max(12, 14 / zoom)
+          ctx.fillStyle = "#e2e8f0"
+          ctx.font = `${fontSize}px Inter, sans-serif`
+          ctx.textAlign = "center"
+          ctx.textBaseline = "middle"
+          ctx.fillText(cabinet.id, bounds.x + bounds.width / 2, bounds.y + bounds.height / 2 - fontSize / 2)
+        }
       }
 
       ctx.fillStyle = "#64748b"

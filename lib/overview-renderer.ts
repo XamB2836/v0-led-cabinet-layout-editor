@@ -33,6 +33,7 @@ export interface OverviewRenderOptions {
   showGrid: boolean
   showOrigin: boolean
   labelsMode: LabelsMode
+  showCabinetLabels?: boolean
   showDimensions: boolean
   showPixels: boolean
   showReceiverCards: boolean
@@ -966,7 +967,8 @@ export function drawOverview(ctx: CanvasRenderingContext2D, layout: LayoutData, 
     ctx.stroke()
   }
 
-  const showGridLabels = shouldShowGridLabels(options.labelsMode)
+  const showCabinetLabels = options.showCabinetLabels ?? layout.project.overview.showCabinetLabels ?? true
+  const showGridLabels = showCabinetLabels && shouldShowGridLabels(options.labelsMode)
   const receiverCardModel = layout.project.overview.receiverCardModel
   const showReceiverCards = (options.showReceiverCards ?? true) && (layout.project.overview.showReceiverCards ?? true)
   const showDataRoutes = (options.showDataRoutes ?? true) && (layout.project.overview.showDataRoutes ?? true)
@@ -1042,7 +1044,7 @@ export function drawOverview(ctx: CanvasRenderingContext2D, layout: LayoutData, 
     const fontSize = Math.max(12, 14 / uiZoom)
     const smallFontSize = Math.max(9, 10 / uiZoom)
 
-    if (options.labelsMode === "internal") {
+    if (showCabinetLabels && options.labelsMode === "internal") {
       ctx.fillStyle = palette.labelPrimary
       ctx.font = `${fontSize}px ${FONT_FAMILY}`
       ctx.textAlign = "center"

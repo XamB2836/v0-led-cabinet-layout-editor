@@ -29,6 +29,7 @@ export interface OverviewSettings {
   showReceiverCards: boolean
   receiverCardModel: string
   labelsMode: LabelsMode
+  showCabinetLabels: boolean
   showPixels: boolean
   showDataRoutes: boolean
   forcePortLabelsBottom: boolean
@@ -58,6 +59,7 @@ export interface PowerFeed {
 export interface ExportSettings {
   pageSize: "A4" | "A3"
   orientation: "portrait" | "landscape"
+  viewSide: "front" | "back"
   title: string
   clientName: string
 }
@@ -133,6 +135,7 @@ export const DEFAULT_LAYOUT: LayoutData = {
       showReceiverCards: true,
       receiverCardModel: "5A75-E",
       labelsMode: "grid",
+      showCabinetLabels: true,
       showPixels: true,
       showDataRoutes: true,
       forcePortLabelsBottom: false,
@@ -146,6 +149,7 @@ export const DEFAULT_LAYOUT: LayoutData = {
     exportSettings: {
       pageSize: "A4",
       orientation: "portrait",
+      viewSide: "front",
       title: "",
       clientName: "",
     },

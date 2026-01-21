@@ -6,12 +6,12 @@ import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
-import { Cpu, Tag, Ruler, Cable, Zap, LayoutGrid } from "lucide-react"
+import { Cpu, Tag, Ruler, Cable, Zap, LayoutGrid, FileDown } from "lucide-react"
 
 export function OverviewSettings() {
   const { state, dispatch } = useEditor()
   const { layout } = state
-  const { overview } = layout.project
+  const { overview, exportSettings } = layout.project
 
   return (
     <div className="space-y-4">
@@ -58,26 +58,17 @@ export function OverviewSettings() {
           Cabinet Labels
         </div>
 
-        <div className="space-y-1.5">
-          <Label className="text-xs">Label Mode</Label>
-          <Select
-            value={overview?.labelsMode || "grid"}
-            onValueChange={(value: "internal" | "grid") =>
-              dispatch({ type: "UPDATE_OVERVIEW", payload: { labelsMode: value } })
-            }
-          >
-            <SelectTrigger className="h-8 bg-input text-sm">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="grid">Grid Labels (A1, B1, C1...)</SelectItem>
-              <SelectItem value="internal">Internal IDs (C01, C02...)</SelectItem>
-            </SelectContent>
-          </Select>
-          <p className="text-xs text-muted-foreground mt-1">
-            Grid labels show column letters (A-Z) and row numbers (1-9) like SolidWorks
-          </p>
+        <div className="flex items-center justify-between">
+          <Label htmlFor="show-cabinet-labels" className="text-sm">
+            Show Cabinet Labels
+          </Label>
+          <Switch
+            id="show-cabinet-labels"
+            checked={overview?.showCabinetLabels ?? true}
+            onCheckedChange={(checked) => dispatch({ type: "UPDATE_OVERVIEW", payload: { showCabinetLabels: checked } })}
+          />
         </div>
+        <p className="text-xs text-muted-foreground mt-1">Toggle the cabinet grid labels on the layout.</p>
       </div>
 
       <Separator />
@@ -217,6 +208,33 @@ export function OverviewSettings() {
           />
         </div>
         <p className="text-xs text-muted-foreground">Display orange power feed lines and consumption labels</p>
+      </div>
+
+      <Separator />
+
+      <div className="space-y-3">
+        <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+          <FileDown className="w-3 h-3" />
+          PDF Export
+        </div>
+        <div className="space-y-1.5">
+          <Label className="text-xs">View</Label>
+          <Select
+            value={exportSettings?.viewSide || "front"}
+            onValueChange={(value: "front" | "back") =>
+              dispatch({ type: "UPDATE_EXPORT_SETTINGS", payload: { viewSide: value } })
+            }
+          >
+            <SelectTrigger className="h-8 bg-input text-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="front">Front View</SelectItem>
+              <SelectItem value="back">Back View</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <p className="text-xs text-muted-foreground">Printed on the PDF header.</p>
       </div>
     </div>
   )
