@@ -1135,7 +1135,7 @@ export function LayoutCanvas() {
     const showPowerRoutes = overview?.showPowerRoutes ?? true
     const showModuleGrid = overview?.showModuleGrid ?? true
     const moduleSize = overview?.moduleSize || "320x160"
-    const moduleOrientation = overview?.moduleOrientation || "landscape"
+    const moduleOrientation = overview?.moduleOrientation || "portrait"
     const baseModule = moduleSize === "160x160" ? { width: 160, height: 160 } : { width: 320, height: 160 }
     const moduleWidth = moduleOrientation === "portrait" ? baseModule.height : baseModule.width
     const moduleHeight = moduleOrientation === "portrait" ? baseModule.width : baseModule.height

@@ -123,7 +123,7 @@ export function OverviewSettings() {
           <div className="space-y-1.5">
             <Label className="text-xs">Orientation</Label>
             <Select
-              value={overview?.moduleOrientation || "landscape"}
+              value={overview?.moduleOrientation || "portrait"}
               onValueChange={(value: "landscape" | "portrait") =>
                 dispatch({ type: "UPDATE_OVERVIEW", payload: { moduleOrientation: value } })
               }

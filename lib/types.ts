@@ -136,7 +136,7 @@ export const DEFAULT_LAYOUT: LayoutData = {
       showPowerRoutes: true,
       showModuleGrid: true,
       moduleSize: "320x160",
-      moduleOrientation: "landscape",
+      moduleOrientation: "portrait",
     },
     dataRoutes: [],
     powerFeeds: [],
