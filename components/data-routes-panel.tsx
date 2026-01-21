@@ -5,6 +5,7 @@ import { getCabinetBounds, getLayoutBounds } from "@/lib/validation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Switch } from "@/components/ui/switch"
 import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -195,6 +196,14 @@ export function DataRoutesPanel() {
 
   const handleClearRoute = (routeId: string) => {
     dispatch({ type: "UPDATE_DATA_ROUTE", payload: { id: routeId, updates: { cabinetIds: [] } } })
+    dispatch({ type: "PUSH_HISTORY" })
+  }
+
+  const handleRoutePortLabelBottom = (routeId: string, forceBottom: boolean) => {
+    dispatch({
+      type: "UPDATE_DATA_ROUTE",
+      payload: { id: routeId, updates: { forcePortLabelBottom: forceBottom ? true : undefined } },
+    })
     dispatch({ type: "PUSH_HISTORY" })
   }
 
@@ -473,6 +482,16 @@ export function DataRoutesPanel() {
                       Load: {getDataRouteLoadPx(route, layout.cabinets, layout.cabinetTypes, pitchMm).toLocaleString()} px
                       {" / "}
                       650,000 px
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor={`route-label-bottom-${route.id}`} className="text-xs text-zinc-400">
+                        Force port label bottom
+                      </Label>
+                      <Switch
+                        id={`route-label-bottom-${route.id}`}
+                        checked={route.forcePortLabelBottom ?? false}
+                        onCheckedChange={(checked) => handleRoutePortLabelBottom(route.id, checked)}
+                      />
                     </div>
                   </div>
                 )

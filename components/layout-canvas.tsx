@@ -215,11 +215,11 @@ function getReceiverCardRect(bounds: { x: number; y: number; width: number; heig
 }
 
 function getReceiverCardRects(
-  bounds: { x: number; y: number; width: number; height: number },
+  bounds: { x: number; y: number; width: number; height: number } | null,
   zoom: number,
   count: 0 | 1 | 2,
 ): ReceiverCardRect[] {
-  if (count <= 0) return []
+  if (!bounds || count <= 0) return []
   const base = getReceiverCardRect(bounds, zoom)
   if (count === 1) return [base]
 
@@ -252,12 +252,13 @@ function getReceiverCardRects(
 }
 
 function getReceiverCardIndexAtPoint(
-  bounds: { x: number; y: number; width: number; height: number },
+  bounds: { x: number; y: number; width: number; height: number } | null,
   zoom: number,
   count: 0 | 1 | 2,
   pointX: number,
   pointY: number,
 ): number | null {
+  if (!bounds) return null
   const rects = getReceiverCardRects(bounds, zoom, count)
   if (rects.length === 0) return null
   const hitIndex = rects.findIndex(
@@ -407,6 +408,7 @@ function drawDataRoutes(
   zoom: number,
   showReceiverCards: boolean,
   receiverCardModel: string,
+  forcePortLabelsBottom: boolean,
   pitchMm: number,
 ) {
   const lineWidth = scaledWorldSize(5, zoom, 3, 9)
@@ -492,9 +494,10 @@ function drawDataRoutes(
     const labelWidth = ctx.measureText(portLabel).width + labelPadding * 2
     const labelHeight = fontSize + labelPadding * 1.6
     const portLabelCenterY = firstPoint.y
+    const forceBottom = route.forcePortLabelBottom ?? forcePortLabelsBottom
 
     let placeLeft = false
-    if (firstBounds && rowCenters.length > 1) {
+    if (!forceBottom && firstBounds && rowCenters.length > 1) {
       const centerY = firstBounds.y + firstBounds.height / 2
       let rowIndex = rowCenters.findIndex((rowY) => Math.abs(rowY - centerY) < rowTolerance)
       if (rowIndex === -1) {
@@ -507,11 +510,16 @@ function drawDataRoutes(
       placeLeft = rowIndex < rowCenters.length - 1
     }
 
-    const portLabelX = placeLeft
-      ? (firstBounds?.x ?? firstPoint.x) - labelSideGap - labelWidth / 2
+    const layoutCenterX = (layoutBounds.minX + layoutBounds.maxX) / 2
+    const firstCenterX = firstBounds ? firstBounds.x + firstBounds.width / 2 : firstPoint.x
+    const placeSide = placeLeft ? (firstCenterX >= layoutCenterX ? "right" : "left") : null
+    const portLabelX = placeSide
+      ? placeSide === "right"
+        ? layoutBounds.maxX + labelSideGap + labelWidth / 2
+        : layoutBounds.minX - labelSideGap - labelWidth / 2
       : firstPoint.x
-    const portLabelY = placeLeft ? portLabelCenterY : maxY + labelOffset
-    const labelBoxY = placeLeft ? portLabelCenterY - labelHeight / 2 : portLabelY - labelHeight / 2
+    const portLabelY = placeSide ? portLabelCenterY : maxY + labelOffset
+    const labelBoxY = placeSide ? portLabelCenterY - labelHeight / 2 : portLabelY - labelHeight / 2
 
     ctx.fillStyle = "rgba(15, 23, 42, 0.95)"
     ctx.strokeStyle = lineColor
@@ -526,8 +534,9 @@ function drawDataRoutes(
     ctx.fillText(portLabel, portLabelX, portLabelY)
 
     // Draw line from port to first cabinet
-    const lineStartX = placeLeft ? portLabelX + labelWidth / 2 : portLabelX
-    const lineStartY = placeLeft ? portLabelCenterY : portLabelY - labelHeight / 2
+    const lineStartX =
+      placeSide === "left" ? portLabelX + labelWidth / 2 : placeSide === "right" ? portLabelX - labelWidth / 2 : portLabelX
+    const lineStartY = placeSide ? portLabelCenterY : portLabelY - labelHeight / 2
     ctx.strokeStyle = "rgba(2, 6, 23, 0.9)"
     ctx.lineWidth = outlineWidth
     ctx.beginPath()
@@ -1134,11 +1143,16 @@ export function LayoutCanvas() {
     const showDataRoutes = overview?.showDataRoutes ?? true
     const showPowerRoutes = overview?.showPowerRoutes ?? true
     const showModuleGrid = overview?.showModuleGrid ?? true
+    const forcePortLabelsBottom = overview?.forcePortLabelsBottom ?? false
     const moduleSize = overview?.moduleSize || "320x160"
     const moduleOrientation = overview?.moduleOrientation || "portrait"
     const baseModule = moduleSize === "160x160" ? { width: 160, height: 160 } : { width: 320, height: 160 }
     const moduleWidth = moduleOrientation === "portrait" ? baseModule.height : baseModule.width
     const moduleHeight = moduleOrientation === "portrait" ? baseModule.width : baseModule.height
+    const moduleGridBounds = showModuleGrid
+      ? getLayoutBoundsFromCabinets(layout.cabinets, layout.cabinetTypes)
+      : null
+    const moduleGridOrigin = moduleGridBounds ? { x: moduleGridBounds.minX, y: moduleGridBounds.minY } : null
     const routeBadges: { x: number; y: number; size: number; label: string }[] = []
 
     // Draw cabinets
@@ -1186,7 +1200,7 @@ export function LayoutCanvas() {
       ctx.fillStyle = fillGradient
       ctx.fillRect(bounds.x, bounds.y, bounds.width, bounds.height)
 
-      if (showModuleGrid && moduleWidth > 0 && moduleHeight > 0) {
+      if (showModuleGrid && moduleWidth > 0 && moduleHeight > 0 && moduleGridOrigin) {
         ctx.save()
         const inset = 1 / zoom
         ctx.beginPath()
@@ -1195,11 +1209,15 @@ export function LayoutCanvas() {
         ctx.strokeStyle = "rgba(148, 163, 184, 0.22)"
         ctx.lineWidth = Math.max(0.8 / zoom, 0.6 / zoom)
         ctx.beginPath()
-        for (let x = bounds.x + moduleWidth; x < bounds.x + bounds.width - inset; x += moduleWidth) {
+        let startX = moduleGridOrigin.x + Math.ceil((bounds.x - moduleGridOrigin.x) / moduleWidth) * moduleWidth
+        if (startX <= bounds.x + 1e-6) startX += moduleWidth
+        for (let x = startX; x < bounds.x + bounds.width - inset; x += moduleWidth) {
           ctx.moveTo(x, bounds.y + inset)
           ctx.lineTo(x, bounds.y + bounds.height - inset)
         }
-        for (let y = bounds.y + moduleHeight; y < bounds.y + bounds.height - inset; y += moduleHeight) {
+        let startY = moduleGridOrigin.y + Math.ceil((bounds.y - moduleGridOrigin.y) / moduleHeight) * moduleHeight
+        if (startY <= bounds.y + 1e-6) startY += moduleHeight
+        for (let y = startY; y < bounds.y + bounds.height - inset; y += moduleHeight) {
           ctx.moveTo(bounds.x + inset, y)
           ctx.lineTo(bounds.x + bounds.width - inset, y)
         }
@@ -1296,6 +1314,7 @@ export function LayoutCanvas() {
         zoom,
         showReceiverCards,
         receiverCardModel,
+        forcePortLabelsBottom,
         layout.project.pitch_mm,
       )
     }
@@ -1378,8 +1397,9 @@ export function LayoutCanvas() {
             const bounds = getCabinetBounds(cabinet, layout.cabinetTypes)
             if (!bounds) continue
 
+            const forceBottom = route.forcePortLabelBottom ?? forcePortLabelsBottom
             let placeLeft = false
-            if (rowCenters.length > 1) {
+            if (!forceBottom && rowCenters.length > 1) {
               const centerY = bounds.y + bounds.height / 2
               let rowIndex = rowCenters.findIndex((rowY) => Math.abs(rowY - centerY) < rowTolerance)
               if (rowIndex === -1) {
@@ -1392,7 +1412,7 @@ export function LayoutCanvas() {
               placeLeft = rowIndex < rowCenters.length - 1
             }
 
-            if (!placeLeft) {
+            if (forceBottom || !placeLeft) {
               dataPortBottom = layoutBounds.maxY + labelOffset + labelHeight / 2
               break
             }

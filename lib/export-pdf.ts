@@ -74,6 +74,7 @@ export function exportOverviewPdf(layout: LayoutData) {
     showDataRoutes: layout.project.overview.showDataRoutes,
     showPowerRoutes: layout.project.overview.showPowerRoutes,
     showModuleGrid: layout.project.overview.showModuleGrid,
+    forcePortLabelsBottom: layout.project.overview.forcePortLabelsBottom,
     uiScale: 3.0,
     dimensionOffsetMm,
     dimensionSide: "right",

@@ -183,6 +183,18 @@ export function OverviewSettings() {
             onCheckedChange={(checked) => dispatch({ type: "UPDATE_OVERVIEW", payload: { showDataRoutes: checked } })}
           />
         </div>
+        <div className="flex items-center justify-between">
+          <Label htmlFor="force-port-labels-bottom" className="text-sm">
+            Default Port Labels Bottom
+          </Label>
+          <Switch
+            id="force-port-labels-bottom"
+            checked={overview?.forcePortLabelsBottom ?? false}
+            onCheckedChange={(checked) =>
+              dispatch({ type: "UPDATE_OVERVIEW", payload: { forcePortLabelsBottom: checked } })
+            }
+          />
+        </div>
         <p className="text-xs text-muted-foreground">Display blue data chain lines between cabinets</p>
       </div>
 

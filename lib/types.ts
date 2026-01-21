@@ -31,6 +31,7 @@ export interface OverviewSettings {
   labelsMode: LabelsMode
   showPixels: boolean
   showDataRoutes: boolean
+  forcePortLabelsBottom: boolean
   showPowerRoutes: boolean
   showModuleGrid: boolean
   moduleSize: "320x160" | "160x160"
@@ -40,6 +41,7 @@ export interface OverviewSettings {
 export interface DataRoute {
   id: string
   port: number
+  forcePortLabelBottom?: boolean
   cabinetIds: string[] // ordered cabinet endpoint IDs in chain
 }
 
@@ -133,6 +135,7 @@ export const DEFAULT_LAYOUT: LayoutData = {
       labelsMode: "grid",
       showPixels: true,
       showDataRoutes: true,
+      forcePortLabelsBottom: false,
       showPowerRoutes: true,
       showModuleGrid: true,
       moduleSize: "320x160",
