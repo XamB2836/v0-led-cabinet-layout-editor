@@ -392,30 +392,41 @@ function drawDataRoutes(
     const portLabelCenterY = firstPoint.y
     const forceBottom = route.forcePortLabelBottom ?? forcePortLabelsBottom
 
-    let placeLeft = false
-    if (!forceBottom && firstBounds && rowCenters.length > 1) {
-      const centerY = firstBounds.y + firstBounds.height / 2
-      let rowIndex = rowCenters.findIndex((rowY) => Math.abs(rowY - centerY) < rowTolerance)
-      if (rowIndex === -1) {
-        rowIndex = rowCenters.reduce((bestIndex, rowY, index) => {
-          const bestDistance = Math.abs(rowCenters[bestIndex] - centerY)
-          const distance = Math.abs(rowY - centerY)
-          return distance < bestDistance ? index : bestIndex
-        }, 0)
+    const resolvedPosition = (() => {
+      if (route.labelPosition && route.labelPosition !== "auto") return route.labelPosition
+      if (forceBottom) return "bottom"
+      let placeSide = false
+      if (firstBounds && rowCenters.length > 1) {
+        const centerY = firstBounds.y + firstBounds.height / 2
+        let rowIndex = rowCenters.findIndex((rowY) => Math.abs(rowY - centerY) < rowTolerance)
+        if (rowIndex === -1) {
+          rowIndex = rowCenters.reduce((bestIndex, rowY, index) => {
+            const bestDistance = Math.abs(rowCenters[bestIndex] - centerY)
+            const distance = Math.abs(rowY - centerY)
+            return distance < bestDistance ? index : bestIndex
+          }, 0)
+        }
+        placeSide = rowIndex < rowCenters.length - 1
       }
-      placeLeft = rowIndex < rowCenters.length - 1
-    }
+      if (!placeSide) return "bottom"
+      const layoutCenterX = (layoutBounds.minX + layoutBounds.maxX) / 2
+      const firstCenterX = firstBounds ? firstBounds.x + firstBounds.width / 2 : firstPoint.x
+      return firstCenterX >= layoutCenterX ? "right" : "left"
+    })()
 
-    const layoutCenterX = (layoutBounds.minX + layoutBounds.maxX) / 2
-    const firstCenterX = firstBounds ? firstBounds.x + firstBounds.width / 2 : firstPoint.x
-    const placeSide = placeLeft ? (firstCenterX >= layoutCenterX ? "right" : "left") : null
-    const portLabelX = placeSide
-      ? placeSide === "right"
-        ? layoutBounds.maxX + labelSideGap + labelWidth / 2
-        : layoutBounds.minX - labelSideGap - labelWidth / 2
-      : firstPoint.x
-    const portLabelY = placeSide ? portLabelCenterY : maxY + labelOffset
-    const labelBoxY = placeSide ? portLabelCenterY - labelHeight / 2 : portLabelY - labelHeight / 2
+    const portLabelX =
+      resolvedPosition === "left"
+        ? layoutBounds.minX - labelSideGap - labelWidth / 2
+        : resolvedPosition === "right"
+          ? layoutBounds.maxX + labelSideGap + labelWidth / 2
+          : firstPoint.x
+    const portLabelY =
+      resolvedPosition === "top"
+        ? layoutBounds.minY - labelOffset
+        : resolvedPosition === "bottom"
+          ? maxY + labelOffset
+          : portLabelCenterY
+    const labelBoxY = portLabelY - labelHeight / 2
 
     ctx.fillStyle = "rgba(15, 23, 42, 0.95)"
     ctx.strokeStyle = lineColor
@@ -429,9 +440,17 @@ function drawDataRoutes(
     ctx.textBaseline = "middle"
     ctx.fillText(portLabel, portLabelX, portLabelY)
 
-    const lineStartX =
-      placeSide === "left" ? portLabelX + labelWidth / 2 : placeSide === "right" ? portLabelX - labelWidth / 2 : portLabelX
-    const lineStartY = placeSide ? portLabelCenterY : portLabelY - labelHeight / 2
+    let lineStartX = portLabelX
+    let lineStartY = portLabelY
+    if (resolvedPosition === "left") {
+      lineStartX = portLabelX + labelWidth / 2
+    } else if (resolvedPosition === "right") {
+      lineStartX = portLabelX - labelWidth / 2
+    } else if (resolvedPosition === "top") {
+      lineStartY = portLabelY + labelHeight / 2
+    } else if (resolvedPosition === "bottom") {
+      lineStartY = portLabelY - labelHeight / 2
+    }
     ctx.strokeStyle = outlineColor
     ctx.lineWidth = outlineWidth
     ctx.beginPath()
@@ -541,6 +560,9 @@ function drawPowerFeeds(ctx: CanvasRenderingContext2D, layout: LayoutData, zoom:
   const labelPaddingY = scaledWorldSize(6, zoom, 4, 9)
   const labelRadius = scaledWorldSize(7, zoom, 4.5, 11)
   const labelOffset = 140
+  const labelSideGap = scaledWorldSize(110, zoom, 70, 160)
+  const dataLabelSideGap = scaledWorldSize(60, zoom, 40, 90)
+  const sideLabelGap = scaledWorldSize(12, zoom, 8, 18)
   const breakBarSize = scaledWorldSize(14, zoom, 10, 20)
   const breakStemSize = scaledWorldSize(10, zoom, 7, 16)
   const breakHeadSize = scaledWorldSize(12, zoom, 8, 18)
@@ -548,6 +570,9 @@ function drawPowerFeeds(ctx: CanvasRenderingContext2D, layout: LayoutData, zoom:
   const layoutBounds = getLayoutBoundsFromCabinets(layout.cabinets, layout.cabinetTypes)
   if (!layoutBounds) return
   const dataRoutes = layout.project.dataRoutes ?? []
+  const forcePortLabelsBottom = layout.project.overview.forcePortLabelsBottom ?? false
+  let maxPortLabelWidthLeft = 0
+  let maxPortLabelWidthRight = 0
   let maxPortLabelBottom: number | null = null
 
   if (dataRoutes.length > 0) {
@@ -578,21 +603,30 @@ function drawPowerFeeds(ctx: CanvasRenderingContext2D, layout: LayoutData, zoom:
       const bounds = getCabinetBounds(cabinet, layout.cabinetTypes)
       if (!bounds) continue
 
-      let placeLeft = false
-      if (rowCenters.length > 1) {
-        const centerY = bounds.y + bounds.height / 2
-        let rowIndex = rowCenters.findIndex((rowY) => Math.abs(rowY - centerY) < rowTolerance)
-        if (rowIndex === -1) {
-          rowIndex = rowCenters.reduce((bestIndex, rowY, index) => {
-            const bestDistance = Math.abs(rowCenters[bestIndex] - centerY)
-            const distance = Math.abs(rowY - centerY)
-            return distance < bestDistance ? index : bestIndex
-          }, 0)
+      const explicitPosition = route.labelPosition && route.labelPosition !== "auto" ? route.labelPosition : null
+      let resolvedPosition: "bottom" | "side" | "top" | "left" | "right"
+      if (explicitPosition) {
+        resolvedPosition = explicitPosition
+      } else if (route.forcePortLabelBottom ?? forcePortLabelsBottom) {
+        resolvedPosition = "bottom"
+      } else {
+        let placeLeft = false
+        if (rowCenters.length > 1) {
+          const centerY = bounds.y + bounds.height / 2
+          let rowIndex = rowCenters.findIndex((rowY) => Math.abs(rowY - centerY) < rowTolerance)
+          if (rowIndex === -1) {
+            rowIndex = rowCenters.reduce((bestIndex, rowY, index) => {
+              const bestDistance = Math.abs(rowCenters[bestIndex] - centerY)
+              const distance = Math.abs(rowY - centerY)
+              return distance < bestDistance ? index : bestIndex
+            }, 0)
+          }
+          placeLeft = rowIndex < rowCenters.length - 1
         }
-        placeLeft = rowIndex < rowCenters.length - 1
+        resolvedPosition = placeLeft ? "side" : "bottom"
       }
 
-      if (!placeLeft) {
+      if (resolvedPosition === "bottom") {
         hasBottomLabel = true
         break
       }
@@ -605,6 +639,88 @@ function drawPowerFeeds(ctx: CanvasRenderingContext2D, layout: LayoutData, zoom:
       const dataLabelOffset = 90
       maxPortLabelBottom = layoutBounds.maxY + dataLabelOffset + dataLabelHeight / 2
     }
+  }
+
+  if (dataRoutes.length > 0) {
+    const rowCenters: number[] = []
+    const rowTolerance = 50
+    layout.cabinets.forEach((cabinet) => {
+      const bounds = getCabinetBounds(cabinet, layout.cabinetTypes)
+      if (!bounds) return
+      const centerY = bounds.y + bounds.height / 2
+      const existingRow = rowCenters.find((rowY) => Math.abs(rowY - centerY) < rowTolerance)
+      if (!existingRow) rowCenters.push(centerY)
+    })
+    rowCenters.sort((a, b) => a - b)
+
+    const dataFontSize = scaledWorldSize(14, zoom, 12, 18)
+    const dataLabelPadding = scaledWorldSize(8, zoom, 6, 12)
+    const dataLabelOffset = 90
+
+    dataRoutes.forEach((route) => {
+      if (route.cabinetIds.length === 0) return
+      const firstEndpoint = route.cabinetIds.find((endpointId) => {
+        const { cabinetId } = parseRouteCabinetId(endpointId)
+        const cabinet = layout.cabinets.find((c) => c.id === cabinetId)
+        if (!cabinet) return false
+        return getCabinetReceiverCardCount(cabinet) > 0
+      })
+      if (!firstEndpoint) return
+
+      const { cabinetId, cardIndex } = parseRouteCabinetId(firstEndpoint)
+      const cabinet = layout.cabinets.find((c) => c.id === cabinetId)
+      if (!cabinet) return
+      const bounds = getCabinetBounds(cabinet, layout.cabinetTypes)
+      if (!bounds) return
+      const cardCount = getCabinetReceiverCardCount(cabinet)
+      if (cardCount === 0) return
+      const rects = getReceiverCardRects(bounds, zoom, cardCount)
+      const resolvedIndex = cardIndex === undefined ? 0 : Math.max(0, Math.min(rects.length - 1, cardIndex))
+      const anchorRect = rects[resolvedIndex]
+      const anchor = anchorRect
+        ? { connectorX: anchorRect.x + anchorRect.width / 2, connectorY: anchorRect.y + anchorRect.height + 6 / zoom }
+        : { connectorX: bounds.x + bounds.width / 2, connectorY: bounds.y + bounds.height / 2 }
+
+      const labelText = `Port ${route.port}`
+      ctx.font = `bold ${dataFontSize}px ${FONT_FAMILY}`
+      const labelWidth = ctx.measureText(labelText).width + dataLabelPadding * 2
+      const labelHeight = dataFontSize + dataLabelPadding * 1.6
+
+      const resolvedPosition = (() => {
+        if (route.labelPosition && route.labelPosition !== "auto") return route.labelPosition
+        if (route.forcePortLabelBottom ?? forcePortLabelsBottom) return "bottom"
+        let placeSide = false
+        if (rowCenters.length > 1) {
+          const centerY = bounds.y + bounds.height / 2
+          let rowIndex = rowCenters.findIndex((rowY) => Math.abs(rowY - centerY) < rowTolerance)
+          if (rowIndex === -1) {
+            rowIndex = rowCenters.reduce((bestIndex, rowY, index) => {
+              const bestDistance = Math.abs(rowCenters[bestIndex] - centerY)
+              const distance = Math.abs(rowY - centerY)
+              return distance < bestDistance ? index : bestIndex
+            }, 0)
+          }
+          placeSide = rowIndex < rowCenters.length - 1
+        }
+        if (!placeSide) return "bottom"
+        const layoutCenterX = (layoutBounds.minX + layoutBounds.maxX) / 2
+        const firstCenterX = bounds.x + bounds.width / 2
+        return firstCenterX >= layoutCenterX ? "right" : "left"
+      })()
+
+      if (resolvedPosition === "left" || resolvedPosition === "right") {
+        if (resolvedPosition === "left") {
+          maxPortLabelWidthLeft = Math.max(maxPortLabelWidthLeft, labelWidth)
+        } else {
+          maxPortLabelWidthRight = Math.max(maxPortLabelWidthRight, labelWidth)
+        }
+      } else if (resolvedPosition === "top" || resolvedPosition === "bottom") {
+        const labelCenterY = resolvedPosition === "top" ? layoutBounds.minY - dataLabelOffset : layoutBounds.maxY + dataLabelOffset
+        const labelCenterX = anchor.connectorX
+        void labelCenterX
+        void labelCenterY
+      }
+    })
   }
 
   const layoutMidY = (layoutBounds.minY + layoutBounds.maxY) / 2
@@ -688,12 +804,6 @@ function drawPowerFeeds(ctx: CanvasRenderingContext2D, layout: LayoutData, zoom:
       return
     }
 
-    let labelY = feedBounds.maxY + labelOffset
-    if (maxPortLabelBottom !== null) {
-      const minLabelY = maxPortLabelBottom + scaledWorldSize(16, zoom, 10, 22)
-      labelY = Math.max(labelY, minLabelY)
-    }
-
     ctx.font = `bold ${fontSize}px ${FONT_FAMILY}`
     const loadW = getPowerFeedLoadW(feed, layout.cabinets, layout.cabinetTypes)
     const breakerText = feed.breaker || feed.label
@@ -703,12 +813,37 @@ function drawPowerFeeds(ctx: CanvasRenderingContext2D, layout: LayoutData, zoom:
     const maxTextWidth = Math.max(ctx.measureText(labelText).width, ctx.measureText(connectorText).width)
     const boxWidth = maxTextWidth + labelPaddingX * 2
     const boxHeight = fontSize * 2.4 + labelPaddingY * 2
-    const boxX = points[0].x
+    const labelPosition = feed.labelPosition && feed.labelPosition !== "auto" ? feed.labelPosition : "bottom"
+    const sideOffsetLeft =
+      maxPortLabelWidthLeft > 0 ? dataLabelSideGap + maxPortLabelWidthLeft + sideLabelGap : labelSideGap
+    const sideOffsetRight =
+      maxPortLabelWidthRight > 0 ? dataLabelSideGap + maxPortLabelWidthRight + sideLabelGap : labelSideGap
+    let labelCenterX =
+      labelPosition === "left"
+        ? layoutBounds.minX - sideOffsetLeft - boxWidth / 2
+        : labelPosition === "right"
+          ? layoutBounds.maxX + sideOffsetRight + boxWidth / 2
+          : points[0].x
+    let labelCenterY: number
+    if (labelPosition === "bottom") {
+      let labelTop = feedBounds.maxY + labelOffset
+      if (maxPortLabelBottom !== null) {
+        const minLabelTop = maxPortLabelBottom + scaledWorldSize(16, zoom, 10, 22)
+        labelTop = Math.max(labelTop, minLabelTop)
+      }
+      labelCenterY = labelTop + boxHeight / 2
+    } else if (labelPosition === "top") {
+      labelCenterY = feedBounds.minY - labelOffset
+    } else {
+      labelCenterY = points[0].y
+    }
+    const boxX = labelCenterX - boxWidth / 2
+    const boxY = labelCenterY - boxHeight / 2
 
     ctx.fillStyle = "rgba(15, 23, 42, 0.95)"
     ctx.strokeStyle = lineColor
     ctx.lineWidth = scaledWorldSize(2, zoom, 1.5, 3)
-    drawRoundedRect(ctx, boxX - boxWidth / 2, labelY, boxWidth, boxHeight, labelRadius)
+    drawRoundedRect(ctx, boxX, boxY, boxWidth, boxHeight, labelRadius)
     ctx.fill()
     ctx.stroke()
 
@@ -716,21 +851,33 @@ function drawPowerFeeds(ctx: CanvasRenderingContext2D, layout: LayoutData, zoom:
     ctx.textAlign = "center"
     ctx.textBaseline = "top"
     ctx.font = `bold ${fontSize}px ${FONT_FAMILY}`
-    ctx.fillText(labelText, boxX, labelY + labelPaddingY)
+    ctx.fillText(labelText, labelCenterX, boxY + labelPaddingY)
     ctx.font = `${fontSize * 0.85}px ${FONT_FAMILY}`
-    ctx.fillText(connectorText, boxX, labelY + labelPaddingY + fontSize * 1.05)
+    ctx.fillText(connectorText, labelCenterX, boxY + labelPaddingY + fontSize * 1.05)
+
+    let labelLineX = labelCenterX
+    let labelLineY = labelCenterY
+    if (labelPosition === "left") {
+      labelLineX = labelCenterX + boxWidth / 2
+    } else if (labelPosition === "right") {
+      labelLineX = labelCenterX - boxWidth / 2
+    } else if (labelPosition === "top") {
+      labelLineY = labelCenterY + boxHeight / 2
+    } else if (labelPosition === "bottom") {
+      labelLineY = labelCenterY - boxHeight / 2
+    }
 
     ctx.strokeStyle = outlineColor
     ctx.lineWidth = outlineWidth
     ctx.beginPath()
-    ctx.moveTo(boxX, labelY)
+    ctx.moveTo(labelLineX, labelLineY)
     ctx.lineTo(points[0].x, points[0].y)
     ctx.stroke()
 
     ctx.strokeStyle = lineColor
     ctx.lineWidth = lineWidth
     ctx.beginPath()
-    ctx.moveTo(boxX, labelY)
+    ctx.moveTo(labelLineX, labelLineY)
     ctx.lineTo(points[0].x, points[0].y)
     ctx.stroke()
 
@@ -805,7 +952,7 @@ function drawPowerFeeds(ctx: CanvasRenderingContext2D, layout: LayoutData, zoom:
 
     if (points.length > 0) {
       const lastPoint = points[points.length - 1]
-      const secondLast = points.length > 1 ? points[points.length - 2] : { x: boxX, y: labelY }
+      const secondLast = points.length > 1 ? points[points.length - 2] : { x: labelLineX, y: labelLineY }
       let angle: number
       if (Math.abs(lastPoint.x - secondLast.x) < 10) {
         angle = lastPoint.y > secondLast.y ? Math.PI / 2 : -Math.PI / 2
@@ -1154,21 +1301,31 @@ export function drawOverview(ctx: CanvasRenderingContext2D, layout: LayoutData, 
           if (!bounds) continue
 
           const forceBottom = route.forcePortLabelBottom ?? forcePortLabelsBottom
-          let placeLeft = false
-          if (!forceBottom && rowCenters.length > 1) {
-            const centerY = bounds.y + bounds.height / 2
-            let rowIndex = rowCenters.findIndex((rowY) => Math.abs(rowY - centerY) < rowTolerance)
-            if (rowIndex === -1) {
-              rowIndex = rowCenters.reduce((bestIndex, rowY, index) => {
-                const bestDistance = Math.abs(rowCenters[bestIndex] - centerY)
-                const distance = Math.abs(rowY - centerY)
-                return distance < bestDistance ? index : bestIndex
-              }, 0)
+          const explicitPosition =
+            route.labelPosition && route.labelPosition !== "auto" ? route.labelPosition : null
+          let resolvedPosition: "bottom" | "side" | "top" | "left" | "right"
+          if (explicitPosition) {
+            resolvedPosition = explicitPosition
+          } else if (forceBottom) {
+            resolvedPosition = "bottom"
+          } else {
+            let placeLeft = false
+            if (rowCenters.length > 1) {
+              const centerY = bounds.y + bounds.height / 2
+              let rowIndex = rowCenters.findIndex((rowY) => Math.abs(rowY - centerY) < rowTolerance)
+              if (rowIndex === -1) {
+                rowIndex = rowCenters.reduce((bestIndex, rowY, index) => {
+                  const bestDistance = Math.abs(rowCenters[bestIndex] - centerY)
+                  const distance = Math.abs(rowY - centerY)
+                  return distance < bestDistance ? index : bestIndex
+                }, 0)
+              }
+              placeLeft = rowIndex < rowCenters.length - 1
             }
-            placeLeft = rowIndex < rowCenters.length - 1
+            resolvedPosition = placeLeft ? "side" : "bottom"
           }
 
-          if (forceBottom || !placeLeft) {
+          if (resolvedPosition === "bottom") {
             dataPortBottom = layoutBounds.maxY + labelOffset + labelHeight / 2
             break
           }
@@ -1184,6 +1341,8 @@ export function drawOverview(ctx: CanvasRenderingContext2D, layout: LayoutData, 
 
         layout.project.powerFeeds.forEach((feed) => {
           if (feed.assignedCabinetIds.length === 0) return
+          const labelPosition = feed.labelPosition && feed.labelPosition !== "auto" ? feed.labelPosition : "bottom"
+          if (labelPosition !== "bottom") return
           const feedBounds = getLayoutBoundsFromCabinets(
             layout.cabinets.filter((c) => feed.assignedCabinetIds.includes(c.id)),
             layout.cabinetTypes,

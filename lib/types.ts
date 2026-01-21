@@ -43,6 +43,7 @@ export interface DataRoute {
   id: string
   port: number
   forcePortLabelBottom?: boolean
+  labelPosition?: "auto" | "top" | "bottom" | "left" | "right"
   cabinetIds: string[] // ordered cabinet endpoint IDs in chain
 }
 
@@ -54,6 +55,7 @@ export interface PowerFeed {
   consumptionW: number
   assignedCabinetIds: string[]
   positionX?: number // X position for the power line (auto-calculated or manual)
+  labelPosition?: "auto" | "top" | "bottom" | "left" | "right"
 }
 
 export interface ExportSettings {

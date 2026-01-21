@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { createContext, useContext, useReducer, useCallback, useEffect, type ReactNode } from "react"
+import { createContext, useContext, useReducer, useCallback, useEffect, useRef, type ReactNode } from "react"
 import type { Cabinet, CabinetType, LayoutData, EditorState, DataRoute, PowerFeed, RoutingMode } from "./types"
 import { DEFAULT_LAYOUT } from "./types"
 import { normalizeLayout } from "./layout-io"
@@ -40,6 +40,16 @@ type EditorAction =
   | { type: "UNDO" }
   | { type: "REDO" }
   | { type: "PUSH_HISTORY" }
+  | {
+      type: "RESTORE_EDITOR_STATE"
+      payload: {
+        layout: LayoutData
+        zoom?: number
+        panX?: number
+        panY?: number
+        showDimensions?: boolean
+      }
+    }
 
 const MAX_HISTORY = 50
 
@@ -55,6 +65,25 @@ function editorReducer(state: EditorState, action: EditorAction): EditorState {
         history: [normalized],
         historyIndex: 0,
       }
+
+    case "RESTORE_EDITOR_STATE": {
+      const normalized = normalizeLayout(action.payload.layout)
+      return {
+        ...state,
+        layout: normalized,
+        history: [normalized],
+        historyIndex: 0,
+        zoom: action.payload.zoom ?? state.zoom,
+        panX: action.payload.panX ?? state.panX,
+        panY: action.payload.panY ?? state.panY,
+        showDimensions: action.payload.showDimensions ?? state.showDimensions,
+        selectedCabinetId: null,
+        selectedCabinetIds: [],
+        isDragging: false,
+        draggedCabinetId: null,
+        routingMode: { type: "none" },
+      }
+    }
 
     case "SELECT_CABINET":
       return {
@@ -480,11 +509,16 @@ interface EditorContextValue {
 const EditorContext = createContext<EditorContextValue | null>(null)
 
 export function EditorProvider({ children }: { children: ReactNode }) {
-  const [state, dispatch] = useReducer(editorReducer, initialState, (init) => {
-    if (typeof window === "undefined") return init
+  const [state, dispatch] = useReducer(editorReducer, initialState)
+  const hasRestoredRef = useRef(false)
+
+  useEffect(() => {
+    if (hasRestoredRef.current) return
+    hasRestoredRef.current = true
+    if (typeof window === "undefined") return
     try {
       const raw = window.localStorage.getItem(STORAGE_KEY)
-      if (!raw) return init
+      if (!raw) return
       const parsed = JSON.parse(raw) as {
         layout?: LayoutData
         zoom?: number
@@ -492,25 +526,21 @@ export function EditorProvider({ children }: { children: ReactNode }) {
         panY?: number
         showDimensions?: boolean
       }
-      if (!parsed.layout) return init
-      const normalized = normalizeLayout(parsed.layout)
-      const restored: EditorState = {
-        ...init,
-        layout: normalized,
-        history: [normalized],
-        historyIndex: 0,
-        zoom: parsed.zoom ?? init.zoom,
-        panX: parsed.panX ?? init.panX,
-        panY: parsed.panY ?? init.panY,
-        showDimensions: parsed.showDimensions ?? init.showDimensions,
-        selectedCabinetId: null,
-        routingMode: { type: "none" },
-      }
-      return restored
+      if (!parsed.layout) return
+      dispatch({
+        type: "RESTORE_EDITOR_STATE",
+        payload: {
+          layout: parsed.layout,
+          zoom: parsed.zoom,
+          panX: parsed.panX,
+          panY: parsed.panY,
+          showDimensions: parsed.showDimensions,
+        },
+      })
     } catch {
-      return init
+      return
     }
-  })
+  }, [])
 
   const generateCabinetId = useCallback(() => {
     const existingIds = state.layout.cabinets.map((c) => c.id)

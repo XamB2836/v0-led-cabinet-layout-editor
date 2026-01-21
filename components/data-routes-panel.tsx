@@ -5,7 +5,6 @@ import { getCabinetBounds, getLayoutBounds } from "@/lib/validation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Switch } from "@/components/ui/switch"
 import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -199,10 +198,21 @@ export function DataRoutesPanel() {
     dispatch({ type: "PUSH_HISTORY" })
   }
 
-  const handleRoutePortLabelBottom = (routeId: string, forceBottom: boolean) => {
+  const handleRouteLabelPosition = (routeId: string, position: "auto" | "top" | "bottom" | "left" | "right") => {
     dispatch({
       type: "UPDATE_DATA_ROUTE",
-      payload: { id: routeId, updates: { forcePortLabelBottom: forceBottom ? true : undefined } },
+      payload: {
+        id: routeId,
+        updates: { labelPosition: position === "auto" ? undefined : position, forcePortLabelBottom: undefined },
+      },
+    })
+    dispatch({ type: "PUSH_HISTORY" })
+  }
+
+  const handlePowerFeedLabelPosition = (id: string, position: "auto" | "top" | "bottom" | "left" | "right") => {
+    dispatch({
+      type: "UPDATE_POWER_FEED",
+      payload: { id, updates: { labelPosition: position === "auto" ? undefined : position } },
     })
     dispatch({ type: "PUSH_HISTORY" })
   }
@@ -483,15 +493,25 @@ export function DataRoutesPanel() {
                       {" / "}
                       650,000 px
                     </div>
-                    <div className="flex items-center justify-between">
-                      <Label htmlFor={`route-label-bottom-${route.id}`} className="text-xs text-zinc-400">
-                        Force port label bottom
-                      </Label>
-                      <Switch
-                        id={`route-label-bottom-${route.id}`}
-                        checked={route.forcePortLabelBottom ?? false}
-                        onCheckedChange={(checked) => handleRoutePortLabelBottom(route.id, checked)}
-                      />
+                    <div className="space-y-1">
+                      <Label className="text-xs text-zinc-400">Label Position</Label>
+                      <Select
+                        value={route.labelPosition ?? (route.forcePortLabelBottom ? "bottom" : "auto")}
+                        onValueChange={(value: "auto" | "top" | "bottom" | "left" | "right") =>
+                          handleRouteLabelPosition(route.id, value)
+                        }
+                      >
+                        <SelectTrigger className="h-7 text-xs bg-zinc-950/60 border-zinc-800 text-zinc-100">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="auto">Auto</SelectItem>
+                          <SelectItem value="bottom">Bottom</SelectItem>
+                          <SelectItem value="top">Top</SelectItem>
+                          <SelectItem value="left">Left</SelectItem>
+                          <SelectItem value="right">Right</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
                   </div>
                 )
@@ -633,6 +653,26 @@ export function DataRoutesPanel() {
                           className="h-8 text-xs bg-zinc-950/60 border-zinc-800 text-zinc-100"
                           placeholder="NAC3FX-W"
                         />
+                      </div>
+                      <div className="space-y-1 col-span-2">
+                        <Label className="text-xs text-zinc-400">Label Position</Label>
+                        <Select
+                          value={feed.labelPosition ?? "auto"}
+                          onValueChange={(value: "auto" | "top" | "bottom" | "left" | "right") =>
+                            handlePowerFeedLabelPosition(feed.id, value)
+                          }
+                        >
+                          <SelectTrigger className="h-8 text-xs bg-zinc-950/60 border-zinc-800 text-zinc-100">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="auto">Auto</SelectItem>
+                            <SelectItem value="bottom">Bottom</SelectItem>
+                            <SelectItem value="top">Top</SelectItem>
+                            <SelectItem value="left">Left</SelectItem>
+                            <SelectItem value="right">Right</SelectItem>
+                          </SelectContent>
+                        </Select>
                       </div>
                     </div>
 
