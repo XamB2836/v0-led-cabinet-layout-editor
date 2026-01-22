@@ -16,6 +16,7 @@ export interface Cabinet {
   chainIndex?: number
   receiverCardCount?: 0 | 1 | 2
   receiverCardOverride?: string | null // null = hide, undefined = use global, string = custom label
+  dataAnchorOverride?: { x: number; y: number } // normalized (0..1) anchor for data routes when no receiver card
   gridLabelOverride?: string
 }
 
@@ -40,12 +41,18 @@ export interface OverviewSettings {
   moduleOrientation: "landscape" | "portrait"
 }
 
+export type DataRouteStep =
+  | { type: "cabinet"; endpointId: string }
+  | { type: "point"; x_mm: number; y_mm: number }
+
 export interface DataRoute {
   id: string
   port: number
   forcePortLabelBottom?: boolean
   labelPosition?: "auto" | "top" | "bottom" | "left" | "right"
   cabinetIds: string[] // ordered cabinet endpoint IDs in chain
+  manualMode?: boolean
+  steps?: DataRouteStep[] // ordered route steps (points/cabinets) for manual routing
 }
 
 export interface PowerFeed {

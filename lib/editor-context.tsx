@@ -188,12 +188,13 @@ function editorReducer(state: EditorState, action: EditorAction): EditorState {
       }
 
       const type = state.layout.cabinetTypes.find((t) => t.typeId === cabinet.typeId)
-      const offset = type ? type.width_mm : 100
+      const isRotated = cabinet.rot_deg === 90 || cabinet.rot_deg === 270
+      const width = type ? (isRotated ? type.height_mm : type.width_mm) : 100
 
       const newCabinet: Cabinet = {
         ...cabinet,
         id: newId,
-        x_mm: cabinet.x_mm + offset,
+        x_mm: cabinet.x_mm + width,
       }
 
       return {

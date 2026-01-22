@@ -42,7 +42,8 @@ function getLayoutBoundsFromCabinets(
   return { minX, minY, maxX, maxY }
 }
 
-function computeLabelBounds(layout: LayoutData, ctx: CanvasRenderingContext2D, zoom: number) {
+function computeLabelBounds(layout: LayoutData, ctx: CanvasRenderingContext2D, zoom: number, uiScale = 1) {
+  const uiZoom = uiScale > 0 ? zoom / uiScale : zoom
   const layoutBounds = getLayoutBounds(layout)
   let minX = layoutBounds.minX
   let minY = layoutBounds.minY
@@ -62,11 +63,11 @@ function computeLabelBounds(layout: LayoutData, ctx: CanvasRenderingContext2D, z
   })
   rowCenters.sort((a, b) => a - b)
 
-  const dataFontSize = scaledWorldSize(14, zoom, 12, 18)
+  const dataFontSize = scaledWorldSize(14, uiZoom, 12, 18)
   const dataFontPx = dataFontSize * zoom
-  const dataLabelPadding = scaledWorldSize(8, zoom, 6, 12)
+  const dataLabelPadding = scaledWorldSize(8, uiZoom, 6, 12)
   const dataLabelOffset = 90
-  const dataLabelSideGap = scaledWorldSize(60, zoom, 40, 90)
+  const dataLabelSideGap = scaledWorldSize(60, uiZoom, 40, 90)
   const dataLabelHeight = dataFontSize + dataLabelPadding * 1.6
   let maxPortLabelWidthLeft = 0
   let maxPortLabelWidthRight = 0
@@ -149,15 +150,15 @@ function computeLabelBounds(layout: LayoutData, ctx: CanvasRenderingContext2D, z
 
   const powerFeeds = layout.project.powerFeeds ?? []
   if (powerFeeds.length > 0) {
-    const fontSize = scaledWorldSize(14, zoom, 12, 18)
+    const fontSize = scaledWorldSize(14, uiZoom, 12, 18)
     const fontPx = fontSize * zoom
-    const labelPaddingX = scaledWorldSize(9, zoom, 6, 13)
-    const labelPaddingY = scaledWorldSize(6, zoom, 4, 9)
+    const labelPaddingX = scaledWorldSize(9, uiZoom, 6, 13)
+    const labelPaddingY = scaledWorldSize(6, uiZoom, 4, 9)
     const labelOffset = 140
-    const labelSideGap = scaledWorldSize(110, zoom, 70, 160)
-    const sideLabelGap = scaledWorldSize(12, zoom, 8, 18)
-    const powerLabelSideGap = scaledWorldSize(60, zoom, 40, 90)
-    const bottomClearance = scaledWorldSize(16, zoom, 10, 22)
+    const labelSideGap = scaledWorldSize(110, uiZoom, 70, 160)
+    const sideLabelGap = scaledWorldSize(12, uiZoom, 8, 18)
+    const powerLabelSideGap = scaledWorldSize(60, uiZoom, 40, 90)
+    const bottomClearance = scaledWorldSize(16, uiZoom, 10, 22)
 
     const sideOffsetLeft =
       maxPortLabelWidthLeft > 0 ? powerLabelSideGap + maxPortLabelWidthLeft + sideLabelGap : labelSideGap
@@ -254,6 +255,7 @@ export function exportOverviewPdf(layout: LayoutData) {
   }
   const availableWidth = canvas.width - marginPx * 2
   const availableHeight = canvas.height - headerPx - marginPx * 2
+  const uiScale = 3.0
 
   let printBounds = { ...baseBounds }
   for (let i = 0; i < 4; i++) {
@@ -263,7 +265,7 @@ export function exportOverviewPdf(layout: LayoutData) {
       contentWidth && contentHeight
         ? Math.min(availableWidth / contentWidth, availableHeight / contentHeight)
         : 1
-    const labelBounds = computeLabelBounds(layout, ctx, zoom)
+    const labelBounds = computeLabelBounds(layout, ctx, zoom, uiScale)
     const minX = Math.min(baseBounds.minX, labelBounds.minX)
     const maxX = Math.max(baseBounds.maxX, labelBounds.maxX)
     const minY = Math.min(baseBounds.minY, labelBounds.minY)
@@ -306,7 +308,7 @@ export function exportOverviewPdf(layout: LayoutData) {
     showPowerRoutes: layout.project.overview.showPowerRoutes,
     showModuleGrid: layout.project.overview.showModuleGrid,
     forcePortLabelsBottom: layout.project.overview.forcePortLabelsBottom,
-    uiScale: 3.0,
+    uiScale,
     dimensionOffsetMm,
     dimensionSide: "right",
     palette: {
@@ -350,6 +352,7 @@ export function exportOverviewPdf(layout: LayoutData) {
   })
   const imgData = canvas.toDataURL("image/png")
   pdf.addImage(imgData, "PNG", 0, 0, pageWidthMm, pageHeightMm)
-  const filename = `${layout.project.name || "overview"}.pdf`.replace(/\s+/g, "_")
+  const projectName = layout.project.name?.trim() || "NC"
+  const filename = `${projectName} - OVERVIEW.pdf`
   pdf.save(filename)
 }

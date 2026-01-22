@@ -9,7 +9,7 @@ import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Plus, Trash2, Zap, Cable, Wand2, MousePointer, X } from "lucide-react"
-import type { DataRoute, PowerFeed } from "@/lib/types"
+import type { DataRoute, DataRouteStep, PowerFeed } from "@/lib/types"
 import {
   computeGridLabel,
   formatRouteCabinetId,
@@ -29,6 +29,7 @@ export function DataRoutesPanel() {
   const { state, dispatch } = useEditor()
   const { layout, routingMode } = state
   const { dataRoutes, powerFeeds, controller } = layout.project
+  const activeRoute = routingMode.type === "data" ? dataRoutes.find((r) => r.id === routingMode.routeId) : null
 
   const maxPorts = controller === "A100" ? 2 : 4
   const pitchMm = layout.project.pitch_mm
@@ -48,6 +49,15 @@ export function DataRoutesPanel() {
     routingMode.type === "data"
       ? "h-7 px-3 bg-blue-500/80 text-zinc-950 hover:bg-blue-400"
       : "h-7 px-3 bg-orange-500/80 text-zinc-950 hover:bg-orange-400"
+
+  const getRouteSteps = (route: DataRoute): DataRouteStep[] => {
+    if (route.steps && route.steps.length > 0) return route.steps
+    return route.cabinetIds.map((endpointId) => ({ type: "cabinet", endpointId }))
+  }
+
+  const getCabinetIdsFromSteps = (steps: DataRouteStep[]) => {
+    return steps.flatMap((step) => (step.type === "cabinet" ? [step.endpointId] : []))
+  }
 
   const formatRouteEndpointLabel = (endpointId: string) => {
     const { cabinetId, cardIndex } = parseRouteCabinetId(endpointId)
@@ -209,6 +219,42 @@ export function DataRoutesPanel() {
     dispatch({ type: "PUSH_HISTORY" })
   }
 
+  const handleManualModeToggle = (routeId: string, enabled: boolean) => {
+    const route = dataRoutes.find((r) => r.id === routeId)
+    if (!route) return
+    const steps = enabled ? getRouteSteps(route) : route.steps
+    const cabinetIds = enabled && steps ? getCabinetIdsFromSteps(steps) : route.cabinetIds
+    dispatch({
+      type: "UPDATE_DATA_ROUTE",
+      payload: {
+        id: routeId,
+        updates: { manualMode: enabled, steps, cabinetIds },
+      },
+    })
+    if (enabled) {
+      dispatch({ type: "SET_ROUTING_MODE", payload: { type: "data", routeId } })
+    }
+    dispatch({ type: "PUSH_HISTORY" })
+  }
+
+  const handleClearManualPoints = (routeId: string) => {
+    const route = dataRoutes.find((r) => r.id === routeId)
+    if (!route?.steps || route.steps.length === 0) return
+    const nextSteps = route.steps.filter((step) => step.type === "cabinet")
+    dispatch({
+      type: "UPDATE_DATA_ROUTE",
+      payload: {
+        id: routeId,
+        updates: { steps: nextSteps, cabinetIds: getCabinetIdsFromSteps(nextSteps) },
+      },
+    })
+    dispatch({ type: "PUSH_HISTORY" })
+  }
+
+  const getManualPointCount = (route: DataRoute) => {
+    return route.steps?.filter((step) => step.type === "point").length ?? 0
+  }
+
   const handlePowerFeedLabelPosition = (id: string, position: "auto" | "top" | "bottom" | "left" | "right") => {
     dispatch({
       type: "UPDATE_POWER_FEED",
@@ -311,11 +357,6 @@ export function DataRoutesPanel() {
             <div className="flex items-center justify-between">
               <div>
                 <div className={`text-xs uppercase tracking-[0.2em] ${routingTitleClass}`}>Routing Mode</div>
-                <div className="text-sm text-zinc-100">
-                  {routingMode.type === "data"
-                    ? `Click cabinets to build Port ${layout.project.dataRoutes.find((r) => r.id === routingMode.routeId)?.port || "?"}`
-                    : "Click cabinets to assign to this power feed"}
-                </div>
                 <div className="text-xs text-zinc-400">Press ESC or Done when finished.</div>
               </div>
               <Button
@@ -512,6 +553,35 @@ export function DataRoutesPanel() {
                           <SelectItem value="right">Right</SelectItem>
                         </SelectContent>
                       </Select>
+                    </div>
+                    <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-xs text-zinc-400">Manual Points</Label>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] text-zinc-500">{getManualPointCount(route)} pts</span>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleManualModeToggle(route.id, !route.manualMode)}
+                          className="h-6 px-2 text-[11px] text-blue-200 hover:text-blue-50"
+                        >
+                          {route.manualMode ? "Points mode on" : "Points mode off"}
+                        </Button>
+                      </div>
+                    </div>
+                    {route.manualMode && (
+                      <div className="flex items-center justify-between text-[11px] text-zinc-500">
+                          <span>Click empty space to add points, click cabinets to add/remove, Shift-click point to remove.</span>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleClearManualPoints(route.id)}
+                            className="h-6 px-2 text-[11px] text-zinc-400 hover:text-zinc-200"
+                          >
+                            Clear points
+                          </Button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )

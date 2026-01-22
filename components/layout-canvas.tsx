@@ -5,7 +5,7 @@ import type React from "react"
 import { useRef, useEffect, useState, useCallback } from "react"
 import { useEditor } from "@/lib/editor-context"
 import { getCabinetBounds, validateLayout } from "@/lib/validation"
-import type { Cabinet, CabinetType, DataRoute, PowerFeed } from "@/lib/types"
+import type { Cabinet, CabinetType, DataRoute, DataRouteStep, PowerFeed } from "@/lib/types"
 import {
   computeGridLabel,
   formatRouteCabinetId,
@@ -190,11 +190,15 @@ type ReceiverCardRect = {
   connectorY: number
 }
 
-function getReceiverCardRect(bounds: { x: number; y: number; width: number; height: number }, zoom: number): ReceiverCardRect {
-  const minWidth = 48 / zoom
-  const maxWidth = 84 / zoom
-  const minHeight = 12 / zoom
-  const maxHeight = 18 / zoom
+function getReceiverCardRect(
+  bounds: { x: number; y: number; width: number; height: number },
+  zoom: number,
+  heightFraction = 0.28,
+): ReceiverCardRect {
+  const maxWidth = Math.min(84 / zoom, bounds.width * 0.65)
+  const minWidth = Math.min(40 / zoom, maxWidth)
+  const maxHeight = Math.min(18 / zoom, bounds.height * heightFraction)
+  const minHeight = Math.min(12 / zoom, maxHeight)
   const cardWidth = Math.min(maxWidth, Math.max(minWidth, bounds.width * 0.7))
   const cardHeight = Math.min(maxHeight, Math.max(minHeight, bounds.height * 0.2))
   const cardX = bounds.x + bounds.width / 2 - cardWidth / 2
@@ -220,7 +224,8 @@ function getReceiverCardRects(
   count: 0 | 1 | 2,
 ): ReceiverCardRect[] {
   if (!bounds || count <= 0) return []
-  const base = getReceiverCardRect(bounds, zoom)
+  const heightFraction = count === 2 ? 0.2 : 0.26
+  const base = getReceiverCardRect(bounds, zoom, heightFraction)
   if (count === 1) return [base]
 
   const gap = Math.min(10 / zoom, base.height)
@@ -281,18 +286,139 @@ function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value))
 }
 
+function snapToIncrement(value: number, stepMm?: number) {
+  if (!stepMm || stepMm <= 0) return value
+  return Math.round(value / stepMm) * stepMm
+}
+
+function getRouteSnapStepMm(stepMm?: number) {
+  if (!stepMm || stepMm <= 0) return undefined
+  return Math.max(10, Math.min(80, stepMm / 4))
+}
+
+function getRouteSteps(route: DataRoute): DataRouteStep[] {
+  if (route.manualMode && route.steps && route.steps.length > 0) return route.steps
+  return route.cabinetIds.map((endpointId) => ({ type: "cabinet", endpointId }))
+}
+
+function getRouteCabinetIdsFromSteps(steps: DataRouteStep[]): string[] {
+  return steps.flatMap((step) => (step.type === "cabinet" ? [step.endpointId] : []))
+}
+
+function findManualStepIndex(
+  steps: DataRouteStep[] | undefined,
+  world: { x: number; y: number },
+  zoom: number,
+): number | null {
+  if (!steps || steps.length === 0) return null
+  const hitRadius = 10 / zoom
+  for (let i = steps.length - 1; i >= 0; i--) {
+    const step = steps[i]
+    if (step.type !== "point") continue
+    const dx = step.x_mm - world.x
+    const dy = step.y_mm - world.y
+    if (Math.hypot(dx, dy) <= hitRadius) return i
+  }
+  return null
+}
+
+function getRouteStepPosition(
+  step: DataRouteStep,
+  cabinets: Cabinet[],
+  cabinetTypes: CabinetType[],
+  zoom: number,
+): { x: number; y: number } | null {
+  if (step.type === "point") return { x: step.x_mm, y: step.y_mm }
+  const { cabinetId, cardIndex } = parseRouteCabinetId(step.endpointId)
+  const cabinet = cabinets.find((c) => c.id === cabinetId)
+  if (!cabinet) return null
+  const bounds = getCabinetBounds(cabinet, cabinetTypes)
+  if (!bounds) return null
+  const anchor = getCabinetDataAnchorPoint(cabinet, bounds, zoom, cardIndex)
+  return { x: anchor.x, y: anchor.y }
+}
+
+function getOrthogonalPoint(
+  target: { x: number; y: number },
+  reference: { x: number; y: number } | null,
+  stepMm?: number,
+) {
+  if (!reference) {
+    return {
+      x: snapToIncrement(target.x, stepMm),
+      y: snapToIncrement(target.y, stepMm),
+    }
+  }
+  const dx = target.x - reference.x
+  const dy = target.y - reference.y
+  if (Math.abs(dx) >= Math.abs(dy)) {
+    return {
+      x: snapToIncrement(target.x, stepMm),
+      y: reference.y,
+    }
+  }
+  return {
+    x: reference.x,
+    y: snapToIncrement(target.y, stepMm),
+  }
+}
+
+function getCabinetDataAnchorPoint(
+  cabinet: Cabinet,
+  bounds: { x: number; y: number; width: number; height: number },
+  zoom: number,
+  cardIndex?: number,
+): { x: number; y: number; resolvedIndex?: number; cardCount: 0 | 1 | 2; isVirtual: boolean } {
+  const cardCount = getCabinetReceiverCardCount(cabinet)
+  if (cardCount > 0) {
+    const rects = getReceiverCardRects(bounds, zoom, cardCount)
+    const resolvedIndex = cardIndex === undefined ? 0 : Math.max(0, Math.min(rects.length - 1, cardIndex))
+    const anchorRect = rects[resolvedIndex]
+    if (anchorRect) {
+      return {
+        x: anchorRect.connectorX,
+        y: anchorRect.connectorY,
+        resolvedIndex,
+        cardCount,
+        isVirtual: false,
+      }
+    }
+  }
+
+  const override = cabinet.dataAnchorOverride
+  const anchorX = bounds.x + bounds.width * clamp(override?.x ?? 0.5, 0, 1)
+  const anchorY = bounds.y + bounds.height * clamp(override?.y ?? 0.5, 0, 1)
+  return {
+    x: anchorX,
+    y: anchorY,
+    cardCount,
+    isVirtual: cardCount === 0,
+  }
+}
+
 function scaledWorldSize(basePx: number, zoom: number, minPx: number, maxPx: number) {
   const sizePx = clamp(basePx * zoom, minPx, maxPx)
   return sizePx / zoom
 }
 
-function getPowerAnchorPoint(cardRect: ReceiverCardRect, zoom: number) {
-  const anchorOffset = 6 / zoom
-  return { x: cardRect.x - anchorOffset, y: cardRect.centerY }
+function getPowerAnchorPoint(
+  cardRect: ReceiverCardRect,
+  bounds: { x: number; y: number; width: number; height: number },
+  zoom: number,
+) {
+  const margin = Math.min(8 / zoom, bounds.width * 0.04)
+  const offset = Math.min(6 / zoom, cardRect.width * 0.25)
+  const anchorX = Math.max(bounds.x + margin, cardRect.x - offset)
+  return { x: anchorX, y: cardRect.centerY }
 }
 
-function drawPowerAnchorDot(ctx: CanvasRenderingContext2D, cardRect: ReceiverCardRect, zoom: number) {
-  const { x, y } = getPowerAnchorPoint(cardRect, zoom)
+function drawPowerAnchorDot(
+  ctx: CanvasRenderingContext2D,
+  cardRect: ReceiverCardRect,
+  bounds: { x: number; y: number; width: number; height: number },
+  zoom: number,
+) {
+  const { x, y } = getPowerAnchorPoint(cardRect, bounds, zoom)
   const radius = 3.2 / zoom
   ctx.beginPath()
   ctx.arc(x, y, radius, 0, Math.PI * 2)
@@ -321,7 +447,8 @@ function drawReceiverCard(
   zoom: number,
 ) {
   const { x, y, width, height, centerX, centerY, connectorX, connectorY } = rect
-  const fontSize = 8 / zoom
+  const baseFontSize = Math.min(8 / zoom, height * 0.75)
+  const minFontSize = 5 / zoom
   const padding = 4 / zoom
 
   ctx.save()
@@ -339,11 +466,19 @@ function drawReceiverCard(
   ctx.fillStyle = "#0f172a"
   ctx.fillRect(x + 1 / zoom, y + 1 / zoom, width - 2 / zoom, 2 / zoom)
 
+  const maxTextWidth = width - padding * 2
+  let fontSize = baseFontSize
+  ctx.font = `bold ${fontSize}px Inter, sans-serif`
+  const textWidth = ctx.measureText(model).width
+  if (textWidth > maxTextWidth && textWidth > 0) {
+    fontSize = Math.max(minFontSize, fontSize * (maxTextWidth / textWidth))
+  }
+
   ctx.fillStyle = "#e2e8f0"
   ctx.font = `bold ${fontSize}px Inter, sans-serif`
   ctx.textAlign = "center"
   ctx.textBaseline = "middle"
-  const fitted = fitTextToWidth(ctx, model, width - padding * 2)
+  const fitted = fitTextToWidth(ctx, model, maxTextWidth)
   ctx.fillText(fitted, centerX, centerY)
 
   ctx.fillStyle = "#3b82f6"
@@ -443,6 +578,7 @@ function drawDataRoutes(
   receiverCardModel: string,
   forcePortLabelsBottom: boolean,
   pitchMm: number,
+  activeRouteId?: string,
 ) {
   const lineWidth = scaledWorldSize(5, zoom, 3, 9)
   const outlineWidth = lineWidth + scaledWorldSize(3, zoom, 2, 6)
@@ -469,7 +605,10 @@ function drawDataRoutes(
   rowCenters.sort((a, b) => a - b)
 
   dataRoutes.forEach((route) => {
-    if (route.cabinetIds.length === 0) return
+    const hasManualSteps = !!route.manualMode && !!route.steps && route.steps.length > 0
+    if (route.cabinetIds.length === 0 && !hasManualSteps) return
+    const routeSteps = getRouteSteps(route)
+    const useManualSteps = route.manualMode && route.steps && route.steps.length > 0
 
     const isOverloaded = isDataRouteOverCapacity(route, cabinets, cabinetTypes, pitchMm)
     const lineColor = isOverloaded ? "#ef4444" : "#3b82f6"
@@ -485,34 +624,46 @@ function drawDataRoutes(
     const points: {
       x: number
       y: number
-      bounds: NonNullable<ReturnType<typeof getCabinetBounds>>
+      bounds: NonNullable<ReturnType<typeof getCabinetBounds>> | null
       hasReceiverCard: boolean
       cardIndex?: number
+      isVirtualAnchor: boolean
     }[] = []
-    route.cabinetIds.forEach((endpointId) => {
-      const { cabinetId, cardIndex } = parseRouteCabinetId(endpointId)
+    const virtualAnchors: { x: number; y: number }[] = []
+    const manualPoints: { x: number; y: number }[] = []
+    routeSteps.forEach((step) => {
+      if (step.type === "point") {
+        points.push({
+          x: step.x_mm,
+          y: step.y_mm,
+          bounds: null,
+          hasReceiverCard: false,
+          isVirtualAnchor: false,
+        })
+        manualPoints.push({ x: step.x_mm, y: step.y_mm })
+        return
+      }
+      const { cabinetId, cardIndex } = parseRouteCabinetId(step.endpointId)
       const cabinet = cabinets.find((c) => c.id === cabinetId)
       if (!cabinet) return
       const bounds = getCabinetBounds(cabinet, cabinetTypes)
       if (!bounds) return
-      const cardCount = getCabinetReceiverCardCount(cabinet)
-      if (cardCount === 0) return
-      const rects = getReceiverCardRects(bounds, zoom, cardCount)
-      const resolvedIndex = cardIndex === undefined ? 0 : Math.max(0, Math.min(rects.length - 1, cardIndex))
-      const anchorRect = rects[resolvedIndex]
+      const anchor = getCabinetDataAnchorPoint(cabinet, bounds, zoom, cardIndex)
       const hasReceiverCard =
+        anchor.cardCount > 0 &&
         showReceiverCards &&
         (cabinet.receiverCardOverride === null ? false : !!(cabinet.receiverCardOverride || receiverCardModel))
-      const anchor = anchorRect
-        ? { connectorX: anchorRect.connectorX, connectorY: anchorRect.connectorY }
-        : { connectorX: bounds.x + bounds.width / 2, connectorY: bounds.y + bounds.height / 2 }
       points.push({
-        x: anchor.connectorX,
-        y: anchor.connectorY,
+        x: anchor.x,
+        y: anchor.y,
         bounds,
-        cardIndex: resolvedIndex,
         hasReceiverCard,
+        cardIndex: anchor.resolvedIndex,
+        isVirtualAnchor: anchor.isVirtual,
       })
+      if (anchor.isVirtual) {
+        virtualAnchors.push({ x: anchor.x, y: anchor.y })
+      }
     })
 
     if (points.length === 0) {
@@ -604,100 +755,102 @@ function drawDataRoutes(
 
     // Draw connections between cabinets with orthogonal lines
     if (points.length > 1) {
-      ctx.strokeStyle = "rgba(2, 6, 23, 0.9)"
-      ctx.lineWidth = outlineWidth
-      ctx.beginPath()
-      ctx.moveTo(points[0].x, points[0].y)
+      const routeMinY = Math.min(...points.map((point) => point.y))
+      const routeMaxY = Math.max(...points.map((point) => point.y))
+      const drawRouteConnections = (strokeStyle: string, width: number) => {
+        ctx.strokeStyle = strokeStyle
+        ctx.lineWidth = width
+        ctx.beginPath()
+        ctx.moveTo(points[0].x, points[0].y)
+        let lastVerticalDir: number | null = null
 
-      for (let i = 1; i < points.length; i++) {
-        const prev = points[i - 1]
-        const curr = points[i]
+        for (let i = 1; i < points.length; i++) {
+          const prev = points[i - 1]
+          const curr = points[i]
+          const dx = curr.x - prev.x
+          const dy = curr.y - prev.y
+          const absDx = Math.abs(dx)
+          const absDy = Math.abs(dy)
+          const dirY = Math.sign(dy) || 0
 
-        // Simple orthogonal routing: go vertical first, then horizontal
-        const midY = (prev.y + curr.y) / 2
+          if (absDx < 10 && absDy < 10) {
+            ctx.lineTo(curr.x, curr.y)
+            continue
+          }
 
-        // Check if primarily horizontal or vertical movement
-        const dx = Math.abs(curr.x - prev.x)
-        const dy = Math.abs(curr.y - prev.y)
+          if (absDx < 10) {
+            if (!useManualSteps && lastVerticalDir !== null && dirY !== 0 && dirY !== lastVerticalDir) {
+              const turnY = dirY > 0 ? routeMinY : routeMaxY
+              ctx.lineTo(prev.x, turnY)
+              ctx.lineTo(curr.x, turnY)
+              ctx.lineTo(curr.x, curr.y)
+            } else {
+              ctx.lineTo(curr.x, curr.y)
+            }
+            if (dirY !== 0) lastVerticalDir = dirY
+            continue
+          }
 
-        if (dy < 10) {
-          // Same row - direct horizontal line
-          ctx.lineTo(curr.x, curr.y)
-        } else if (dx < 10) {
-          // Same column - direct vertical line
-          ctx.lineTo(curr.x, curr.y)
-        } else {
-          // Different row and column - L-shaped path
-          ctx.lineTo(prev.x, midY)
-          ctx.lineTo(curr.x, midY)
-          ctx.lineTo(curr.x, curr.y)
+          if (absDy < 10) {
+            ctx.lineTo(curr.x, curr.y)
+            continue
+          }
+
+          if (!useManualSteps && lastVerticalDir !== null && dirY !== 0 && dirY !== lastVerticalDir) {
+            const turnY = dirY > 0 ? routeMinY : routeMaxY
+            ctx.lineTo(prev.x, turnY)
+            ctx.lineTo(curr.x, turnY)
+            ctx.lineTo(curr.x, curr.y)
+          } else {
+            // Turn at the destination point to avoid mid-span backtracking.
+            ctx.lineTo(prev.x, curr.y)
+            ctx.lineTo(curr.x, curr.y)
+          }
+          if (dirY !== 0) lastVerticalDir = dirY
         }
+        ctx.stroke()
       }
-      ctx.stroke()
 
-      ctx.strokeStyle = lineColor
-      ctx.lineWidth = lineWidth
-      ctx.beginPath()
-      ctx.moveTo(points[0].x, points[0].y)
+      drawRouteConnections("rgba(2, 6, 23, 0.9)", outlineWidth)
+      drawRouteConnections(lineColor, lineWidth)
 
-      for (let i = 1; i < points.length; i++) {
-        const prev = points[i - 1]
-        const curr = points[i]
-
-        // Simple orthogonal routing: go vertical first, then horizontal
-        const midY = (prev.y + curr.y) / 2
-
-        // Check if primarily horizontal or vertical movement
-        const dx = Math.abs(curr.x - prev.x)
-        const dy = Math.abs(curr.y - prev.y)
-
-        if (dy < 10) {
-          // Same row - direct horizontal line
-          ctx.lineTo(curr.x, curr.y)
-        } else if (dx < 10) {
-          // Same column - direct vertical line
-          ctx.lineTo(curr.x, curr.y)
-        } else {
-          // Different row and column - L-shaped path
-          ctx.lineTo(prev.x, midY)
-          ctx.lineTo(curr.x, midY)
-          ctx.lineTo(curr.x, curr.y)
-        }
-      }
-      ctx.stroke()
-
-      // Draw arrow at end when it won't overlap the receiver card
+      // Draw end cap when it won't overlap the receiver card
       const lastPoint = points[points.length - 1]
       const secondLast = points[points.length - 2]
 
       if (!lastPoint.hasReceiverCard) {
-        // Arrow pointing in direction of last segment
-        let angle: number
-        if (Math.abs(lastPoint.x - secondLast.x) < 10) {
-          // Vertical movement
-          angle = lastPoint.y > secondLast.y ? Math.PI / 2 : -Math.PI / 2
-        } else {
-          // Horizontal movement
-          angle = lastPoint.x > secondLast.x ? 0 : Math.PI
-        }
-
+        const endSize = Math.max(3.2 / zoom, arrowSize * 0.35)
         ctx.beginPath()
-        ctx.moveTo(lastPoint.x + arrowSize * Math.cos(angle), lastPoint.y + arrowSize * Math.sin(angle))
-        ctx.lineTo(
-          lastPoint.x - arrowSize * 0.5 * Math.cos(angle - Math.PI / 4),
-          lastPoint.y - arrowSize * 0.5 * Math.sin(angle - Math.PI / 4),
-        )
-        ctx.lineTo(
-          lastPoint.x - arrowSize * 0.5 * Math.cos(angle + Math.PI / 4),
-          lastPoint.y - arrowSize * 0.5 * Math.sin(angle + Math.PI / 4),
-        )
-        ctx.closePath()
-        ctx.strokeStyle = "rgba(2, 6, 23, 0.9)"
-        ctx.lineWidth = scaledWorldSize(2, zoom, 1.5, 3)
-        ctx.stroke()
+        ctx.arc(lastPoint.x, lastPoint.y, endSize, 0, Math.PI * 2)
         ctx.fillStyle = lineColor
         ctx.fill()
       }
+    }
+
+    if (virtualAnchors.length > 0) {
+      ctx.save()
+      ctx.fillStyle = "#3b82f6"
+      virtualAnchors.forEach((anchor) => {
+        ctx.beginPath()
+        ctx.arc(anchor.x, anchor.y, 3.2 / zoom, 0, Math.PI * 2)
+        ctx.fill()
+      })
+      ctx.restore()
+    }
+
+    if (route.manualMode && route.id === activeRouteId && manualPoints.length > 0) {
+      const handleRadius = 6 / zoom
+      ctx.save()
+      ctx.fillStyle = "#ffffff"
+      ctx.strokeStyle = "#3b82f6"
+      ctx.lineWidth = Math.max(1 / zoom, 0.8 / zoom)
+      manualPoints.forEach((point) => {
+        ctx.beginPath()
+        ctx.arc(point.x, point.y, handleRadius, 0, Math.PI * 2)
+        ctx.fill()
+        ctx.stroke()
+      })
+      ctx.restore()
     }
 
     ctx.restore()
@@ -731,28 +884,7 @@ function drawPowerFeeds(
   const layoutMidY = (layoutBounds.minY + layoutBounds.maxY) / 2
   let maxPortLabelWidthLeft = 0
   let maxPortLabelWidthRight = 0
-  const rowEdges = cabinets
-    .map((cabinet) => getCabinetBounds(cabinet, cabinetTypes))
-    .filter((bounds): bounds is NonNullable<ReturnType<typeof getCabinetBounds>> => !!bounds)
-    .flatMap((bounds) => [bounds.y, bounds.y2])
-    .sort((a, b) => a - b)
-  const edgeTolerance = scaledWorldSize(8, zoom, 6, 12)
-  const edgeOffset = scaledWorldSize(14, zoom, 10, 18)
-  const nudgeAwayFromEdges = (y: number) => {
-    if (rowEdges.length === 0) return y
-    let nearest = rowEdges[0]
-    let minDist = Math.abs(y - nearest)
-    for (let i = 1; i < rowEdges.length; i++) {
-      const dist = Math.abs(y - rowEdges[i])
-      if (dist < minDist) {
-        minDist = dist
-        nearest = rowEdges[i]
-      }
-    }
-    if (minDist > edgeTolerance) return y
-    const direction = y === nearest ? (y >= layoutMidY ? 1 : -1) : Math.sign(y - nearest)
-    return y + (direction || 1) * edgeOffset
-  }
+  let maxPortLabelBottom: number | null = null
 
   if (dataRoutes && dataRoutes.length > 0) {
     const rowCenters: number[] = []
@@ -770,13 +902,14 @@ function drawPowerFeeds(
     const dataLabelPadding = scaledWorldSize(8, zoom, 6, 12)
     const dataLabelOffset = 90
 
+    let hasBottomLabel = false
     dataRoutes.forEach((route) => {
       if (route.cabinetIds.length === 0) return
       const firstEndpoint = route.cabinetIds.find((endpointId) => {
         const { cabinetId } = parseRouteCabinetId(endpointId)
         const cabinet = cabinets.find((c) => c.id === cabinetId)
         if (!cabinet) return false
-        return getCabinetReceiverCardCount(cabinet) > 0
+        return !!getCabinetBounds(cabinet, cabinetTypes)
       })
       if (!firstEndpoint) return
       const { cabinetId, cardIndex } = parseRouteCabinetId(firstEndpoint)
@@ -784,14 +917,8 @@ function drawPowerFeeds(
       if (!cabinet) return
       const bounds = getCabinetBounds(cabinet, cabinetTypes)
       if (!bounds) return
-      const cardCount = getCabinetReceiverCardCount(cabinet)
-      if (cardCount === 0) return
-      const rects = getReceiverCardRects(bounds, zoom, cardCount)
-      const resolvedIndex = cardIndex === undefined ? 0 : Math.max(0, Math.min(rects.length - 1, cardIndex))
-      const anchorRect = rects[resolvedIndex]
-      const anchor = anchorRect
-        ? { connectorX: anchorRect.connectorX, connectorY: anchorRect.connectorY }
-        : { connectorX: bounds.x + bounds.width / 2, connectorY: bounds.y + bounds.height / 2 }
+      const anchorPoint = getCabinetDataAnchorPoint(cabinet, bounds, zoom, cardIndex)
+      const anchor = { connectorX: anchorPoint.x, connectorY: anchorPoint.y }
 
       const labelText = `Port ${route.port}`
       ctx.font = `bold ${dataFontSize}px Inter, sans-serif`
@@ -833,7 +960,14 @@ function drawPowerFeeds(
         void labelCenterX
         void labelCenterY
       }
+      if (resolvedPosition === "bottom") {
+        hasBottomLabel = true
+      }
     })
+    if (hasBottomLabel) {
+      const dataLabelHeight = dataFontSize + dataLabelPadding * 1.6
+      maxPortLabelBottom = layoutBounds.maxY + dataLabelOffset + dataLabelHeight / 2
+    }
   }
 
   powerFeeds.forEach((feed) => {
@@ -867,7 +1001,7 @@ function drawPowerFeeds(
       let anchorRect: ReceiverCardRect | undefined
       if (rects.length > 0) {
         anchorRect = rects.length === 1 ? rects[0] : bounds.y + bounds.height / 2 > layoutMidY ? rects[1] : rects[0]
-        const anchor = getPowerAnchorPoint(anchorRect, zoom)
+        const anchor = getPowerAnchorPoint(anchorRect, bounds, zoom)
         anchorX = anchor.x
         anchorY = anchor.y
       }
@@ -916,12 +1050,19 @@ function drawPowerFeeds(
         : labelPosition === "right"
           ? layoutBounds.maxX + sideOffsetRight + boxWidth / 2
           : points[0].x
-    const labelCenterY =
-      labelPosition === "top"
-        ? feedBounds.minY - labelOffset
-        : labelPosition === "bottom"
-          ? feedBounds.maxY + labelOffset
-          : points[0].y
+    let labelCenterY: number
+    if (labelPosition === "bottom") {
+      let labelTop = feedBounds.maxY + labelOffset
+      if (maxPortLabelBottom !== null) {
+        const minLabelTop = maxPortLabelBottom + scaledWorldSize(16, zoom, 10, 22)
+        labelTop = Math.max(labelTop, minLabelTop)
+      }
+      labelCenterY = labelTop + boxHeight / 2
+    } else if (labelPosition === "top") {
+      labelCenterY = feedBounds.minY - labelOffset
+    } else {
+      labelCenterY = points[0].y
+    }
     const boxX = labelCenterX - boxWidth / 2
     const boxY = labelCenterY - boxHeight / 2
 
@@ -971,71 +1112,68 @@ function drawPowerFeeds(
     // Draw connections between cabinets with orthogonal lines
     if (points.length > 1) {
       const rowGap = scaledWorldSize(30, zoom, 18, 30)
-      ctx.strokeStyle = "rgba(2, 6, 23, 0.9)"
-      ctx.lineWidth = outlineWidth
-      ctx.beginPath()
-      ctx.moveTo(points[0].x, points[0].y)
+      const feedMinY = Math.min(...points.map((point) => point.y))
+      const feedMaxY = Math.max(...points.map((point) => point.y))
+      const drawFeedConnections = (strokeStyle: string, width: number) => {
+        ctx.strokeStyle = strokeStyle
+        ctx.lineWidth = width
+        ctx.beginPath()
+        ctx.moveTo(points[0].x, points[0].y)
+        let lastVerticalDir: number | null = null
 
-      for (let i = 1; i < points.length; i++) {
-        const prev = points[i - 1]
-        const curr = points[i]
-        const dx = Math.abs(curr.x - prev.x)
-        const dy = Math.abs(curr.y - prev.y)
+        for (let i = 1; i < points.length; i++) {
+          const prev = points[i - 1]
+          const curr = points[i]
+          const dx = curr.x - prev.x
+          const dy = curr.y - prev.y
+          const absDx = Math.abs(dx)
+          const absDy = Math.abs(dy)
+          const dirY = Math.sign(dy) || 0
 
-        if (dy < 10) {
-          const prevCard = prev.cardRect ?? getReceiverCardRect(prev.bounds, zoom)
-          const currCard = curr.cardRect ?? getReceiverCardRect(curr.bounds, zoom)
-          const rowCenterY = (prev.y + curr.y) / 2
-          const isBottomRow = rowCenterY > (layoutBounds.minY + layoutBounds.maxY) / 2
-          const liftY = isBottomRow
-            ? Math.max(prevCard.y + prevCard.height, currCard.y + currCard.height) + rowGap
-            : Math.min(prevCard.y, currCard.y) - rowGap
-          ctx.lineTo(prev.x, liftY)
-          ctx.lineTo(curr.x, liftY)
-          ctx.lineTo(curr.x, curr.y)
-        } else if (dx < 10) {
-          ctx.lineTo(curr.x, curr.y)
-        } else {
-          const midY = nudgeAwayFromEdges((prev.y + curr.y) / 2)
-          ctx.lineTo(prev.x, midY)
-          ctx.lineTo(curr.x, midY)
-          ctx.lineTo(curr.x, curr.y)
+          if (absDy < 10) {
+            const prevCard = prev.cardRect ?? getReceiverCardRect(prev.bounds, zoom, 0.35)
+            const currCard = curr.cardRect ?? getReceiverCardRect(curr.bounds, zoom, 0.35)
+            const rowCenterY = (prev.y + curr.y) / 2
+            const isBottomRow = rowCenterY > (layoutBounds.minY + layoutBounds.maxY) / 2
+            const liftY = isBottomRow
+              ? Math.max(prevCard.y + prevCard.height, currCard.y + currCard.height) + rowGap
+              : Math.min(prevCard.y, currCard.y) - rowGap
+            ctx.lineTo(prev.x, liftY)
+            ctx.lineTo(curr.x, liftY)
+            ctx.lineTo(curr.x, curr.y)
+            continue
+          }
+
+          if (absDx < 10) {
+            if (lastVerticalDir !== null && dirY !== 0 && dirY !== lastVerticalDir) {
+              const turnY = dirY > 0 ? feedMinY : feedMaxY
+              ctx.lineTo(prev.x, turnY)
+              ctx.lineTo(curr.x, turnY)
+              ctx.lineTo(curr.x, curr.y)
+            } else {
+              ctx.lineTo(curr.x, curr.y)
+            }
+            if (dirY !== 0) lastVerticalDir = dirY
+            continue
+          }
+
+          if (lastVerticalDir !== null && dirY !== 0 && dirY !== lastVerticalDir) {
+            const turnY = dirY > 0 ? feedMinY : feedMaxY
+            ctx.lineTo(prev.x, turnY)
+            ctx.lineTo(curr.x, turnY)
+            ctx.lineTo(curr.x, curr.y)
+          } else {
+            // Turn at the destination cabinet to avoid mid-span backtracking.
+            ctx.lineTo(prev.x, curr.y)
+            ctx.lineTo(curr.x, curr.y)
+          }
+          if (dirY !== 0) lastVerticalDir = dirY
         }
+        ctx.stroke()
       }
-      ctx.stroke()
 
-      ctx.strokeStyle = lineColor
-      ctx.lineWidth = lineWidth
-      ctx.beginPath()
-      ctx.moveTo(points[0].x, points[0].y)
-
-      for (let i = 1; i < points.length; i++) {
-        const prev = points[i - 1]
-        const curr = points[i]
-        const dx = Math.abs(curr.x - prev.x)
-        const dy = Math.abs(curr.y - prev.y)
-
-        if (dy < 10) {
-          const prevCard = prev.cardRect ?? getReceiverCardRect(prev.bounds, zoom)
-          const currCard = curr.cardRect ?? getReceiverCardRect(curr.bounds, zoom)
-          const rowCenterY = (prev.y + curr.y) / 2
-          const isBottomRow = rowCenterY > (layoutBounds.minY + layoutBounds.maxY) / 2
-          const liftY = isBottomRow
-            ? Math.max(prevCard.y + prevCard.height, currCard.y + currCard.height) + rowGap
-            : Math.min(prevCard.y, currCard.y) - rowGap
-          ctx.lineTo(prev.x, liftY)
-          ctx.lineTo(curr.x, liftY)
-          ctx.lineTo(curr.x, curr.y)
-        } else if (dx < 10) {
-          ctx.lineTo(curr.x, curr.y)
-        } else {
-          const midY = nudgeAwayFromEdges((prev.y + curr.y) / 2)
-          ctx.lineTo(prev.x, midY)
-          ctx.lineTo(curr.x, midY)
-          ctx.lineTo(curr.x, curr.y)
-        }
-      }
-      ctx.stroke()
+      drawFeedConnections("rgba(2, 6, 23, 0.9)", outlineWidth)
+      drawFeedConnections(lineColor, lineWidth)
     }
 
     if (points.length > 0) {
@@ -1173,6 +1311,7 @@ export function LayoutCanvas() {
   const dragOffsetRef = useRef({ x: 0, y: 0 })
   const dragStartWorldRef = useRef({ x: 0, y: 0 })
   const dragStartPositionsRef = useRef<Map<string, { x: number; y: number }>>(new Map())
+  const draggingRoutePointRef = useRef<{ routeId: string; stepIndex: number } | null>(null)
   const [selectionBox, setSelectionBox] = useState<{
     start: { x: number; y: number }
     end: { x: number; y: number }
@@ -1328,6 +1467,11 @@ export function LayoutCanvas() {
       : null
     const moduleGridOrigin = moduleGridBounds ? { x: moduleGridBounds.minX, y: moduleGridBounds.minY } : null
     const routeBadges: { x: number; y: number; size: number; label: string }[] = []
+    const deferredCabinetLabels: {
+      bounds: { x: number; y: number; width: number; height: number }
+      label: string
+      mode: "grid" | "internal"
+    }[] = []
 
     // Draw cabinets
     layout.cabinets.forEach((cabinet) => {
@@ -1406,14 +1550,9 @@ export function LayoutCanvas() {
       if (showCabinetLabels) {
         if (labelsMode === "grid") {
           const displayLabel = computeGridLabel(cabinet, layout.cabinets, layout.cabinetTypes)
-          drawGridLabel(ctx, bounds, displayLabel, zoom)
+          deferredCabinetLabels.push({ bounds, label: displayLabel, mode: "grid" })
         } else {
-          const fontSize = Math.max(12, 14 / zoom)
-          ctx.fillStyle = "#e2e8f0"
-          ctx.font = `${fontSize}px Inter, sans-serif`
-          ctx.textAlign = "center"
-          ctx.textBaseline = "middle"
-          ctx.fillText(cabinet.id, bounds.x + bounds.width / 2, bounds.y + bounds.height / 2 - fontSize / 2)
+          deferredCabinetLabels.push({ bounds, label: cabinet.id, mode: "internal" })
         }
       }
 
@@ -1434,16 +1573,18 @@ export function LayoutCanvas() {
         const route = layout.project.dataRoutes.find((r) => r.id === routingMode.routeId)
         if (route) {
           const cardCount = getCabinetReceiverCardCount(cabinet)
-          const rects = getReceiverCardRects(bounds, zoom, cardCount)
-          if (rects.length === 0) return
+          const rects = cardCount > 0 ? getReceiverCardRects(bounds, zoom, cardCount) : []
           route.cabinetIds.forEach((endpointId, index) => {
             const { cabinetId, cardIndex } = parseRouteCabinetId(endpointId)
             if (cabinetId !== cabinet.id) return
-            const resolvedIndex = cardIndex === undefined ? 0 : Math.max(0, Math.min(rects.length - 1, cardIndex))
-            const anchorRect = rects[resolvedIndex]
             const badgeSize = 18 / zoom
-            const badgeX = anchorRect ? anchorRect.x + anchorRect.width - badgeSize * 0.6 : bounds.x + bounds.width - badgeSize
-            const badgeY = anchorRect ? anchorRect.y + badgeSize * 0.1 : bounds.y + bounds.height - badgeSize
+            const anchor = getCabinetDataAnchorPoint(cabinet, bounds, zoom, cardIndex)
+            const resolvedIndex = anchor.resolvedIndex ?? 0
+            const anchorRect = rects[resolvedIndex]
+            const badgeX = anchorRect
+              ? anchorRect.x + anchorRect.width - badgeSize * 0.6
+              : anchor.x + badgeSize * 0.1
+            const badgeY = anchorRect ? anchorRect.y + badgeSize * 0.1 : anchor.y - badgeSize * 0.8
             routeBadges.push({
               x: badgeX + badgeSize / 2,
               y: badgeY + badgeSize / 2,
@@ -1494,6 +1635,7 @@ export function LayoutCanvas() {
         receiverCardModel,
         forcePortLabelsBottom,
         layout.project.pitch_mm,
+        routingMode.type === "data" ? routingMode.routeId : undefined,
       )
     }
 
@@ -1510,6 +1652,21 @@ export function LayoutCanvas() {
       )
     }
 
+    if (showCabinetLabels && deferredCabinetLabels.length > 0) {
+      deferredCabinetLabels.forEach(({ bounds, label, mode }) => {
+        if (mode === "grid") {
+          drawGridLabel(ctx, bounds, label, zoom)
+          return
+        }
+        const fontSize = Math.max(12, 14 / zoom)
+        ctx.fillStyle = "#e2e8f0"
+        ctx.font = `${fontSize}px Inter, sans-serif`
+        ctx.textAlign = "center"
+        ctx.textBaseline = "middle"
+        ctx.fillText(label, bounds.x + bounds.width / 2, bounds.y + bounds.height / 2 - fontSize / 2)
+      })
+    }
+
     // Draw receiver cards on top so data lines sit underneath the label
     if (showReceiverCards) {
       layout.cabinets.forEach((cabinet) => {
@@ -1523,7 +1680,7 @@ export function LayoutCanvas() {
         const rects = getReceiverCardRects(bounds, zoom, cardCount)
         rects.forEach((rect) => {
           drawReceiverCard(ctx, rect, cardModel, zoom)
-          drawPowerAnchorDot(ctx, rect, zoom)
+          drawPowerAnchorDot(ctx, rect, bounds, zoom)
         })
       })
     }
@@ -1573,7 +1730,7 @@ export function LayoutCanvas() {
               const { cabinetId } = parseRouteCabinetId(endpointId)
               const cabinet = layout.cabinets.find((c) => c.id === cabinetId)
               if (!cabinet) return false
-              return getCabinetReceiverCardCount(cabinet) > 0
+              return !!getCabinetBounds(cabinet, layout.cabinetTypes)
             })
             if (!firstEndpoint) continue
 
@@ -1675,9 +1832,13 @@ export function LayoutCanvas() {
     ctx.fillText(`Zoom: ${(zoom * 100).toFixed(0)}%`, 12, rect.height - 12)
 
     if (routingMode.type !== "none") {
+      const activeRoute =
+        routingMode.type === "data" ? layout.project.dataRoutes.find((r) => r.id === routingMode.routeId) : null
       const modeText =
         routingMode.type === "data"
-          ? `Routing: Port ${layout.project.dataRoutes.find((r) => r.id === routingMode.routeId)?.port || "?"} - Click cabinets to add/remove`
+          ? activeRoute?.manualMode
+            ? `Manual routing: Port ${activeRoute.port || "?"} - Click empty space to add points, click cabinets to add/remove`
+            : `Routing: Port ${activeRoute?.port || "?"} - Click cabinets to add/remove`
           : `Power Feed - Click cabinets to assign`
 
       ctx.fillStyle = routingMode.type === "data" ? "#3b82f6" : "#f97316"
@@ -1741,19 +1902,154 @@ export function LayoutCanvas() {
     const world = screenToWorld(e.clientX, e.clientY)
     const cabinet = findCabinetAt(world.x, world.y)
     const isMultiSelect = e.shiftKey || e.metaKey || e.ctrlKey
+    const activeRoute =
+      routingMode.type === "data" ? layout.project.dataRoutes.find((r) => r.id === routingMode.routeId) : null
 
     if (e.button === 1 || (e.button === 0 && e.altKey)) {
       setIsPanning(true)
       setLastPanPos({ x: e.clientX, y: e.clientY })
+      return
+    }
+
+    if (routingMode.type === "data" && activeRoute?.manualMode && e.button === 0) {
+      const hitIndex = findManualStepIndex(activeRoute.steps, world, zoom)
+      if (hitIndex !== null) {
+        if (e.shiftKey) {
+          const nextSteps = (activeRoute.steps || []).filter((_, index) => index !== hitIndex)
+          dispatch({
+            type: "UPDATE_DATA_ROUTE",
+            payload: {
+              id: activeRoute.id,
+              updates: { steps: nextSteps, cabinetIds: getRouteCabinetIdsFromSteps(nextSteps) },
+            },
+          })
+        } else {
+          draggingRoutePointRef.current = { routeId: activeRoute.id, stepIndex: hitIndex }
+        }
+        return
+      }
+
+      if (cabinet && !e.shiftKey) {
+        const bounds = getCabinetBounds(cabinet, layout.cabinetTypes)
+        const cardCount = getCabinetReceiverCardCount(cabinet)
+        if (!bounds) return
+        if (cardCount === 0) {
+          const normalizedX = clamp((world.x - bounds.x) / bounds.width, 0, 1)
+          const normalizedY = clamp((world.y - bounds.y) / bounds.height, 0, 1)
+          dispatch({
+            type: "UPDATE_CABINET",
+            payload: {
+              id: cabinet.id,
+              updates: { dataAnchorOverride: { x: normalizedX, y: normalizedY } },
+            },
+          })
+        }
+
+        const cardIndex = getReceiverCardIndexAtPoint(bounds, zoom, cardCount, world.x, world.y)
+        const endpointId =
+          cardCount === 1
+            ? cabinet.id
+            : formatRouteCabinetId(cabinet.id, cardIndex ?? undefined)
+
+        const nextSteps = activeRoute.steps ? [...activeRoute.steps] : getRouteSteps(activeRoute)
+        const existingIndex = nextSteps.findIndex(
+          (step) => step.type === "cabinet" && step.endpointId === endpointId,
+        )
+        if (existingIndex >= 0) {
+          nextSteps.splice(existingIndex, 1)
+        } else {
+          nextSteps.push({ type: "cabinet", endpointId })
+        }
+        dispatch({
+          type: "UPDATE_DATA_ROUTE",
+          payload: {
+            id: activeRoute.id,
+            updates: { steps: nextSteps, cabinetIds: getRouteCabinetIdsFromSteps(nextSteps) },
+          },
+        })
+        return
+      }
+
+      if (cabinet) {
+        const nextSteps = activeRoute.steps ? [...activeRoute.steps] : getRouteSteps(activeRoute)
+        const lastStep = nextSteps.length > 0 ? nextSteps[nextSteps.length - 1] : null
+        const reference = lastStep
+          ? getRouteStepPosition(lastStep, layout.cabinets, layout.cabinetTypes, zoom)
+          : null
+        const snapStep = getRouteSnapStepMm(layout.project.grid.step_mm)
+        const snapped = getOrthogonalPoint(world, reference, snapStep)
+        nextSteps.push({ type: "point", x_mm: snapped.x, y_mm: snapped.y })
+        dispatch({
+          type: "UPDATE_DATA_ROUTE",
+          payload: {
+            id: activeRoute.id,
+            updates: { steps: nextSteps, cabinetIds: getRouteCabinetIdsFromSteps(nextSteps) },
+          },
+        })
+        return
+      }
+
+      const nextSteps = activeRoute.steps ? [...activeRoute.steps] : getRouteSteps(activeRoute)
+      const lastStep = nextSteps.length > 0 ? nextSteps[nextSteps.length - 1] : null
+      const reference = lastStep ? getRouteStepPosition(lastStep, layout.cabinets, layout.cabinetTypes, zoom) : null
+      const snapStep = getRouteSnapStepMm(layout.project.grid.step_mm)
+      const snapped = getOrthogonalPoint(world, reference, snapStep)
+      nextSteps.push({ type: "point", x_mm: snapped.x, y_mm: snapped.y })
+      dispatch({
+        type: "UPDATE_DATA_ROUTE",
+        payload: {
+          id: activeRoute.id,
+          updates: { steps: nextSteps, cabinetIds: getRouteCabinetIdsFromSteps(nextSteps) },
+        },
+      })
+      return
     } else if (cabinet) {
       if (routingMode.type === "data") {
         const bounds = getCabinetBounds(cabinet, layout.cabinetTypes)
         const cardCount = getCabinetReceiverCardCount(cabinet)
-        if (!bounds || cardCount === 0) return
-        const route = layout.project.dataRoutes.find((r) => r.id === routingMode.routeId)
+        if (!bounds) return
+        const route = activeRoute
+        if (!route) return
+        if (cardCount === 0) {
+          const normalizedX = clamp((world.x - bounds.x) / bounds.width, 0, 1)
+          const normalizedY = clamp((world.y - bounds.y) / bounds.height, 0, 1)
+          const hasEndpoint = route.cabinetIds.some(
+            (endpointId) => parseRouteCabinetId(endpointId).cabinetId === cabinet.id,
+          )
+          if (hasEndpoint) {
+            const anchor = getCabinetDataAnchorPoint(cabinet, bounds, zoom)
+            const hitRadius = 10 / zoom
+            if (Math.hypot(world.x - anchor.x, world.y - anchor.y) <= hitRadius) {
+              dispatch({
+                type: "REMOVE_CABINET_FROM_ROUTE",
+                payload: { routeId: routingMode.routeId, endpointId: cabinet.id },
+              })
+              dispatch({
+                type: "UPDATE_CABINET",
+                payload: { id: cabinet.id, updates: { dataAnchorOverride: undefined } },
+              })
+              return
+            }
+          }
+          dispatch({
+            type: "UPDATE_CABINET",
+            payload: {
+              id: cabinet.id,
+              updates: { dataAnchorOverride: { x: normalizedX, y: normalizedY } },
+            },
+          })
+
+          if (!hasEndpoint) {
+            dispatch({
+              type: "ADD_CABINET_TO_ROUTE",
+              payload: { routeId: routingMode.routeId, endpointId: cabinet.id },
+            })
+          }
+          return
+        }
         const cardIndex = getReceiverCardIndexAtPoint(bounds, zoom, cardCount, world.x, world.y)
         const existingEndpoint =
-          cardCount === 1 ? route?.cabinetIds.find((id) => parseRouteCabinetId(id).cabinetId === cabinet.id) : undefined
+          cardCount === 1 ? route.cabinetIds.find((id) => parseRouteCabinetId(id).cabinetId === cabinet.id) : undefined
         const endpointId =
           cardCount === 1
             ? existingEndpoint ?? cabinet.id
@@ -1802,6 +2098,32 @@ export function LayoutCanvas() {
   }
 
   const handleMouseMove = (e: React.MouseEvent) => {
+    if (draggingRoutePointRef.current && routingMode.type === "data") {
+      const world = screenToWorld(e.clientX, e.clientY)
+      const { routeId, stepIndex } = draggingRoutePointRef.current
+      const route = layout.project.dataRoutes.find((r) => r.id === routeId)
+      if (!route || !route.steps) return
+      const prevStep = route.steps[stepIndex - 1]
+      const nextStep = route.steps[stepIndex + 1]
+      const reference =
+        (prevStep && getRouteStepPosition(prevStep, layout.cabinets, layout.cabinetTypes, zoom)) ||
+        (nextStep && getRouteStepPosition(nextStep, layout.cabinets, layout.cabinetTypes, zoom)) ||
+        null
+      const snapStep = getRouteSnapStepMm(layout.project.grid.step_mm)
+      const snapped = getOrthogonalPoint(world, reference, snapStep)
+      const nextSteps = route.steps.map((step, index) =>
+        index === stepIndex && step.type === "point" ? { ...step, x_mm: snapped.x, y_mm: snapped.y } : step,
+      )
+      dispatch({
+        type: "UPDATE_DATA_ROUTE",
+        payload: {
+          id: routeId,
+          updates: { steps: nextSteps, cabinetIds: getRouteCabinetIdsFromSteps(nextSteps) },
+        },
+      })
+      return
+    }
+
     if (selectionBox) {
       const world = screenToWorld(e.clientX, e.clientY)
       setSelectionBox((prev) => (prev ? { ...prev, end: world } : prev))
@@ -1870,10 +2192,14 @@ export function LayoutCanvas() {
     if (isDraggingCabinetRef.current) {
       dispatch({ type: "PUSH_HISTORY" })
     }
+    if (draggingRoutePointRef.current) {
+      dispatch({ type: "PUSH_HISTORY" })
+    }
     setIsPanning(false)
     isDraggingCabinetRef.current = false
     draggingCabinetIdRef.current = null
     dragStartPositionsRef.current = new Map()
+    draggingRoutePointRef.current = null
   }
 
 

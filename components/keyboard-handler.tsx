@@ -16,6 +16,7 @@ export function KeyboardHandler() {
         return
       }
 
+      const key = e.key.toLowerCase()
       const selection = selectedCabinetIds.length > 0
         ? selectedCabinetIds
         : selectedCabinetId
@@ -33,7 +34,7 @@ export function KeyboardHandler() {
       }
 
       // Rotate
-      if (e.key === "r" || e.key === "R") {
+      if (key === "r") {
         if (selection.length > 0) {
           e.preventDefault()
           selection.forEach((id) => {
@@ -49,13 +50,13 @@ export function KeyboardHandler() {
         }
       }
 
-      if (e.key === "d" && !e.ctrlKey && !e.metaKey) {
+      if (key === "d" && !e.ctrlKey && !e.metaKey) {
         e.preventDefault()
         dispatch({ type: "TOGGLE_DIMENSIONS" })
       }
 
       // Duplicate
-      if ((e.ctrlKey || e.metaKey) && e.key === "d") {
+      if ((e.ctrlKey || e.metaKey) && key === "d") {
         if (selectedCabinetId) {
           e.preventDefault()
           dispatch({ type: "DUPLICATE_CABINET", payload: selectedCabinetId })
@@ -64,7 +65,7 @@ export function KeyboardHandler() {
       }
 
       // Copy
-      if ((e.ctrlKey || e.metaKey) && e.key === "c") {
+      if ((e.ctrlKey || e.metaKey) && key === "c") {
         if (selection.length > 0) {
           e.preventDefault()
           clipboardRef.current = layout.cabinets
@@ -74,7 +75,7 @@ export function KeyboardHandler() {
       }
 
       // Paste
-      if ((e.ctrlKey || e.metaKey) && e.key === "v") {
+      if ((e.ctrlKey || e.metaKey) && key === "v") {
         if (clipboardRef.current.length > 0) {
           e.preventDefault()
           const existingIds = new Set(layout.cabinets.map((c) => c.id))
@@ -102,13 +103,13 @@ export function KeyboardHandler() {
       }
 
       // Undo
-      if ((e.ctrlKey || e.metaKey) && e.key === "z" && !e.shiftKey) {
+      if ((e.ctrlKey || e.metaKey) && key === "z" && !e.shiftKey) {
         e.preventDefault()
         dispatch({ type: "UNDO" })
       }
 
       // Redo
-      if ((e.ctrlKey || e.metaKey) && (e.key === "y" || (e.key === "z" && e.shiftKey))) {
+      if ((e.ctrlKey || e.metaKey) && (key === "y" || (key === "z" && e.shiftKey))) {
         e.preventDefault()
         dispatch({ type: "REDO" })
       }

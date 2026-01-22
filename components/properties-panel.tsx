@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react"
 import { useEditor } from "@/lib/editor-context"
 import { getLayoutBounds, validateLayout } from "@/lib/validation"
-import type { Cabinet } from "@/lib/types"
+import type { Cabinet, DataRouteStep } from "@/lib/types"
 import {
   computeGridLabel,
   formatRouteCabinetId,
@@ -71,6 +71,7 @@ export function PropertiesPanel() {
         let changed = false
         const seen = new Set<string>()
         const newCabinetIds: string[] = []
+        let nextSteps = route.steps
 
         route.cabinetIds.forEach((endpointId) => {
           const parsed = parseRouteCabinetId(endpointId)
@@ -80,7 +81,14 @@ export function PropertiesPanel() {
           }
 
           if (count === 0) {
-            changed = true
+            const normalized = selectedCabinet.id
+            if (!seen.has(normalized)) {
+              newCabinetIds.push(normalized)
+              seen.add(normalized)
+            } else {
+              changed = true
+            }
+            if (endpointId !== normalized) changed = true
             return
           }
 
@@ -106,15 +114,39 @@ export function PropertiesPanel() {
           if (endpointId !== normalized) changed = true
         })
 
+        if (route.steps && route.steps.length > 0) {
+          let stepsChanged = false
+          const updatedSteps = route.steps.map((step) => {
+            if (step.type !== "cabinet") return step
+            const parsed = parseRouteCabinetId(step.endpointId)
+            if (parsed.cabinetId !== selectedCabinet.id) return step
+            let normalized = selectedCabinet.id
+            if (count === 2) {
+              normalized = formatRouteCabinetId(selectedCabinet.id, parsed.cardIndex ?? 0)
+            }
+            if (step.endpointId !== normalized) {
+              stepsChanged = true
+            }
+            return { ...step, endpointId: normalized }
+          })
+          if (stepsChanged) {
+            nextSteps = updatedSteps
+            changed = true
+          }
+        }
+
         if (!changed && newCabinetIds.length === route.cabinetIds.length) return null
         if (newCabinetIds.length !== route.cabinetIds.length) changed = true
         if (!changed) return null
-        return { id: route.id, cabinetIds: newCabinetIds }
+        return { id: route.id, cabinetIds: newCabinetIds, steps: nextSteps }
       })
-      .filter(Boolean) as { id: string; cabinetIds: string[] }[]
+      .filter(Boolean) as { id: string; cabinetIds: string[]; steps?: DataRouteStep[] }[]
 
     routeUpdates.forEach((update) => {
-      dispatch({ type: "UPDATE_DATA_ROUTE", payload: { id: update.id, updates: { cabinetIds: update.cabinetIds } } })
+      dispatch({
+        type: "UPDATE_DATA_ROUTE",
+        payload: { id: update.id, updates: { cabinetIds: update.cabinetIds, steps: update.steps } },
+      })
     })
 
     dispatch({ type: "PUSH_HISTORY" })
