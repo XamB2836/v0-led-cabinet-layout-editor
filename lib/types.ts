@@ -72,6 +72,8 @@ export interface ExportSettings {
   viewSide: "front" | "back"
   title: string
   clientName: string
+  breakerNumber?: string
+  controllerLabel?: string
 }
 
 export interface Project {
@@ -122,7 +124,7 @@ export interface EditorState {
 }
 
 // Default cabinet types
-const DEFAULT_WIDTHS_MM = [1120, 960, 800, 640, 480, 320, 160]
+const DEFAULT_WIDTHS_MM = [1280, 1120, 960, 800, 640, 480, 320, 160]
 const DEFAULT_HEIGHTS_MM = [640, 480, 320, 160]
 
 export const DEFAULT_CABINET_TYPES: CabinetType[] = DEFAULT_HEIGHTS_MM.flatMap((height) =>
@@ -165,6 +167,8 @@ export const DEFAULT_LAYOUT: LayoutData = {
       viewSide: "front",
       title: "",
       clientName: "",
+      breakerNumber: "",
+      controllerLabel: "",
     },
   },
   cabinetTypes: [...DEFAULT_CABINET_TYPES],
