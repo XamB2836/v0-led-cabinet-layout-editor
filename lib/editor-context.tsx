@@ -157,11 +157,18 @@ function editorReducer(state: EditorState, action: EditorAction): EditorState {
 
     case "DELETE_CABINET":
       const remainingSelection = state.selectedCabinetIds.filter((id) => id !== action.payload)
+      const isControllerCabinet =
+        state.layout.project.controllerPlacement === "cabinet" &&
+        state.layout.project.controllerCabinetId === action.payload
+      const nextProject = isControllerCabinet
+        ? { ...state.layout.project, controllerPlacement: "external", controllerCabinetId: undefined }
+        : state.layout.project
       return {
         ...state,
         layout: {
           ...state.layout,
           cabinets: state.layout.cabinets.filter((c) => c.id !== action.payload),
+          project: nextProject,
         },
         selectedCabinetId:
           state.selectedCabinetId === action.payload ? remainingSelection[0] ?? null : state.selectedCabinetId,

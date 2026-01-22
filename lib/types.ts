@@ -74,6 +74,8 @@ export interface Project {
   pitch_mm: number
   pitch_is_gob: boolean
   controller: "A100" | "A200"
+  controllerPlacement?: "external" | "cabinet"
+  controllerCabinetId?: string
   grid: GridSettings
   overview: OverviewSettings
   dataRoutes: DataRoute[]
@@ -133,6 +135,7 @@ export const DEFAULT_LAYOUT: LayoutData = {
     pitch_mm: 2.5,
     pitch_is_gob: true,
     controller: "A100",
+    controllerPlacement: "external",
     grid: { enabled: true, step_mm: 160 },
     overview: {
       showReceiverCards: true,

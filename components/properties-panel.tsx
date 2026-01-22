@@ -36,6 +36,13 @@ export function PropertiesPanel() {
   const receiverModelDefault = layout.project.overview.receiverCardModel || "5A75-E"
   const [receiverModelDraft, setReceiverModelDraft] = useState(receiverModelDefault)
   const [gridLabelDraft, setGridLabelDraft] = useState("")
+  const controllerPlacement = layout.project.controllerPlacement ?? "external"
+  const controllerCabinetId = layout.project.controllerCabinetId
+  const controllerCabinet = controllerCabinetId
+    ? layout.cabinets.find((cabinet) => cabinet.id === controllerCabinetId)
+    : null
+  const isControllerCabinet =
+    !!selectedCabinet && controllerPlacement === "cabinet" && controllerCabinetId === selectedCabinet.id
 
   useEffect(() => {
     setReceiverModelDraft(receiverModelDefault)
@@ -113,6 +120,25 @@ export function PropertiesPanel() {
     dispatch({ type: "PUSH_HISTORY" })
   }
 
+  const handlePlaceController = () => {
+    if (!selectedCabinet) return
+    if (controllerPlacement === "cabinet" && controllerCabinetId === selectedCabinet.id) return
+    dispatch({
+      type: "UPDATE_PROJECT",
+      payload: { controllerPlacement: "cabinet", controllerCabinetId: selectedCabinet.id },
+    })
+    dispatch({ type: "PUSH_HISTORY" })
+  }
+
+  const handleClearController = () => {
+    if (controllerPlacement !== "cabinet" && !controllerCabinetId) return
+    dispatch({
+      type: "UPDATE_PROJECT",
+      payload: { controllerPlacement: "external", controllerCabinetId: undefined },
+    })
+    dispatch({ type: "PUSH_HISTORY" })
+  }
+
   const handleApplyReceiverModel = () => {
     const nextModel = receiverModelDraft.trim() || "5A75-E"
     let changed = false
@@ -159,6 +185,8 @@ export function PropertiesPanel() {
     if (!cabinet) return cabinetId
     return computeGridLabel(cabinet, layout.cabinets, layout.cabinetTypes)
   }
+
+  const controllerCabinetLabel = controllerCabinet ? getCabinetLabel(controllerCabinet.id) : null
 
   const getErrorMessage = (error: (typeof errors)[number]) => {
     const [firstId, secondId] = error.cabinetIds
@@ -282,16 +310,47 @@ export function PropertiesPanel() {
                             2
                           </Button>
                         </div>
-                        <div className="text-[11px] text-zinc-500">
-                          Two cards split routing as A1a/A1b to optimize mapping.
-                        </div>
+                      <div className="text-[11px] text-zinc-500">
+                        Two cards split routing as A1a/A1b to optimize mapping.
                       </div>
                     </div>
+                  </div>
 
-                    <Button variant="destructive" size="sm" onClick={handleDelete} title="Delete cabinet">
-                      <Trash2 className="w-4 h-4 mr-1" />
-                      Delete
-                    </Button>
+                  <div className="space-y-2">
+                    <Label className="text-xs">Controller</Label>
+                    <div className="text-[11px] text-zinc-500">
+                      {controllerPlacement === "cabinet" && controllerCabinetLabel
+                        ? `${layout.project.controller} in cabinet ${controllerCabinetLabel}`
+                        : `${layout.project.controller} external`}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        variant={isControllerCabinet ? "secondary" : "outline"}
+                        size="sm"
+                        className="h-7 text-[11px]"
+                        onClick={handlePlaceController}
+                      >
+                        {isControllerCabinet ? "Controller here" : "Place here"}
+                      </Button>
+                      {controllerPlacement === "cabinet" ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 text-[11px]"
+                          onClick={handleClearController}
+                        >
+                          Set external
+                        </Button>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  <Button variant="destructive" size="sm" onClick={handleDelete} title="Delete cabinet">
+                    <Trash2 className="w-4 h-4 mr-1" />
+                    Delete
+                  </Button>
                   </div>
                 ) : (
                   <p className="text-sm text-muted-foreground">Select a cabinet to edit its properties</p>

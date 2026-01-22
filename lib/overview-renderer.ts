@@ -244,6 +244,39 @@ function drawRoundedRect(
   ctx.closePath()
 }
 
+function drawControllerBadge(
+  ctx: CanvasRenderingContext2D,
+  bounds: { x: number; y: number; width: number; height: number },
+  label: string,
+  zoom: number,
+) {
+  const fontSize = Math.max(9, 10 / zoom)
+  const paddingX = 6 / zoom
+  const paddingY = 3 / zoom
+  const inset = 6 / zoom
+
+  ctx.save()
+  ctx.font = `bold ${fontSize}px ${FONT_FAMILY}`
+  const textWidth = ctx.measureText(label).width
+  const boxWidth = textWidth + paddingX * 2
+  const boxHeight = fontSize + paddingY * 2
+  const boxX = bounds.x + bounds.width - boxWidth - inset
+  const boxY = bounds.y + inset
+
+  ctx.fillStyle = "rgba(15, 23, 42, 0.92)"
+  ctx.strokeStyle = "#38bdf8"
+  ctx.lineWidth = Math.max(0.9 / zoom, 0.6 / zoom)
+  drawRoundedRect(ctx, boxX, boxY, boxWidth, boxHeight, 4 / zoom)
+  ctx.fill()
+  ctx.stroke()
+
+  ctx.fillStyle = "#e2e8f0"
+  ctx.textAlign = "center"
+  ctx.textBaseline = "middle"
+  ctx.fillText(label, boxX + boxWidth / 2, boxY + boxHeight / 2)
+  ctx.restore()
+}
+
 function getPowerAnchorPoint(cardRect: CardRect, zoom: number) {
   const anchorOffset = 6 / zoom
   return { x: cardRect.x - anchorOffset, y: cardRect.y + cardRect.height / 2 }
@@ -1130,6 +1163,12 @@ export function drawOverview(ctx: CanvasRenderingContext2D, layout: LayoutData, 
   const moduleHeight = moduleOrientation === "portrait" ? baseModule.width : baseModule.height
   const moduleGridBounds = showModuleGrid ? getLayoutBoundsFromCabinets(layout.cabinets, layout.cabinetTypes) : null
   const moduleGridOrigin = moduleGridBounds ? { x: moduleGridBounds.minX, y: moduleGridBounds.minY } : null
+  const controllerPlacement = layout.project.controllerPlacement ?? "external"
+  const controllerCabinetId = layout.project.controllerCabinetId
+  const controllerInCabinet =
+    controllerPlacement === "cabinet" &&
+    !!controllerCabinetId &&
+    layout.cabinets.some((cabinet) => cabinet.id === controllerCabinetId)
 
   layout.cabinets.forEach((cabinet) => {
     const bounds = getCabinetBounds(cabinet, layout.cabinetTypes)
@@ -1199,6 +1238,10 @@ export function drawOverview(ctx: CanvasRenderingContext2D, layout: LayoutData, 
       ctx.fillText(cabinet.id, bounds.x + bounds.width / 2, bounds.y + bounds.height / 2 - fontSize / 2)
     }
 
+    if (controllerPlacement === "cabinet" && controllerCabinetId === cabinet.id) {
+      drawControllerBadge(ctx, bounds, layout.project.controller, uiZoom)
+    }
+
     ctx.fillStyle = palette.labelSecondary
     ctx.font = `${smallFontSize}px ${FONT_FAMILY}`
     ctx.textAlign = "right"
@@ -1261,7 +1304,7 @@ export function drawOverview(ctx: CanvasRenderingContext2D, layout: LayoutData, 
     })
   }
 
-  if (layout.cabinets.length > 0) {
+  if (layout.cabinets.length > 0 && !controllerInCabinet) {
     const layoutBounds = getLayoutBoundsFromCabinets(layout.cabinets, layout.cabinetTypes)
     if (layoutBounds) {
       const rowCenters: number[] = []
