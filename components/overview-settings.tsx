@@ -234,30 +234,6 @@ export function OverviewSettings() {
             </SelectContent>
           </Select>
         </div>
-        <div className="grid grid-cols-2 gap-3">
-          <div className="space-y-1.5">
-            <Label className="text-xs">Breaker #</Label>
-            <Input
-              value={exportSettings?.breakerNumber ?? ""}
-              onChange={(e) =>
-                dispatch({ type: "UPDATE_EXPORT_SETTINGS", payload: { breakerNumber: e.target.value } })
-              }
-              placeholder="1"
-              className="h-8 bg-input text-sm font-mono"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs">Card Type (PDF)</Label>
-            <Input
-              value={exportSettings?.controllerLabel ?? ""}
-              onChange={(e) =>
-                dispatch({ type: "UPDATE_EXPORT_SETTINGS", payload: { controllerLabel: e.target.value } })
-              }
-              placeholder={layout.project.controller}
-              className="h-8 bg-input text-sm font-mono"
-            />
-          </div>
-        </div>
         <p className="text-xs text-muted-foreground">Printed on the PDF header.</p>
       </div>
     </div>

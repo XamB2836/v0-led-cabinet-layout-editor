@@ -1,6 +1,8 @@
 import { DEFAULT_LAYOUT, type LayoutData } from "./types"
 
 export function normalizeLayout(input: LayoutData): LayoutData {
+  const legacyControllerLabel = (input.project as { exportSettings?: { controllerLabel?: string } } | undefined)
+    ?.exportSettings?.controllerLabel
   const project = {
     ...DEFAULT_LAYOUT.project,
     ...input.project,
@@ -8,6 +10,7 @@ export function normalizeLayout(input: LayoutData): LayoutData {
     exportSettings: { ...DEFAULT_LAYOUT.project.exportSettings, ...input.project?.exportSettings },
     dataRoutes: input.project?.dataRoutes ?? DEFAULT_LAYOUT.project.dataRoutes,
     powerFeeds: input.project?.powerFeeds ?? DEFAULT_LAYOUT.project.powerFeeds,
+    controllerLabel: input.project?.controllerLabel ?? legacyControllerLabel ?? DEFAULT_LAYOUT.project.controllerLabel,
   }
 
   const cabinetIds = new Set((input.cabinets ?? []).map((cabinet) => cabinet.id))

@@ -1131,6 +1131,7 @@ function drawPowerFeeds(ctx: CanvasRenderingContext2D, layout: LayoutData, zoom:
 function drawControllerPorts(
   ctx: CanvasRenderingContext2D,
   controller: "A100" | "A200",
+  label: string,
   layout: LayoutData,
   zoom: number,
   minY?: number,
@@ -1158,7 +1159,7 @@ function drawControllerPorts(
   ctx.font = `bold ${fontSize}px ${FONT_FAMILY}`
   ctx.textAlign = "center"
   ctx.textBaseline = "middle"
-  ctx.fillText(controller, boxX + boxWidth / 2, boxY + boxHeight / 2)
+  ctx.fillText(label, boxX + boxWidth / 2, boxY + boxHeight / 2)
   ctx.restore()
 }
 
@@ -1323,7 +1324,8 @@ export function drawOverview(ctx: CanvasRenderingContext2D, layout: LayoutData, 
     }
 
     if (controllerPlacement === "cabinet" && controllerCabinetId === cabinet.id) {
-      drawControllerBadge(ctx, bounds, layout.project.controller, uiZoom)
+      const controllerLabel = layout.project.controllerLabel?.trim() || layout.project.controller
+      drawControllerBadge(ctx, bounds, controllerLabel, uiZoom)
     }
 
     ctx.fillStyle = palette.labelSecondary
@@ -1468,7 +1470,8 @@ export function drawOverview(ctx: CanvasRenderingContext2D, layout: LayoutData, 
         (dataPortBottom ?? -Infinity) + clearance,
         (powerLabelBottom ?? -Infinity) + clearance,
       )
-      drawControllerPorts(ctx, layout.project.controller, layout, uiZoom, controllerMinY)
+      const controllerLabel = layout.project.controllerLabel?.trim() || layout.project.controller
+      drawControllerPorts(ctx, layout.project.controller, controllerLabel, layout, uiZoom, controllerMinY)
     }
   }
 

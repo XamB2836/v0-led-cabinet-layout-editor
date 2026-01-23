@@ -74,8 +74,6 @@ export interface ExportSettings {
   viewSide: "front" | "back"
   title: string
   clientName: string
-  breakerNumber?: string
-  controllerLabel?: string
 }
 
 export interface Project {
@@ -85,6 +83,7 @@ export interface Project {
   pitch_mm: number
   pitch_is_gob: boolean
   controller: "A100" | "A200"
+  controllerLabel?: string
   controllerPlacement?: "external" | "cabinet"
   controllerCabinetId?: string
   grid: GridSettings
@@ -146,6 +145,7 @@ export const DEFAULT_LAYOUT: LayoutData = {
     pitch_mm: 2.5,
     pitch_is_gob: true,
     controller: "A100",
+    controllerLabel: "",
     controllerPlacement: "external",
     grid: { enabled: true, step_mm: 160 },
     overview: {
@@ -169,8 +169,6 @@ export const DEFAULT_LAYOUT: LayoutData = {
       viewSide: "front",
       title: "",
       clientName: "",
-      breakerNumber: "",
-      controllerLabel: "",
     },
   },
   cabinetTypes: [...DEFAULT_CABINET_TYPES],

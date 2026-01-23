@@ -166,6 +166,14 @@ export function TopBar() {
             <SelectItem value="A200">A200 (4 ports)</SelectItem>
           </SelectContent>
         </Select>
+        <Input
+          id="controller-label"
+          aria-label="Custom controller label"
+          value={layout.project.controllerLabel ?? ""}
+          onChange={(e) => dispatch({ type: "UPDATE_PROJECT", payload: { controllerLabel: e.target.value } })}
+          placeholder="Custom label"
+          className="h-8 w-28 bg-secondary text-sm"
+        />
       </div>
 
       <div className="flex-1" />

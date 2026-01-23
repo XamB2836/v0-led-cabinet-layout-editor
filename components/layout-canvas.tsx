@@ -1329,6 +1329,7 @@ function drawPowerFeeds(
 function drawControllerPorts(
   ctx: CanvasRenderingContext2D,
   controller: "A100" | "A200",
+  label: string,
   cabinets: Cabinet[],
   cabinetTypes: CabinetType[],
   zoom: number,
@@ -1339,7 +1340,6 @@ function drawControllerPorts(
 
   const { minX, maxX, maxY } = layoutBounds
 
-  const numPorts = controller === "A100" ? 2 : 4
   const boxWidth = Math.max(100, 120 / zoom)
   const boxHeight = Math.max(35, 40 / zoom)
   const fontSize = Math.max(10, 11 / zoom)
@@ -1360,7 +1360,7 @@ function drawControllerPorts(
   ctx.font = `bold ${fontSize}px Inter, sans-serif`
   ctx.textAlign = "center"
   ctx.textBaseline = "middle"
-  ctx.fillText(controller, boxX + boxWidth / 2, boxY + boxHeight / 2)
+  ctx.fillText(label, boxX + boxWidth / 2, boxY + boxHeight / 2)
 
   ctx.restore()
 }
@@ -1510,6 +1510,7 @@ export function LayoutCanvas() {
     ctx.stroke()
 
     const { overview, dataRoutes, powerFeeds, controller } = layout.project
+    const controllerLabel = layout.project.controllerLabel?.trim() || controller
     const controllerPlacement = layout.project.controllerPlacement ?? "external"
     const controllerCabinetId = layout.project.controllerCabinetId
     const controllerCabinet =
@@ -1625,7 +1626,7 @@ export function LayoutCanvas() {
       }
 
       if (controllerPlacement === "cabinet" && controllerCabinetId === cabinet.id) {
-        drawControllerBadge(ctx, bounds, controller, zoom)
+        drawControllerBadge(ctx, bounds, controllerLabel, zoom)
       }
 
       ctx.fillStyle = "#64748b"
@@ -1869,7 +1870,7 @@ export function LayoutCanvas() {
           (dataPortBottom ?? -Infinity) + clearance,
           (powerLabelBottom ?? -Infinity) + clearance,
         )
-        drawControllerPorts(ctx, controller, layout.cabinets, layout.cabinetTypes, zoom, controllerMinY)
+        drawControllerPorts(ctx, controller, controllerLabel, layout.cabinets, layout.cabinetTypes, zoom, controllerMinY)
       }
     }
 

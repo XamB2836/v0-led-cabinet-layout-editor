@@ -123,8 +123,7 @@ function buildPdfLegendLayout(ctx: CanvasRenderingContext2D, layout: LayoutData,
   const maxBoxWidth = Math.round(95 * pxPerMm)
 
   const receiverType = layout.project.overview.receiverCardModel?.trim() || "5A75-E"
-  const breakerNumber = layout.project.exportSettings.breakerNumber?.trim()
-  const controllerOverride = layout.project.exportSettings.controllerLabel?.trim()
+  const controllerOverride = layout.project.controllerLabel?.trim()
   const controllerLabel = controllerOverride || layout.project.controller
   const totalLoadW = getTotalLayoutLoadW(layout)
   const { totalKg, totalLb } = getTotalLayoutWeight(layout)
@@ -140,10 +139,24 @@ function buildPdfLegendLayout(ctx: CanvasRenderingContext2D, layout: LayoutData,
     cabinetEntries.length === 0
       ? "none"
       : cabinetEntries.map((entry) => `${entry.width}x${entry.height} (${entry.count}x)`).join("\n")
+  const breakerCounts = (layout.project.powerFeeds ?? []).reduce(
+    (acc, feed) => {
+      if (feed.assignedCabinetIds.length === 0) return acc
+      const breakerLabel = feed.breaker ?? ""
+      const voltage = breakerLabel.includes("220") ? "220V" : breakerLabel.includes("110") ? "110V" : "n/a"
+      acc[voltage] = (acc[voltage] ?? 0) + 1
+      return acc
+    },
+    {} as Record<string, number>,
+  )
+  const breakerCountParts = Object.entries(breakerCounts)
+    .filter(([, count]) => count > 0)
+    .map(([voltage, count]) => `${voltage} x${count}`)
+  const breakerValue = breakerCountParts.length > 0 ? breakerCountParts.join(", ") : "0"
 
   const rows = [
     { label: "Max power", value: `${totalLoadW} W` },
-    { label: "Breaker #", value: breakerNumber && breakerNumber.length > 0 ? breakerNumber : "____" },
+    { label: "Breaker", value: breakerValue },
     { label: "Receiver", value: receiverType },
     { label: "Card type", value: controllerLabel },
     { label: "Weight", value: `${weightLb} lb / ${weightKg.toFixed(1)} kg` },
