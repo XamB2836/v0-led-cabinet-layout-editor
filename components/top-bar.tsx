@@ -194,7 +194,7 @@ export function TopBar() {
           <Upload className="w-4 h-4 mr-2" />
           Import
         </Button>
-        <Button variant="outline" size="sm" onClick={() => exportOverviewPdf(layout)}>
+        <Button variant="outline" size="sm" onClick={() => void exportOverviewPdf(layout)}>
           <FileDown className="w-4 h-4 mr-2" />
           PDF
         </Button>

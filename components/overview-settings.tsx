@@ -235,6 +235,33 @@ export function OverviewSettings() {
           </Select>
         </div>
         <p className="text-xs text-muted-foreground">Printed on the PDF header.</p>
+        <div className="flex items-center justify-between">
+          <Label htmlFor="include-modify-link" className="text-sm">
+            Include Modify Link
+          </Label>
+          <Switch
+            id="include-modify-link"
+            checked={exportSettings?.includeModifyLink ?? false}
+            onCheckedChange={(checked) =>
+              dispatch({ type: "UPDATE_EXPORT_SETTINGS", payload: { includeModifyLink: checked } })
+            }
+          />
+        </div>
+        {(exportSettings?.includeModifyLink ?? false) && (
+          <div className="space-y-1.5">
+            <Label className="text-xs">Passphrase</Label>
+            <Input
+              value={exportSettings?.modifyPassphrase ?? ""}
+              onChange={(e) =>
+                dispatch({ type: "UPDATE_EXPORT_SETTINGS", payload: { modifyPassphrase: e.target.value } })
+              }
+              placeholder="Required to unlock"
+              className="h-8 bg-input text-sm font-mono"
+              type="password"
+            />
+            <p className="text-xs text-muted-foreground">Required to open the link in the PDF.</p>
+          </div>
+        )}
       </div>
     </div>
   )

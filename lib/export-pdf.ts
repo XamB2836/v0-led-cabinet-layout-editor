@@ -5,7 +5,7 @@ import { drawOverview } from "./overview-renderer"
 import { getTitleParts } from "./overview-utils"
 import { getCabinetReceiverCardCount, parseRouteCabinetId } from "./types"
 import { getPowerFeedLoadW } from "./power-utils"
-import { encodeLayoutToUrlParam } from "./layout-url"
+import { encryptLayoutForUrl } from "./layout-crypto"
 
 const PAGE_SIZES_MM = {
   A4: { width: 210, height: 297 },
@@ -528,7 +528,7 @@ function pickLegendPosition(options: {
   return { x: best.x, y: best.y }
 }
 
-export function exportOverviewPdf(layout: LayoutData) {
+export async function exportOverviewPdf(layout: LayoutData) {
   const { pageSize, viewSide } = layout.project.exportSettings
   const orientation: "portrait" | "landscape" = "landscape"
   const baseSize = PAGE_SIZES_MM[pageSize]
@@ -656,34 +656,57 @@ export function exportOverviewPdf(layout: LayoutData) {
   const viewLabelWidth = ctx.measureText(viewLabel).width
   ctx.fillText(viewLabel, canvas.width - marginPx, headerPx / 2)
 
+  const includeModifyLink = layout.project.exportSettings.includeModifyLink ?? false
+  const modifyPassphrase = layout.project.exportSettings.modifyPassphrase?.trim() ?? ""
   const modifyBaseUrl = "https://overviewgenerator.vercel.app/"
-  const layoutParam = encodeLayoutToUrlParam(layout)
-  const modifyUrl = `${modifyBaseUrl}?layout=${layoutParam}`
-  const modifyLabel = "Modify"
-  const modifyFontPx = Math.round(2.9 * pxPerMm)
-  ctx.font = `600 ${modifyFontPx}px Geist, sans-serif`
-  const modifyTextWidth = ctx.measureText(modifyLabel).width
-  const modifyPaddingX = Math.round(2.2 * pxPerMm)
-  const modifyPaddingY = Math.round(1.2 * pxPerMm)
-  const modifyWidth = Math.ceil(modifyTextWidth + modifyPaddingX * 2)
-  const modifyHeight = Math.ceil(modifyFontPx + modifyPaddingY * 2)
-  const modifyGap = Math.round(2.5 * pxPerMm)
-  const modifyX = Math.max(
-    marginPx,
-    canvas.width - marginPx - viewLabelWidth - modifyGap - modifyWidth,
-  )
-  const modifyY = Math.max(0, Math.round(headerPx / 2 - modifyHeight / 2))
+  let modifyLinkRect:
+    | { x: number; y: number; width: number; height: number; url: string }
+    | null = null
 
-  ctx.fillStyle = "#ffffff"
-  ctx.strokeStyle = "#94a3b8"
-  ctx.lineWidth = Math.max(1, Math.round(0.12 * pxPerMm))
-  ctx.fillRect(modifyX, modifyY, modifyWidth, modifyHeight)
-  ctx.strokeRect(modifyX, modifyY, modifyWidth, modifyHeight)
+  const canEncrypt =
+    includeModifyLink && modifyPassphrase.length > 0 && typeof crypto !== "undefined" && !!crypto.subtle
 
-  ctx.fillStyle = "#0f172a"
-  ctx.textAlign = "center"
-  ctx.textBaseline = "middle"
-  ctx.fillText(modifyLabel, modifyX + modifyWidth / 2, modifyY + modifyHeight / 2)
+  if (canEncrypt) {
+    const layoutForLink: LayoutData = {
+      ...layout,
+      project: {
+        ...layout.project,
+        exportSettings: {
+          ...layout.project.exportSettings,
+          modifyPassphrase: "",
+        },
+      },
+    }
+    const layoutParam = await encryptLayoutForUrl(layoutForLink, modifyPassphrase)
+    const modifyUrl = `${modifyBaseUrl}?layout=enc:${layoutParam}`
+    const modifyLabel = "Modify"
+    const modifyFontPx = Math.round(2.9 * pxPerMm)
+    ctx.font = `600 ${modifyFontPx}px Geist, sans-serif`
+    const modifyTextWidth = ctx.measureText(modifyLabel).width
+    const modifyPaddingX = Math.round(2.2 * pxPerMm)
+    const modifyPaddingY = Math.round(1.2 * pxPerMm)
+    const modifyWidth = Math.ceil(modifyTextWidth + modifyPaddingX * 2)
+    const modifyHeight = Math.ceil(modifyFontPx + modifyPaddingY * 2)
+    const modifyGap = Math.round(2.5 * pxPerMm)
+    const modifyX = Math.max(
+      marginPx,
+      canvas.width - marginPx - viewLabelWidth - modifyGap - modifyWidth,
+    )
+    const modifyY = Math.max(0, Math.round(headerPx / 2 - modifyHeight / 2))
+
+    ctx.fillStyle = "#ffffff"
+    ctx.strokeStyle = "#94a3b8"
+    ctx.lineWidth = Math.max(1, Math.round(0.12 * pxPerMm))
+    ctx.fillRect(modifyX, modifyY, modifyWidth, modifyHeight)
+    ctx.strokeRect(modifyX, modifyY, modifyWidth, modifyHeight)
+
+    ctx.fillStyle = "#0f172a"
+    ctx.textAlign = "center"
+    ctx.textBaseline = "middle"
+    ctx.fillText(modifyLabel, modifyX + modifyWidth / 2, modifyY + modifyHeight / 2)
+
+    modifyLinkRect = { x: modifyX, y: modifyY, width: modifyWidth, height: modifyHeight, url: modifyUrl }
+  }
 
   const legendLayout = buildPdfLegendLayout(ctx, layout, pxPerMm)
   const contentRect = {
@@ -713,9 +736,15 @@ export function exportOverviewPdf(layout: LayoutData) {
   })
   const imgData = canvas.toDataURL("image/png")
   pdf.addImage(imgData, "PNG", 0, 0, pageWidthMm, pageHeightMm)
-  pdf.link(modifyX / pxPerMm, modifyY / pxPerMm, modifyWidth / pxPerMm, modifyHeight / pxPerMm, {
-    url: modifyUrl,
-  })
+  if (modifyLinkRect) {
+    pdf.link(
+      modifyLinkRect.x / pxPerMm,
+      modifyLinkRect.y / pxPerMm,
+      modifyLinkRect.width / pxPerMm,
+      modifyLinkRect.height / pxPerMm,
+      { url: modifyLinkRect.url },
+    )
+  }
   const projectName = layout.project.name?.trim() || "NC"
   const filename = `${projectName} - OVERVIEW.pdf`
   pdf.save(filename)

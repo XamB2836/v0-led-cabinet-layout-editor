@@ -1130,7 +1130,6 @@ function drawPowerFeeds(ctx: CanvasRenderingContext2D, layout: LayoutData, zoom:
 
 function drawControllerPorts(
   ctx: CanvasRenderingContext2D,
-  controller: "A100" | "A200",
   label: string,
   layout: LayoutData,
   zoom: number,
@@ -1471,7 +1470,7 @@ export function drawOverview(ctx: CanvasRenderingContext2D, layout: LayoutData, 
         (powerLabelBottom ?? -Infinity) + clearance,
       )
       const controllerLabel = layout.project.controllerLabel?.trim() || layout.project.controller
-      drawControllerPorts(ctx, layout.project.controller, controllerLabel, layout, uiZoom, controllerMinY)
+      drawControllerPorts(ctx, controllerLabel, layout, uiZoom, controllerMinY)
     }
   }
 

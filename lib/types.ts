@@ -74,6 +74,8 @@ export interface ExportSettings {
   viewSide: "front" | "back"
   title: string
   clientName: string
+  includeModifyLink?: boolean
+  modifyPassphrase?: string
 }
 
 export interface Project {
@@ -169,6 +171,8 @@ export const DEFAULT_LAYOUT: LayoutData = {
       viewSide: "front",
       title: "",
       clientName: "",
+      includeModifyLink: false,
+      modifyPassphrase: "",
     },
   },
   cabinetTypes: [...DEFAULT_CABINET_TYPES],

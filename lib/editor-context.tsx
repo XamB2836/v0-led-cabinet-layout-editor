@@ -7,6 +7,7 @@ import type { Cabinet, CabinetType, LayoutData, EditorState, DataRoute, PowerFee
 import { DEFAULT_LAYOUT } from "./types"
 import { normalizeLayout } from "./layout-io"
 import { decodeLayoutFromUrlParam } from "./layout-url"
+import { decryptLayoutFromUrl } from "./layout-crypto"
 
 type EditorAction =
   | { type: "SET_LAYOUT"; payload: LayoutData }
@@ -525,43 +526,71 @@ export function EditorProvider({ children }: { children: ReactNode }) {
     if (hasRestoredRef.current) return
     hasRestoredRef.current = true
     if (typeof window === "undefined") return
+    const restoreFromStorage = () => {
+      try {
+        const raw = window.localStorage.getItem(STORAGE_KEY)
+        if (!raw) return
+        const parsed = JSON.parse(raw) as {
+          layout?: LayoutData
+          zoom?: number
+          panX?: number
+          panY?: number
+          showDimensions?: boolean
+        }
+        if (!parsed.layout) return
+        dispatch({
+          type: "RESTORE_EDITOR_STATE",
+          payload: {
+            layout: parsed.layout,
+            zoom: parsed.zoom,
+            panX: parsed.panX,
+            panY: parsed.panY,
+            showDimensions: parsed.showDimensions,
+          },
+        })
+      } catch {
+        return
+      }
+    }
+
     const searchParams = new URLSearchParams(window.location.search)
     const layoutParam = searchParams.get("layout")
     if (layoutParam) {
-      const decoded = decodeLayoutFromUrlParam(layoutParam)
-      if (decoded) {
+      const loadFromParam = async () => {
+        if (layoutParam.startsWith("enc:")) {
+          if (!window.crypto?.subtle) return false
+          const passphrase = window.prompt("Enter passphrase to unlock this layout") || ""
+          if (!passphrase) return false
+          const decoded = await decryptLayoutFromUrl(layoutParam.slice(4), passphrase)
+          if (!decoded) {
+            window.alert("Unable to unlock layout. Check the passphrase.")
+            return false
+          }
+          dispatch({ type: "SET_LAYOUT", payload: decoded })
+          searchParams.delete("layout")
+          const nextQuery = searchParams.toString()
+          const nextUrl = `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ""}${window.location.hash}`
+          window.history.replaceState({}, "", nextUrl)
+          return true
+        }
+
+        const decoded = decodeLayoutFromUrlParam(layoutParam)
+        if (!decoded) return false
         dispatch({ type: "SET_LAYOUT", payload: decoded })
         searchParams.delete("layout")
         const nextQuery = searchParams.toString()
         const nextUrl = `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ""}${window.location.hash}`
         window.history.replaceState({}, "", nextUrl)
-        return
+        return true
       }
-    }
-    try {
-      const raw = window.localStorage.getItem(STORAGE_KEY)
-      if (!raw) return
-      const parsed = JSON.parse(raw) as {
-        layout?: LayoutData
-        zoom?: number
-        panX?: number
-        panY?: number
-        showDimensions?: boolean
-      }
-      if (!parsed.layout) return
-      dispatch({
-        type: "RESTORE_EDITOR_STATE",
-        payload: {
-          layout: parsed.layout,
-          zoom: parsed.zoom,
-          panX: parsed.panX,
-          panY: parsed.panY,
-          showDimensions: parsed.showDimensions,
-        },
+
+      loadFromParam().then((loaded) => {
+        if (!loaded) restoreFromStorage()
       })
-    } catch {
       return
     }
+
+    restoreFromStorage()
   }, [])
 
   const generateCabinetId = useCallback(() => {

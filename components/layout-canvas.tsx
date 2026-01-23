@@ -1328,7 +1328,6 @@ function drawPowerFeeds(
 
 function drawControllerPorts(
   ctx: CanvasRenderingContext2D,
-  controller: "A100" | "A200",
   label: string,
   cabinets: Cabinet[],
   cabinetTypes: CabinetType[],
@@ -1870,7 +1869,7 @@ export function LayoutCanvas() {
           (dataPortBottom ?? -Infinity) + clearance,
           (powerLabelBottom ?? -Infinity) + clearance,
         )
-        drawControllerPorts(ctx, controller, controllerLabel, layout.cabinets, layout.cabinetTypes, zoom, controllerMinY)
+        drawControllerPorts(ctx, controllerLabel, layout.cabinets, layout.cabinetTypes, zoom, controllerMinY)
       }
     }
 
