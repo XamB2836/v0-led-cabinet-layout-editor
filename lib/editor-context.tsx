@@ -6,6 +6,7 @@ import { createContext, useContext, useReducer, useCallback, useEffect, useRef, 
 import type { Cabinet, CabinetType, LayoutData, EditorState, DataRoute, PowerFeed, RoutingMode } from "./types"
 import { DEFAULT_LAYOUT } from "./types"
 import { normalizeLayout } from "./layout-io"
+import { decodeLayoutFromUrlParam } from "./layout-url"
 
 type EditorAction =
   | { type: "SET_LAYOUT"; payload: LayoutData }
@@ -524,6 +525,19 @@ export function EditorProvider({ children }: { children: ReactNode }) {
     if (hasRestoredRef.current) return
     hasRestoredRef.current = true
     if (typeof window === "undefined") return
+    const searchParams = new URLSearchParams(window.location.search)
+    const layoutParam = searchParams.get("layout")
+    if (layoutParam) {
+      const decoded = decodeLayoutFromUrlParam(layoutParam)
+      if (decoded) {
+        dispatch({ type: "SET_LAYOUT", payload: decoded })
+        searchParams.delete("layout")
+        const nextQuery = searchParams.toString()
+        const nextUrl = `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ""}${window.location.hash}`
+        window.history.replaceState({}, "", nextUrl)
+        return
+      }
+    }
     try {
       const raw = window.localStorage.getItem(STORAGE_KEY)
       if (!raw) return

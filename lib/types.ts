@@ -183,56 +183,48 @@ export function computeGridLabel(cabinet: Cabinet, allCabinets: Cabinet[], cabin
     .map((c) => {
       const type = cabinetTypes.find((t) => t.typeId === c.typeId)
       if (!type) return null
-      const isRotated = c.rot_deg === 90 || c.rot_deg === 270
-      const w = isRotated ? type.height_mm : type.width_mm
-      const h = isRotated ? type.width_mm : type.height_mm
-      return {
-        cabinet: c,
-        centerX: c.x_mm + w / 2,
-        centerY: c.y_mm + h / 2,
-      }
+      return { cabinet: c, x: c.x_mm, y: c.y_mm }
     })
-    .filter(Boolean) as { cabinet: Cabinet; centerX: number; centerY: number }[]
+    .filter(Boolean) as { cabinet: Cabinet; x: number; y: number }[]
 
   if (cabinetsWithBounds.length === 0) return "?"
 
-  // Get unique columns (X centers) and rows (Y centers) with tolerance
   const tolerance = 50 // mm tolerance for grouping
   const columns: number[] = []
   const rows: number[] = []
 
-  cabinetsWithBounds.forEach(({ centerX, centerY }) => {
-    // Check columns
-    const existingCol = columns.find((c) => Math.abs(c - centerX) < tolerance)
-    if (!existingCol) columns.push(centerX)
+  cabinetsWithBounds.forEach(({ x, y }) => {
+    const existingCol = columns.find((c) => Math.abs(c - x) < tolerance)
+    if (existingCol === undefined) columns.push(x)
 
-    // Check rows
-    const existingRow = rows.find((r) => Math.abs(r - centerY) < tolerance)
-    if (!existingRow) rows.push(centerY)
+    const existingRow = rows.find((r) => Math.abs(r - y) < tolerance)
+    if (existingRow === undefined) rows.push(y)
   })
 
-  // Sort columns left to right
   columns.sort((a, b) => a - b)
-  // Y increases downward on the canvas, so smallest Y = top = row 1
-  rows.sort((a, b) => a - b) // Ascending: smallest Y first (top row = row 1)
+  rows.sort((a, b) => a - b)
 
-  // Find this cabinet's column and row
   const thisCabinet = cabinetsWithBounds.find((c) => c.cabinet.id === cabinet.id)
   if (!thisCabinet) return "?"
 
-  const colIndex = columns.findIndex((c) => Math.abs(c - thisCabinet.centerX) < tolerance)
-  const rowIndex = rows.findIndex((r) => Math.abs(r - thisCabinet.centerY) < tolerance)
+  const colIndex = columns.findIndex((c) => Math.abs(c - thisCabinet.x) < tolerance)
+  const rowIndex = rows.findIndex((r) => Math.abs(r - thisCabinet.y) < tolerance)
 
   if (colIndex === -1 || rowIndex === -1) return "?"
 
-  const useNumberForColumns = columns.length >= rows.length
-  const letterIndex = useNumberForColumns ? rowIndex : colIndex
-  const numberIndex = useNumberForColumns ? colIndex : rowIndex
+  const columnLabel = (index: number) => {
+    let label = ""
+    let n = index + 1
+    while (n > 0) {
+      const rem = (n - 1) % 26
+      label = String.fromCharCode(65 + rem) + label
+      n = Math.floor((n - 1) / 26)
+    }
+    return label
+  }
 
-  // Letter index (A, B, C...) and number index (1, 2, 3...)
-  const letter = String.fromCharCode(65 + letterIndex) // A=65
-  const number = numberIndex + 1
-
+  const letter = columnLabel(colIndex)
+  const number = rowIndex + 1
   return `${letter}${number}`
 }
 
