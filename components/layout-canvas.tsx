@@ -305,6 +305,15 @@ function getRouteCabinetIdsFromSteps(steps: DataRouteStep[]): string[] {
   return steps.flatMap((step) => (step.type === "cabinet" ? [step.endpointId] : []))
 }
 
+function getPowerSteps(feed: PowerFeed): DataRouteStep[] {
+  if (feed.manualMode && feed.steps && feed.steps.length > 0) return feed.steps
+  return feed.assignedCabinetIds.map((cabinetId) => ({ type: "cabinet", endpointId: cabinetId }))
+}
+
+function getPowerCabinetIdsFromSteps(steps: DataRouteStep[]): string[] {
+  return steps.flatMap((step) => (step.type === "cabinet" ? [step.endpointId] : []))
+}
+
 function findManualStepIndex(
   steps: DataRouteStep[] | undefined,
   world: { x: number; y: number },
@@ -335,6 +344,30 @@ function getRouteStepPosition(
   const bounds = getCabinetBounds(cabinet, cabinetTypes)
   if (!bounds) return null
   const anchor = getCabinetDataAnchorPoint(cabinet, bounds, zoom, cardIndex)
+  return { x: anchor.x, y: anchor.y }
+}
+
+function getPowerStepPosition(
+  step: DataRouteStep,
+  cabinets: Cabinet[],
+  cabinetTypes: CabinetType[],
+  zoom: number,
+): { x: number; y: number } | null {
+  if (step.type === "point") return { x: step.x_mm, y: step.y_mm }
+  const cabinet = cabinets.find((c) => c.id === step.endpointId)
+  if (!cabinet) return null
+  const bounds = getCabinetBounds(cabinet, cabinetTypes)
+  if (!bounds) return null
+  const layoutBounds = getLayoutBoundsFromCabinets(cabinets, cabinetTypes)
+  const layoutMidY = layoutBounds ? (layoutBounds.minY + layoutBounds.maxY) / 2 : bounds.y + bounds.height / 2
+  const cardCount = getCabinetReceiverCardCount(cabinet)
+  const rects = getReceiverCardRects(bounds, zoom, cardCount)
+  if (rects.length === 0) {
+    return { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 }
+  }
+  const anchorRect =
+    rects.length === 1 ? rects[0] : bounds.y + bounds.height / 2 > layoutMidY ? rects[1] : rects[0]
+  const anchor = getPowerAnchorPoint(anchorRect, bounds, zoom)
   return { x: anchor.x, y: anchor.y }
 }
 
@@ -865,6 +898,7 @@ function drawPowerFeeds(
   zoom: number,
   dataRoutes: DataRoute[] | undefined,
   forcePortLabelsBottom: boolean,
+  activeFeedId?: string,
 ) {
   const lineWidth = scaledWorldSize(5.5, zoom, 3, 9.5)
   const outlineWidth = lineWidth + scaledWorldSize(3, zoom, 2, 6)
@@ -983,14 +1017,22 @@ function drawPowerFeeds(
     ctx.lineCap = "round"
     ctx.lineJoin = "round"
 
+    const feedSteps = getPowerSteps(feed)
+    const useManualSteps = feed.manualMode && feed.steps && feed.steps.length > 0
     const points: {
       x: number
       y: number
-      bounds: NonNullable<ReturnType<typeof getCabinetBounds>>
+      bounds: NonNullable<ReturnType<typeof getCabinetBounds>> | null
       cardRect?: ReceiverCardRect
     }[] = []
-    feed.assignedCabinetIds.forEach((id) => {
-      const cabinet = cabinets.find((c) => c.id === id)
+    const manualPoints: { x: number; y: number }[] = []
+    feedSteps.forEach((step) => {
+      if (step.type === "point") {
+        points.push({ x: step.x_mm, y: step.y_mm, bounds: null })
+        manualPoints.push({ x: step.x_mm, y: step.y_mm })
+        return
+      }
+      const cabinet = cabinets.find((c) => c.id === step.endpointId)
       if (!cabinet) return
       const bounds = getCabinetBounds(cabinet, cabinetTypes)
       if (!bounds) return
@@ -1130,7 +1172,17 @@ function drawPowerFeeds(
           const absDy = Math.abs(dy)
           const dirY = Math.sign(dy) || 0
 
-          if (absDy < 10) {
+          if (useManualSteps) {
+            if (absDx < 10 || absDy < 10) {
+              ctx.lineTo(curr.x, curr.y)
+              continue
+            }
+            ctx.lineTo(prev.x, curr.y)
+            ctx.lineTo(curr.x, curr.y)
+            continue
+          }
+
+          if (absDy < 10 && prev.bounds && curr.bounds) {
             const prevCard = prev.cardRect ?? getReceiverCardRect(prev.bounds, zoom, 0.35)
             const currCard = curr.cardRect ?? getReceiverCardRect(curr.bounds, zoom, 0.35)
             const rowCenterY = (prev.y + curr.y) / 2
@@ -1255,6 +1307,21 @@ function drawPowerFeeds(
       ctx.stroke()
     }
 
+    if (feed.manualMode && feed.id === activeFeedId && manualPoints.length > 0) {
+      const handleRadius = 6 / zoom
+      ctx.save()
+      ctx.fillStyle = "#ffffff"
+      ctx.strokeStyle = "#f97316"
+      ctx.lineWidth = Math.max(1 / zoom, 0.8 / zoom)
+      manualPoints.forEach((point) => {
+        ctx.beginPath()
+        ctx.arc(point.x, point.y, handleRadius, 0, Math.PI * 2)
+        ctx.fill()
+        ctx.stroke()
+      })
+      ctx.restore()
+    }
+
     ctx.restore()
   })
 }
@@ -1312,6 +1379,7 @@ export function LayoutCanvas() {
   const dragStartWorldRef = useRef({ x: 0, y: 0 })
   const dragStartPositionsRef = useRef<Map<string, { x: number; y: number }>>(new Map())
   const draggingRoutePointRef = useRef<{ routeId: string; stepIndex: number } | null>(null)
+  const draggingPowerPointRef = useRef<{ feedId: string; stepIndex: number } | null>(null)
   const [selectionBox, setSelectionBox] = useState<{
     start: { x: number; y: number }
     end: { x: number; y: number }
@@ -1649,6 +1717,7 @@ export function LayoutCanvas() {
         zoom,
         dataRoutes,
         forcePortLabelsBottom,
+        routingMode.type === "power" ? routingMode.feedId : undefined,
       )
     }
 
@@ -1834,12 +1903,16 @@ export function LayoutCanvas() {
     if (routingMode.type !== "none") {
       const activeRoute =
         routingMode.type === "data" ? layout.project.dataRoutes.find((r) => r.id === routingMode.routeId) : null
+      const activeFeed =
+        routingMode.type === "power" ? layout.project.powerFeeds.find((f) => f.id === routingMode.feedId) : null
       const modeText =
         routingMode.type === "data"
           ? activeRoute?.manualMode
             ? `Manual routing: Port ${activeRoute.port || "?"} - Click empty space to add points, click cabinets to add/remove`
             : `Routing: Port ${activeRoute?.port || "?"} - Click cabinets to add/remove`
-          : `Power Feed - Click cabinets to assign`
+          : activeFeed?.manualMode
+            ? `Manual power routing: Click empty space to add points, click cabinets to add/remove`
+            : `Power Feed - Click cabinets to assign`
 
       ctx.fillStyle = routingMode.type === "data" ? "#3b82f6" : "#f97316"
       ctx.font = "bold 12px Inter, sans-serif"
@@ -1904,10 +1977,85 @@ export function LayoutCanvas() {
     const isMultiSelect = e.shiftKey || e.metaKey || e.ctrlKey
     const activeRoute =
       routingMode.type === "data" ? layout.project.dataRoutes.find((r) => r.id === routingMode.routeId) : null
+    const activeFeed =
+      routingMode.type === "power" ? layout.project.powerFeeds.find((f) => f.id === routingMode.feedId) : null
 
     if (e.button === 1 || (e.button === 0 && e.altKey)) {
       setIsPanning(true)
       setLastPanPos({ x: e.clientX, y: e.clientY })
+      return
+    }
+
+    if (routingMode.type === "power" && activeFeed?.manualMode && e.button === 0) {
+      const hitIndex = findManualStepIndex(activeFeed.steps, world, zoom)
+      if (hitIndex !== null) {
+        if (e.shiftKey) {
+          const nextSteps = (activeFeed.steps || []).filter((_, index) => index !== hitIndex)
+          dispatch({
+            type: "UPDATE_POWER_FEED",
+            payload: {
+              id: activeFeed.id,
+              updates: { steps: nextSteps, assignedCabinetIds: getPowerCabinetIdsFromSteps(nextSteps) },
+            },
+          })
+        } else {
+          draggingPowerPointRef.current = { feedId: activeFeed.id, stepIndex: hitIndex }
+        }
+        return
+      }
+
+      if (cabinet && !e.shiftKey) {
+        const nextSteps = activeFeed.steps ? [...activeFeed.steps] : getPowerSteps(activeFeed)
+        const existingIndex = nextSteps.findIndex(
+          (step) => step.type === "cabinet" && step.endpointId === cabinet.id,
+        )
+        if (existingIndex >= 0) {
+          nextSteps.splice(existingIndex, 1)
+        } else {
+          nextSteps.push({ type: "cabinet", endpointId: cabinet.id })
+        }
+        dispatch({
+          type: "UPDATE_POWER_FEED",
+          payload: {
+            id: activeFeed.id,
+            updates: { steps: nextSteps, assignedCabinetIds: getPowerCabinetIdsFromSteps(nextSteps) },
+          },
+        })
+        return
+      }
+
+      if (cabinet) {
+        const nextSteps = activeFeed.steps ? [...activeFeed.steps] : getPowerSteps(activeFeed)
+        const lastStep = nextSteps.length > 0 ? nextSteps[nextSteps.length - 1] : null
+        const reference = lastStep
+          ? getPowerStepPosition(lastStep, layout.cabinets, layout.cabinetTypes, zoom)
+          : null
+        const snapStep = getRouteSnapStepMm(layout.project.grid.step_mm)
+        const snapped = getOrthogonalPoint(world, reference, snapStep)
+        nextSteps.push({ type: "point", x_mm: snapped.x, y_mm: snapped.y })
+        dispatch({
+          type: "UPDATE_POWER_FEED",
+          payload: {
+            id: activeFeed.id,
+            updates: { steps: nextSteps, assignedCabinetIds: getPowerCabinetIdsFromSteps(nextSteps) },
+          },
+        })
+        return
+      }
+
+      const nextSteps = activeFeed.steps ? [...activeFeed.steps] : getPowerSteps(activeFeed)
+      const lastStep = nextSteps.length > 0 ? nextSteps[nextSteps.length - 1] : null
+      const reference = lastStep ? getPowerStepPosition(lastStep, layout.cabinets, layout.cabinetTypes, zoom) : null
+      const snapStep = getRouteSnapStepMm(layout.project.grid.step_mm)
+      const snapped = getOrthogonalPoint(world, reference, snapStep)
+      nextSteps.push({ type: "point", x_mm: snapped.x, y_mm: snapped.y })
+      dispatch({
+        type: "UPDATE_POWER_FEED",
+        payload: {
+          id: activeFeed.id,
+          updates: { steps: nextSteps, assignedCabinetIds: getPowerCabinetIdsFromSteps(nextSteps) },
+        },
+      })
       return
     }
 
@@ -2124,6 +2272,32 @@ export function LayoutCanvas() {
       return
     }
 
+    if (draggingPowerPointRef.current && routingMode.type === "power") {
+      const world = screenToWorld(e.clientX, e.clientY)
+      const { feedId, stepIndex } = draggingPowerPointRef.current
+      const feed = layout.project.powerFeeds.find((f) => f.id === feedId)
+      if (!feed || !feed.steps) return
+      const prevStep = feed.steps[stepIndex - 1]
+      const nextStep = feed.steps[stepIndex + 1]
+      const reference =
+        (prevStep && getPowerStepPosition(prevStep, layout.cabinets, layout.cabinetTypes, zoom)) ||
+        (nextStep && getPowerStepPosition(nextStep, layout.cabinets, layout.cabinetTypes, zoom)) ||
+        null
+      const snapStep = getRouteSnapStepMm(layout.project.grid.step_mm)
+      const snapped = getOrthogonalPoint(world, reference, snapStep)
+      const nextSteps = feed.steps.map((step, index) =>
+        index === stepIndex && step.type === "point" ? { ...step, x_mm: snapped.x, y_mm: snapped.y } : step,
+      )
+      dispatch({
+        type: "UPDATE_POWER_FEED",
+        payload: {
+          id: feedId,
+          updates: { steps: nextSteps, assignedCabinetIds: getPowerCabinetIdsFromSteps(nextSteps) },
+        },
+      })
+      return
+    }
+
     if (selectionBox) {
       const world = screenToWorld(e.clientX, e.clientY)
       setSelectionBox((prev) => (prev ? { ...prev, end: world } : prev))
@@ -2195,11 +2369,15 @@ export function LayoutCanvas() {
     if (draggingRoutePointRef.current) {
       dispatch({ type: "PUSH_HISTORY" })
     }
+    if (draggingPowerPointRef.current) {
+      dispatch({ type: "PUSH_HISTORY" })
+    }
     setIsPanning(false)
     isDraggingCabinetRef.current = false
     draggingCabinetIdRef.current = null
     dragStartPositionsRef.current = new Map()
     draggingRoutePointRef.current = null
+    draggingPowerPointRef.current = null
   }
 
 

@@ -255,12 +255,68 @@ export function DataRoutesPanel() {
     return route.steps?.filter((step) => step.type === "point").length ?? 0
   }
 
+  const getPowerSteps = (feed: PowerFeed): DataRouteStep[] => {
+    if (feed.steps && feed.steps.length > 0) return feed.steps
+    return feed.assignedCabinetIds.map((cabinetId) => ({ type: "cabinet", endpointId: cabinetId }))
+  }
+
+  const getPowerCabinetIdsFromSteps = (steps: DataRouteStep[]) => {
+    return steps.flatMap((step) => (step.type === "cabinet" ? [step.endpointId] : []))
+  }
+
+  const getPowerPointCount = (feed: PowerFeed) => {
+    return feed.steps?.filter((step) => step.type === "point").length ?? 0
+  }
+
+  const handlePowerManualModeToggle = (feedId: string, enabled: boolean) => {
+    const feed = powerFeeds.find((f) => f.id === feedId)
+    if (!feed) return
+    const steps = enabled ? getPowerSteps(feed) : feed.steps
+    const assignedCabinetIds = enabled && steps ? getPowerCabinetIdsFromSteps(steps) : feed.assignedCabinetIds
+    dispatch({
+      type: "UPDATE_POWER_FEED",
+      payload: {
+        id: feedId,
+        updates: { manualMode: enabled, steps, assignedCabinetIds },
+      },
+    })
+    if (enabled) {
+      dispatch({ type: "SET_ROUTING_MODE", payload: { type: "power", feedId } })
+    }
+    dispatch({ type: "PUSH_HISTORY" })
+  }
+
+  const handleClearPowerManualPoints = (feedId: string) => {
+    const feed = powerFeeds.find((f) => f.id === feedId)
+    if (!feed?.steps || feed.steps.length === 0) return
+    const nextSteps = feed.steps.filter((step) => step.type === "cabinet")
+    dispatch({
+      type: "UPDATE_POWER_FEED",
+      payload: {
+        id: feedId,
+        updates: { steps: nextSteps, assignedCabinetIds: getPowerCabinetIdsFromSteps(nextSteps) },
+      },
+    })
+    dispatch({ type: "PUSH_HISTORY" })
+  }
+
   const handlePowerFeedLabelPosition = (id: string, position: "auto" | "top" | "bottom" | "left" | "right") => {
     dispatch({
       type: "UPDATE_POWER_FEED",
       payload: { id, updates: { labelPosition: position === "auto" ? undefined : position } },
     })
     dispatch({ type: "PUSH_HISTORY" })
+  }
+
+  const handlePowerFeedLoadOverride = (id: string, value: string) => {
+    const trimmed = value.trim()
+    if (!trimmed) {
+      dispatch({ type: "UPDATE_POWER_FEED", payload: { id, updates: { loadOverrideW: undefined } } })
+      return
+    }
+    const parsed = Number.parseFloat(trimmed)
+    if (!Number.isFinite(parsed)) return
+    dispatch({ type: "UPDATE_POWER_FEED", payload: { id, updates: { loadOverrideW: parsed } } })
   }
 
   const handleAddPowerFeed = () => {
@@ -293,7 +349,10 @@ export function DataRoutesPanel() {
   }
 
   const handleClearPowerFeed = (feedId: string) => {
-    dispatch({ type: "UPDATE_POWER_FEED", payload: { id: feedId, updates: { assignedCabinetIds: [] } } })
+    dispatch({
+      type: "UPDATE_POWER_FEED",
+      payload: { id: feedId, updates: { assignedCabinetIds: [], steps: [] } },
+    })
     dispatch({ type: "PUSH_HISTORY" })
   }
 
@@ -343,7 +402,15 @@ export function DataRoutesPanel() {
 
       dispatch({
         type: "UPDATE_POWER_FEED",
-        payload: { id: feed.id, updates: { assignedCabinetIds: cabinetIds } },
+        payload: {
+          id: feed.id,
+          updates: {
+            assignedCabinetIds: cabinetIds,
+            steps: feed.manualMode
+              ? cabinetIds.map((cabinetId) => ({ type: "cabinet", endpointId: cabinetId }))
+              : feed.steps,
+          },
+        },
       })
     })
 
@@ -687,6 +754,30 @@ export function DataRoutesPanel() {
                         </Button>
                       </div>
                     </div>
+                    <div className="flex items-center justify-between text-[11px] text-zinc-500">
+                      <span>{getPowerPointCount(feed)} pts</span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handlePowerManualModeToggle(feed.id, !feed.manualMode)}
+                        className="h-6 px-2 text-[11px] text-orange-200 hover:text-orange-50"
+                      >
+                        {feed.manualMode ? "Points mode on" : "Points mode off"}
+                      </Button>
+                    </div>
+                    {feed.manualMode && (
+                      <div className="flex items-center justify-between text-[11px] text-zinc-500">
+                        <span>Click empty space to add points, click cabinets to add/remove, Shift-click point to remove.</span>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleClearPowerManualPoints(feed.id)}
+                          className="h-6 px-2 text-[11px] text-zinc-400 hover:text-zinc-200"
+                        >
+                          Clear points
+                        </Button>
+                      </div>
+                    )}
 
                     <div className="grid grid-cols-2 gap-2">
                       <div className="space-y-1">
@@ -744,14 +835,28 @@ export function DataRoutesPanel() {
                           </SelectContent>
                         </Select>
                       </div>
+                      <div className="space-y-1 col-span-2">
+                        <Label className="text-xs text-zinc-400">Load override (W)</Label>
+                        <Input
+                          value={Number.isFinite(feed.loadOverrideW) ? `${feed.loadOverrideW}` : ""}
+                          onChange={(e) => handlePowerFeedLoadOverride(feed.id, e.target.value)}
+                          onBlur={() => dispatch({ type: "PUSH_HISTORY" })}
+                          className="h-8 text-xs bg-zinc-950/60 border-zinc-800 text-zinc-100"
+                          placeholder={`auto`}
+                        />
+                      </div>
                     </div>
 
                     <div className="space-y-1">
                       <Label className="text-xs text-zinc-400">Load (auto)</Label>
                       <div className="h-8 px-3 rounded-md bg-zinc-950/60 border border-zinc-800 text-xs text-zinc-100 flex items-center">
                         {(() => {
-                          const loadW = getPowerFeedLoadW(feed, layout.cabinets, layout.cabinetTypes)
-                          return `${loadW} W`
+                          const autoLoadW = getPowerFeedLoadW(
+                            { ...feed, loadOverrideW: undefined },
+                            layout.cabinets,
+                            layout.cabinetTypes,
+                          )
+                          return `${autoLoadW} W`
                         })()}
                       </div>
                     </div>

@@ -658,6 +658,10 @@ function drawDataRoutes(
 function drawPowerFeeds(ctx: CanvasRenderingContext2D, layout: LayoutData, zoom: number) {
   const { powerFeeds } = layout.project
   if (!powerFeeds || powerFeeds.length === 0) return
+  const getPowerSteps = (feed: LayoutData["project"]["powerFeeds"][number]): DataRouteStep[] => {
+    if (feed.manualMode && feed.steps && feed.steps.length > 0) return feed.steps
+    return feed.assignedCabinetIds.map((cabinetId) => ({ type: "cabinet", endpointId: cabinetId }))
+  }
 
   const lineWidth = scaledWorldSize(5.5, zoom, 3, 9.5)
   const outlineWidth = lineWidth + scaledWorldSize(0.9, zoom, 0.6, 1.6)
@@ -839,14 +843,20 @@ function drawPowerFeeds(ctx: CanvasRenderingContext2D, layout: LayoutData, zoom:
     ctx.lineCap = "round"
     ctx.lineJoin = "round"
 
+    const feedSteps = getPowerSteps(feed)
+    const useManualSteps = feed.manualMode && feed.steps && feed.steps.length > 0
     const points: {
       x: number
       y: number
-      bounds: NonNullable<ReturnType<typeof getCabinetBounds>>
+      bounds: NonNullable<ReturnType<typeof getCabinetBounds>> | null
       cardRect?: CardRect
     }[] = []
-    feed.assignedCabinetIds.forEach((id) => {
-      const cabinet = layout.cabinets.find((c) => c.id === id)
+    feedSteps.forEach((step) => {
+      if (step.type === "point") {
+        points.push({ x: step.x_mm, y: step.y_mm, bounds: null })
+        return
+      }
+      const cabinet = layout.cabinets.find((c) => c.id === step.endpointId)
       if (!cabinet) return
       const bounds = getCabinetBounds(cabinet, layout.cabinetTypes)
       if (!bounds) return
@@ -980,7 +990,17 @@ function drawPowerFeeds(ctx: CanvasRenderingContext2D, layout: LayoutData, zoom:
           const absDy = Math.abs(dy)
           const dirY = Math.sign(dy) || 0
 
-          if (absDy < 10) {
+          if (useManualSteps) {
+            if (absDx < 10 || absDy < 10) {
+              ctx.lineTo(curr.x, curr.y)
+              continue
+            }
+            ctx.lineTo(prev.x, curr.y)
+            ctx.lineTo(curr.x, curr.y)
+            continue
+          }
+
+          if (absDy < 10 && prev.bounds && curr.bounds) {
             const prevCard = prev.cardRect ?? getReceiverCardRect(prev.bounds, zoom)
             const currCard = curr.cardRect ?? getReceiverCardRect(curr.bounds, zoom)
             const rowCenterY = (prev.y + curr.y) / 2

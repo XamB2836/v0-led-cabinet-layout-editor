@@ -62,6 +62,8 @@ export interface PowerFeed {
   connector: string
   consumptionW: number
   assignedCabinetIds: string[]
+  manualMode?: boolean
+  steps?: DataRouteStep[]
   positionX?: number // X position for the power line (auto-calculated or manual)
   labelPosition?: "auto" | "top" | "bottom" | "left" | "right"
 }

@@ -16,6 +16,9 @@ function getCabinetAreaM2(cabinet: Cabinet, types: CabinetType[]): number {
 }
 
 export function getPowerFeedLoadW(feed: PowerFeed, cabinets: Cabinet[], types: CabinetType[]): number {
+  if (Number.isFinite(feed.loadOverrideW)) {
+    return Math.round(feed.loadOverrideW as number)
+  }
   const cabinetMap = new Map(cabinets.map((c) => [c.id, c]))
   const total = feed.assignedCabinetIds.reduce((sum, id) => {
     const cabinet = cabinetMap.get(id)
