@@ -74,8 +74,7 @@ export interface ExportSettings {
   viewSide: "front" | "back"
   title: string
   clientName: string
-  includeModifyLink?: boolean
-  modifyPassphrase?: string
+  showLegend?: boolean
 }
 
 export interface Project {
@@ -84,7 +83,7 @@ export interface Project {
   units: "mm"
   pitch_mm: number
   pitch_is_gob: boolean
-  controller: "A100" | "A200"
+  controller: "A100" | "A200" | "X8E"
   controllerLabel?: string
   controllerPlacement?: "external" | "cabinet"
   controllerCabinetId?: string
@@ -171,8 +170,7 @@ export const DEFAULT_LAYOUT: LayoutData = {
       viewSide: "front",
       title: "",
       clientName: "",
-      includeModifyLink: false,
-      modifyPassphrase: "",
+      showLegend: true,
     },
   },
   cabinetTypes: [...DEFAULT_CABINET_TYPES],

@@ -154,7 +154,7 @@ export function TopBar() {
         </Label>
         <Select
           value={layout.project.controller}
-          onValueChange={(value: "A100" | "A200") =>
+          onValueChange={(value: "A100" | "A200" | "X8E") =>
             dispatch({ type: "UPDATE_PROJECT", payload: { controller: value } })
           }
         >
@@ -164,6 +164,7 @@ export function TopBar() {
           <SelectContent>
             <SelectItem value="A100">A100 (2 ports)</SelectItem>
             <SelectItem value="A200">A200 (4 ports)</SelectItem>
+            <SelectItem value="X8E">X8E (8 ports)</SelectItem>
           </SelectContent>
         </Select>
         <Input

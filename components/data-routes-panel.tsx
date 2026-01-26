@@ -9,7 +9,7 @@ import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Plus, Trash2, Zap, Cable, Wand2, MousePointer, X } from "lucide-react"
-import type { DataRoute, DataRouteStep, PowerFeed } from "@/lib/types"
+import type { DataRoute, DataRouteStep, LayoutData, PowerFeed } from "@/lib/types"
 import {
   computeGridLabel,
   formatRouteCabinetId,
@@ -31,12 +31,27 @@ export function DataRoutesPanel() {
   const { dataRoutes, powerFeeds, controller } = layout.project
   const activeRoute = routingMode.type === "data" ? dataRoutes.find((r) => r.id === routingMode.routeId) : null
 
-  const maxPorts = controller === "A100" ? 2 : 4
+  const controllerPorts: Record<LayoutData["project"]["controller"], number> = {
+    A100: 2,
+    A200: 4,
+    X8E: 8,
+  }
+  const controllerOrder: LayoutData["project"]["controller"][] = ["A100", "A200", "X8E"]
+  const maxPorts = controllerPorts[controller]
+  const maxUsedPort = dataRoutes.reduce((max, route) => Math.max(max, route.port), 0)
+  const invalidPorts = maxUsedPort > maxPorts
+  const portUpgradeTarget = invalidPorts
+    ? controllerOrder.find((type) => controllerPorts[type] >= maxUsedPort) ?? null
+    : null
   const pitchMm = layout.project.pitch_mm
   const controllerLimits = getControllerLimits(controller)
   const totalPixelLoad = getLayoutPixelLoad(layout.cabinets, layout.cabinetTypes, pitchMm)
-  const isOverA100 = isLayoutOverControllerLimits(layout, "A100")
-  const invalidA100Ports = controller === "A100" && dataRoutes.some((route) => route.port > 2)
+  const isOverCurrent = isLayoutOverControllerLimits(layout, controller)
+  const capacityUpgradeTarget = isOverCurrent
+    ? controllerOrder.find(
+        (type) => type !== controller && !isLayoutOverControllerLimits(layout, type),
+      ) ?? null
+    : null
   const bounds = getLayoutBounds(layout)
   const layoutWidthPx = Math.round(bounds.width / pitchMm)
   const layoutHeightPx = Math.round(bounds.height / pitchMm)
@@ -484,30 +499,40 @@ export function DataRoutesPanel() {
               Max dims: {controllerLimits.maxWidthPx} x {controllerLimits.maxHeightPx} px
             </p>
           )}
-          {invalidA100Ports && (
+          {invalidPorts && (
             <div className="flex items-center justify-between rounded-md border border-red-500/40 bg-red-500/10 px-2 py-1 text-xs text-red-300">
-              <span>A100 supports 2 ports. Remove extra routes or switch to A200.</span>
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => dispatch({ type: "UPDATE_PROJECT", payload: { controller: "A200" } })}
-                className="h-6 px-2 text-xs bg-red-400 text-zinc-950 hover:bg-red-300"
-              >
-                Switch
-              </Button>
+              <span>
+                {controller} supports {maxPorts} ports. Remove extra routes
+                {portUpgradeTarget && portUpgradeTarget !== controller ? ` or switch to ${portUpgradeTarget}.` : "."}
+              </span>
+              {portUpgradeTarget && portUpgradeTarget !== controller && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => dispatch({ type: "UPDATE_PROJECT", payload: { controller: portUpgradeTarget } })}
+                  className="h-6 px-2 text-xs bg-red-400 text-zinc-950 hover:bg-red-300"
+                >
+                  Switch
+                </Button>
+              )}
             </div>
           )}
-          {controller === "A100" && isOverA100 && (
+          {isOverCurrent && (
             <div className="flex items-center justify-between rounded-md border border-red-500/40 bg-red-500/10 px-2 py-1 text-xs text-red-300">
-              <span>A100 limit exceeded. Switch to A200.</span>
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => dispatch({ type: "UPDATE_PROJECT", payload: { controller: "A200" } })}
-                className="h-6 px-2 text-xs bg-red-400 text-zinc-950 hover:bg-red-300"
-              >
-                Switch
-              </Button>
+              <span>
+                {controller} limit exceeded.
+                {capacityUpgradeTarget ? ` Switch to ${capacityUpgradeTarget}.` : " Reduce resolution or split the layout."}
+              </span>
+              {capacityUpgradeTarget && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => dispatch({ type: "UPDATE_PROJECT", payload: { controller: capacityUpgradeTarget } })}
+                  className="h-6 px-2 text-xs bg-red-400 text-zinc-950 hover:bg-red-300"
+                >
+                  Switch
+                </Button>
+              )}
             </div>
           )}
 

@@ -5,7 +5,6 @@ import { drawOverview } from "./overview-renderer"
 import { getTitleParts } from "./overview-utils"
 import { getCabinetReceiverCardCount, parseRouteCabinetId } from "./types"
 import { getPowerFeedLoadW } from "./power-utils"
-import { encryptLayoutForUrl } from "./layout-crypto"
 
 const PAGE_SIZES_MM = {
   A4: { width: 210, height: 297 },
@@ -535,8 +534,10 @@ export async function exportOverviewPdf(layout: LayoutData) {
   const pageWidthMm = orientation === "landscape" ? baseSize.height : baseSize.width
   const pageHeightMm = orientation === "landscape" ? baseSize.width : baseSize.height
 
-  const dpi = 300
-  const pxPerMm = dpi / 25.4
+  const renderDpi = 300
+  const outputDpi = 200
+  const pxPerMm = renderDpi / 25.4
+  const outputPxPerMm = outputDpi / 25.4
   const canvas = document.createElement("canvas")
   canvas.width = Math.round(pageWidthMm * pxPerMm)
   canvas.height = Math.round(pageHeightMm * pxPerMm)
@@ -548,9 +549,12 @@ export async function exportOverviewPdf(layout: LayoutData) {
   const marginMm = 6
   const headerPx = Math.round(headerMm * pxPerMm)
   const marginPx = Math.round(marginMm * pxPerMm)
+  const showLegend = layout.project.exportSettings.showLegend ?? true
+  const legendLayout = showLegend ? buildPdfLegendLayout(ctx, layout, pxPerMm) : null
+  const legendGapPx = Math.round(3 * pxPerMm)
 
   const bounds = getLayoutBounds(layout)
-  const dimensionOffsetMm = 260
+  let dimensionOffsetMm = 260
   const extraLeftMm = 320
   const extraRightMm = 380
   const extraTopMm = dimensionOffsetMm + 120
@@ -564,6 +568,18 @@ export async function exportOverviewPdf(layout: LayoutData) {
   }
   const availableWidth = canvas.width - marginPx * 2
   const availableHeight = canvas.height - headerPx - marginPx * 2
+  let contentAvailableWidth = availableWidth
+  let contentAvailableHeight = availableHeight
+  let legendPosition: { rightX: number; topY: number } | null = null
+
+  if (legendLayout) {
+    const reserveBottom = availableHeight - legendLayout.boxHeight - legendGapPx
+    contentAvailableHeight = reserveBottom > 0 ? reserveBottom : availableHeight
+    legendPosition = {
+      rightX: marginPx + legendLayout.boxWidth,
+      topY: headerPx + marginPx + contentAvailableHeight + legendGapPx,
+    }
+  }
   const uiScale = 3.0
 
   let printBounds = { ...baseBounds }
@@ -572,7 +588,7 @@ export async function exportOverviewPdf(layout: LayoutData) {
     const contentHeight = printBounds.maxY - printBounds.minY
     const zoom =
       contentWidth && contentHeight
-        ? Math.min(availableWidth / contentWidth, availableHeight / contentHeight)
+        ? Math.min(contentAvailableWidth / contentWidth, contentAvailableHeight / contentHeight)
         : 1
     const labelBounds = computeLabelBounds(layout, ctx, zoom, uiScale)
     const minX = Math.min(baseBounds.minX, labelBounds.minX)
@@ -592,13 +608,20 @@ export async function exportOverviewPdf(layout: LayoutData) {
   const contentHeight = printBounds.maxY - printBounds.minY
   const zoom =
     contentWidth && contentHeight
-      ? Math.min(availableWidth / contentWidth, availableHeight / contentHeight)
+      ? Math.min(contentAvailableWidth / contentWidth, contentAvailableHeight / contentHeight)
       : 1
 
-  const extraX = Math.max(0, (availableWidth - contentWidth * zoom) / 2)
-  const extraY = Math.max(0, (availableHeight - contentHeight * zoom) / 2)
+  const extraX = Math.max(0, (contentAvailableWidth - contentWidth * zoom) / 2)
+  const extraY = Math.max(0, (contentAvailableHeight - contentHeight * zoom) / 2)
   const panX = marginPx + extraX - printBounds.minX * zoom
   const panY = headerPx + marginPx + extraY - printBounds.minY * zoom
+  const minTopGapPx = Math.round(6 * pxPerMm)
+  const minTopY = headerPx + minTopGapPx
+  const topDimensionY = panY + (bounds.minY - dimensionOffsetMm) * zoom
+  if (topDimensionY < minTopY) {
+    const adjustedOffset = bounds.minY - (minTopY - panY) / zoom
+    dimensionOffsetMm = Math.max(140, Math.min(dimensionOffsetMm, adjustedOffset))
+  }
 
   drawOverview(ctx, layout, {
     zoom,
@@ -648,103 +671,42 @@ export async function exportOverviewPdf(layout: LayoutData) {
   const title = getTitleParts(layout).join(" - ")
   ctx.fillText(title, canvas.width / 2, headerPx / 2)
 
-  const viewLabel = viewSide === "back" ? "Back View" : "Front View"
-  const viewFontPx = Math.round(3.2 * pxPerMm)
-  ctx.font = `600 ${viewFontPx}px Geist, sans-serif`
-  ctx.textAlign = "right"
+  const viewLabel = viewSide === "back" ? "BACK VIEW" : "FRONT VIEW"
+  const viewFontPx = Math.round(3.4 * pxPerMm)
+  ctx.font = `700 ${viewFontPx}px Geist, sans-serif`
+  ctx.textAlign = "center"
   ctx.textBaseline = "middle"
-  const viewLabelWidth = ctx.measureText(viewLabel).width
-  ctx.fillText(viewLabel, canvas.width - marginPx, headerPx / 2)
+  const viewLabelY = canvas.height - Math.round(4.5 * pxPerMm)
+  ctx.fillText(viewLabel, canvas.width / 2, viewLabelY)
 
-  const includeModifyLink = layout.project.exportSettings.includeModifyLink ?? false
-  const modifyPassphrase = layout.project.exportSettings.modifyPassphrase?.trim() ?? ""
-  const modifyBaseUrl = "https://overviewgenerator.vercel.app/"
-  let modifyLinkRect:
-    | { x: number; y: number; width: number; height: number; url: string }
-    | null = null
-
-  const canEncrypt =
-    includeModifyLink && modifyPassphrase.length > 0 && typeof crypto !== "undefined" && !!crypto.subtle
-
-  if (canEncrypt) {
-    const layoutForLink: LayoutData = {
-      ...layout,
-      project: {
-        ...layout.project,
-        exportSettings: {
-          ...layout.project.exportSettings,
-          modifyPassphrase: "",
-        },
-      },
-    }
-    const layoutParam = await encryptLayoutForUrl(layoutForLink, modifyPassphrase)
-    const modifyUrl = `${modifyBaseUrl}?layout=enc:${layoutParam}`
-    const modifyLabel = "Modify"
-    const modifyFontPx = Math.round(2.9 * pxPerMm)
-    ctx.font = `600 ${modifyFontPx}px Geist, sans-serif`
-    const modifyTextWidth = ctx.measureText(modifyLabel).width
-    const modifyPaddingX = Math.round(2.2 * pxPerMm)
-    const modifyPaddingY = Math.round(1.2 * pxPerMm)
-    const modifyWidth = Math.ceil(modifyTextWidth + modifyPaddingX * 2)
-    const modifyHeight = Math.ceil(modifyFontPx + modifyPaddingY * 2)
-    const modifyGap = Math.round(2.5 * pxPerMm)
-    const modifyX = Math.max(
-      marginPx,
-      canvas.width - marginPx - viewLabelWidth - modifyGap - modifyWidth,
-    )
-    const modifyY = Math.max(0, Math.round(headerPx / 2 - modifyHeight / 2))
-
-    ctx.fillStyle = "#ffffff"
-    ctx.strokeStyle = "#94a3b8"
-    ctx.lineWidth = Math.max(1, Math.round(0.12 * pxPerMm))
-    ctx.fillRect(modifyX, modifyY, modifyWidth, modifyHeight)
-    ctx.strokeRect(modifyX, modifyY, modifyWidth, modifyHeight)
-
-    ctx.fillStyle = "#0f172a"
-    ctx.textAlign = "center"
-    ctx.textBaseline = "middle"
-    ctx.fillText(modifyLabel, modifyX + modifyWidth / 2, modifyY + modifyHeight / 2)
-
-    modifyLinkRect = { x: modifyX, y: modifyY, width: modifyWidth, height: modifyHeight, url: modifyUrl }
+  if (legendLayout && legendPosition) {
+    drawPdfLegend(ctx, legendLayout, {
+      rightX: legendPosition.rightX,
+      topY: legendPosition.topY,
+    })
   }
-
-  const legendLayout = buildPdfLegendLayout(ctx, layout, pxPerMm)
-  const contentRect = {
-    x: panX + printBounds.minX * zoom,
-    y: panY + printBounds.minY * zoom,
-    width: (printBounds.maxX - printBounds.minX) * zoom,
-    height: (printBounds.maxY - printBounds.minY) * zoom,
-  }
-  const legendPosition = pickLegendPosition({
-    pageWidth: canvas.width,
-    pageHeight: canvas.height,
-    headerPx,
-    marginPx,
-    legendWidth: legendLayout.boxWidth,
-    legendHeight: legendLayout.boxHeight,
-    contentRect,
-  })
-  drawPdfLegend(ctx, legendLayout, {
-    rightX: legendPosition.x + legendLayout.boxWidth,
-    topY: legendPosition.y,
-  })
 
   const pdf = new jsPDF({
     orientation,
     unit: "mm",
     format: pageSize,
   })
-  const imgData = canvas.toDataURL("image/png")
-  pdf.addImage(imgData, "PNG", 0, 0, pageWidthMm, pageHeightMm)
-  if (modifyLinkRect) {
-    pdf.link(
-      modifyLinkRect.x / pxPerMm,
-      modifyLinkRect.y / pxPerMm,
-      modifyLinkRect.width / pxPerMm,
-      modifyLinkRect.height / pxPerMm,
-      { url: modifyLinkRect.url },
-    )
-  }
+  const outputCanvas =
+    outputDpi === renderDpi
+      ? canvas
+      : (() => {
+          const downscaled = document.createElement("canvas")
+          downscaled.width = Math.round(pageWidthMm * outputPxPerMm)
+          downscaled.height = Math.round(pageHeightMm * outputPxPerMm)
+          const downscaledCtx = downscaled.getContext("2d")
+          if (!downscaledCtx) return canvas
+          downscaledCtx.imageSmoothingEnabled = true
+          downscaledCtx.imageSmoothingQuality = "high"
+          downscaledCtx.drawImage(canvas, 0, 0, downscaled.width, downscaled.height)
+          return downscaled
+        })()
+  const imgData = outputCanvas.toDataURL("image/jpeg", 0.82)
+  pdf.addImage(imgData, "JPEG", 0, 0, pageWidthMm, pageHeightMm, undefined, "MEDIUM")
   const projectName = layout.project.name?.trim() || "NC"
   const filename = `${projectName} - OVERVIEW.pdf`
   pdf.save(filename)

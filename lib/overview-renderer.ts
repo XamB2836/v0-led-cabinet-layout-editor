@@ -112,13 +112,13 @@ function drawDimensionLines(
   zoom: number,
   palette: OverviewPalette,
   showPixels: boolean,
-  offsetMm = 40,
+  offsetTopMm = 40,
+  offsetSideMm = offsetTopMm,
   side: "left" | "right" = "left",
 ) {
   const bounds = getLayoutBounds(layout)
   if (bounds.width === 0 || bounds.height === 0) return
 
-  const offset = offsetMm
   const fontSize = Math.max(11, 14 / zoom)
   ctx.strokeStyle = palette.dimensionLine
   ctx.fillStyle = palette.dimensionText
@@ -127,9 +127,9 @@ function drawDimensionLines(
   ctx.textAlign = "center"
   ctx.textBaseline = "middle"
 
-  const topY = bounds.minY - offset
-  const leftX = bounds.minX - offset
-  const rightX = bounds.maxX + offset
+  const topY = bounds.minY - offsetTopMm
+  const leftX = bounds.minX - offsetSideMm
+  const rightX = bounds.maxX + offsetSideMm
 
   // Horizontal dimension
   ctx.beginPath()
@@ -250,6 +250,85 @@ function getCabinetDataAnchorPoint(
 function scaledWorldSize(basePx: number, zoom: number, minPx: number, maxPx: number) {
   const sizePx = clamp(basePx * zoom, minPx, maxPx)
   return sizePx / zoom
+}
+
+function getDataRouteLabelExtents(
+  ctx: CanvasRenderingContext2D,
+  layout: LayoutData,
+  zoom: number,
+  forcePortLabelsBottom: boolean,
+) {
+  const layoutBounds = getLayoutBoundsFromCabinets(layout.cabinets, layout.cabinetTypes)
+  if (!layoutBounds || !layout.project.dataRoutes.length) return null
+
+  const rowCenters: number[] = []
+  const rowTolerance = 50
+  layout.cabinets.forEach((cabinet) => {
+    const bounds = getCabinetBounds(cabinet, layout.cabinetTypes)
+    if (!bounds) return
+    const centerY = bounds.y + bounds.height / 2
+    const existingRow = rowCenters.find((rowY) => Math.abs(rowY - centerY) < rowTolerance)
+    if (!existingRow) rowCenters.push(centerY)
+  })
+  rowCenters.sort((a, b) => a - b)
+
+  const fontSize = scaledWorldSize(14, zoom, 12, 18)
+  const labelPadding = scaledWorldSize(8, zoom, 6, 12)
+  const labelSideGap = scaledWorldSize(60, zoom, 40, 90)
+  ctx.font = `bold ${fontSize}px ${FONT_FAMILY}`
+
+  let minX = layoutBounds.minX
+  let maxX = layoutBounds.maxX
+
+  layout.project.dataRoutes.forEach((route) => {
+    if (route.cabinetIds.length === 0 && !(route.manualMode && route.steps?.length)) return
+
+    const steps = getRouteSteps(route)
+    const firstCabinetStep = steps.find((step) => step.type === "cabinet") ?? null
+    const firstBounds = (() => {
+      if (!firstCabinetStep || firstCabinetStep.type !== "cabinet") return null
+      const { cabinetId } = parseRouteCabinetId(firstCabinetStep.endpointId)
+      const cabinet = layout.cabinets.find((c) => c.id === cabinetId)
+      if (!cabinet) return null
+      return getCabinetBounds(cabinet, layout.cabinetTypes)
+    })()
+
+    const portLabel = `Port ${route.port}`
+    const labelWidth = ctx.measureText(portLabel).width + labelPadding * 2
+    const forceBottom = route.forcePortLabelBottom ?? forcePortLabelsBottom
+
+    const resolvedPosition = (() => {
+      if (route.labelPosition && route.labelPosition !== "auto") return route.labelPosition
+      if (forceBottom) return "bottom"
+      let placeSide = false
+      if (firstBounds && rowCenters.length > 1) {
+        const centerY = firstBounds.y + firstBounds.height / 2
+        let rowIndex = rowCenters.findIndex((rowY) => Math.abs(rowY - centerY) < rowTolerance)
+        if (rowIndex === -1) {
+          rowIndex = rowCenters.reduce((bestIndex, rowY, index) => {
+            const bestDistance = Math.abs(rowCenters[bestIndex] - centerY)
+            const distance = Math.abs(rowY - centerY)
+            return distance < bestDistance ? index : bestIndex
+          }, 0)
+        }
+        placeSide = rowIndex < rowCenters.length - 1
+      }
+      if (!placeSide) return "bottom"
+      const layoutCenterX = (layoutBounds.minX + layoutBounds.maxX) / 2
+      const firstCenterX = firstBounds ? firstBounds.x + firstBounds.width / 2 : layoutCenterX
+      return firstCenterX >= layoutCenterX ? "right" : "left"
+    })()
+
+    if (resolvedPosition === "right") {
+      const labelCenterX = layoutBounds.maxX + labelSideGap + labelWidth / 2
+      maxX = Math.max(maxX, labelCenterX + labelWidth / 2)
+    } else if (resolvedPosition === "left") {
+      const labelCenterX = layoutBounds.minX - labelSideGap - labelWidth / 2
+      minX = Math.min(minX, labelCenterX - labelWidth / 2)
+    }
+  })
+
+  return { minX, maxX }
 }
 
 function fitTextToWidth(ctx: CanvasRenderingContext2D, text: string, maxWidth: number, suffix = "...") {
@@ -1475,13 +1554,30 @@ export function drawOverview(ctx: CanvasRenderingContext2D, layout: LayoutData, 
   }
 
   if (options.showDimensions) {
+    const baseOffset = options.dimensionOffsetMm ?? 40
+    let sideOffset = baseOffset
+    if (showDataRoutes) {
+      const extents = getDataRouteLabelExtents(ctx, layout, uiZoom, forcePortLabelsBottom)
+      const bounds = getLayoutBounds(layout)
+      const clearance = scaledWorldSize(18, uiZoom, 12, 28)
+      if (extents) {
+        if ((options.dimensionSide ?? "left") === "right") {
+          const needed = extents.maxX - bounds.maxX + clearance
+          if (needed > sideOffset) sideOffset = needed
+        } else {
+          const needed = bounds.minX - extents.minX + clearance
+          if (needed > sideOffset) sideOffset = needed
+        }
+      }
+    }
     drawDimensionLines(
       ctx,
       layout,
       uiZoom,
       palette,
       options.showPixels,
-      options.dimensionOffsetMm,
+      baseOffset,
+      sideOffset,
       options.dimensionSide,
     )
   }
