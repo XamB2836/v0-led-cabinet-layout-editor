@@ -14,6 +14,7 @@ import {
 } from "@/lib/types"
 import { isDataRouteOverCapacity } from "@/lib/data-utils"
 import { getPowerFeedLoadW, isPowerFeedOverloaded } from "@/lib/power-utils"
+import { getEffectivePitchMm } from "@/lib/pitch-utils"
 import { Button } from "@/components/ui/button"
 import { ZoomIn, ZoomOut, Maximize, Ruler } from "lucide-react"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
@@ -172,8 +173,9 @@ function drawOverallDimensions(
   const totalWidth = Math.round(maxX - minX)
   const totalHeight = Math.round(maxY - minY)
 
-  const widthPx = showPixels ? Math.round(totalWidth / pitch_mm) : undefined
-  const heightPx = showPixels ? Math.round(totalHeight / pitch_mm) : undefined
+  const effectivePitch = getEffectivePitchMm(pitch_mm)
+  const widthPx = showPixels ? Math.round(totalWidth / effectivePitch) : undefined
+  const heightPx = showPixels ? Math.round(totalHeight / effectivePitch) : undefined
 
   drawDimension(ctx, minX, minY, maxX, minY, totalWidth, zoom, "horizontal", 80, "#f59e0b", widthPx)
   drawDimension(ctx, maxX, minY, maxX, maxY, totalHeight, zoom, "vertical", 80, "#f59e0b", heightPx)

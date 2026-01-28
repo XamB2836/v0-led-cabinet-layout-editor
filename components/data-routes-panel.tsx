@@ -24,6 +24,7 @@ import {
   isDataRouteOverCapacity,
   isLayoutOverControllerLimits,
 } from "@/lib/data-utils"
+import { getEffectivePitchMm } from "@/lib/pitch-utils"
 
 export function DataRoutesPanel() {
   const { state, dispatch } = useEditor()
@@ -44,8 +45,9 @@ export function DataRoutesPanel() {
     ? controllerOrder.find((type) => controllerPorts[type] >= maxUsedPort) ?? null
     : null
   const pitchMm = layout.project.pitch_mm
+  const effectivePitchMm = getEffectivePitchMm(pitchMm)
   const controllerLimits = getControllerLimits(controller)
-  const totalPixelLoad = getLayoutPixelLoad(layout.cabinets, layout.cabinetTypes, pitchMm)
+  const totalPixelLoad = getLayoutPixelLoad(layout.cabinets, layout.cabinetTypes, effectivePitchMm)
   const isOverCurrent = isLayoutOverControllerLimits(layout, controller)
   const capacityUpgradeTarget = isOverCurrent
     ? controllerOrder.find(
@@ -53,8 +55,8 @@ export function DataRoutesPanel() {
       ) ?? null
     : null
   const bounds = getLayoutBounds(layout)
-  const layoutWidthPx = Math.round(bounds.width / pitchMm)
-  const layoutHeightPx = Math.round(bounds.height / pitchMm)
+  const layoutWidthPx = Math.round(bounds.width / effectivePitchMm)
+  const layoutHeightPx = Math.round(bounds.height / effectivePitchMm)
   const routingBannerClass =
     routingMode.type === "data"
       ? "rounded-xl border border-blue-400/30 bg-gradient-to-r from-blue-500/10 via-zinc-900/80 to-zinc-900 p-3"

@@ -1,6 +1,7 @@
 import type { Cabinet, CabinetType, DataRoute, LayoutData } from "./types"
 import { getCabinetReceiverCardCount, parseRouteCabinetId } from "./types"
 import { getLayoutBounds } from "./validation"
+import { getEffectivePitchMm } from "./pitch-utils"
 
 const PER_PORT_MAX_PX = 650_000
 type ControllerType = LayoutData["project"]["controller"]
@@ -28,6 +29,7 @@ export function getDataRouteLoadPx(
   types: CabinetType[],
   pitchMm: number,
 ): number {
+  const effectivePitch = getEffectivePitchMm(pitchMm)
   const cabinetMap = new Map(cabinets.map((c) => [c.id, c]))
   return route.cabinetIds.reduce((sum, endpointId) => {
     const { cabinetId, cardIndex } = parseRouteCabinetId(endpointId)
@@ -36,7 +38,7 @@ export function getDataRouteLoadPx(
     const cardCount = getCabinetReceiverCardCount(cabinet)
     if (cardCount === 0) return sum
     const effectiveCards = cardCount === 2 ? 2 : 1
-    const load = getCabinetPixelArea(cabinet, types, pitchMm) / effectiveCards
+    const load = getCabinetPixelArea(cabinet, types, effectivePitch) / effectiveCards
     if (cardIndex === undefined && cardCount === 1) return sum + load
     return sum + load
   }, 0)
@@ -52,7 +54,8 @@ export function isDataRouteOverCapacity(
 }
 
 export function getLayoutPixelLoad(cabinets: Cabinet[], types: CabinetType[], pitchMm: number): number {
-  return cabinets.reduce((sum, cabinet) => sum + getCabinetPixelArea(cabinet, types, pitchMm), 0)
+  const effectivePitch = getEffectivePitchMm(pitchMm)
+  return cabinets.reduce((sum, cabinet) => sum + getCabinetPixelArea(cabinet, types, effectivePitch), 0)
 }
 
 export function getControllerLimits(controller: ControllerType) {
@@ -65,12 +68,13 @@ export function isControllerOverCapacity(layout: LayoutData): boolean {
 
 export function isLayoutOverControllerLimits(layout: LayoutData, controller: ControllerType): boolean {
   const limits = CONTROLLER_LIMITS[controller]
-  const totalLoad = getLayoutPixelLoad(layout.cabinets, layout.cabinetTypes, layout.project.pitch_mm)
+  const effectivePitch = getEffectivePitchMm(layout.project.pitch_mm)
+  const totalLoad = getLayoutPixelLoad(layout.cabinets, layout.cabinetTypes, effectivePitch)
   if (totalLoad > limits.totalMaxPx) return true
   if (limits.maxWidthPx || limits.maxHeightPx) {
     const bounds = getLayoutBounds(layout)
-    const widthPx = Math.round(bounds.width / layout.project.pitch_mm)
-    const heightPx = Math.round(bounds.height / layout.project.pitch_mm)
+    const widthPx = Math.round(bounds.width / effectivePitch)
+    const heightPx = Math.round(bounds.height / effectivePitch)
     if (limits.maxWidthPx && widthPx > limits.maxWidthPx) return true
     if (limits.maxHeightPx && heightPx > limits.maxHeightPx) return true
   }

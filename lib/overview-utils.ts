@@ -1,6 +1,7 @@
 import type { Cabinet, LabelsMode, LayoutData } from "./types"
 import { getCabinetReceiverCardCount } from "./types"
 import { getCabinetBounds, getLayoutBounds } from "./validation"
+import { getEffectivePitchMm } from "./pitch-utils"
 
 const LABEL_TOLERANCE_MM = 1
 
@@ -73,7 +74,7 @@ export function getReceiverCardLabel(layout: LayoutData, cabinet: Cabinet) {
 
 export function getLayoutPixelDimensions(layout: LayoutData) {
   const bounds = getLayoutBounds(layout)
-  const pitch = layout.project.pitch_mm || 0
+  const pitch = getEffectivePitchMm(layout.project.pitch_mm || 0)
   if (!pitch) {
     return { width_px: 0, height_px: 0 }
   }
