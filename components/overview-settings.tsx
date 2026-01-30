@@ -6,6 +6,11 @@ import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
+import {
+  DEFAULT_RECEIVER_CARD_MODEL,
+  RECEIVER_CARD_MODELS,
+  formatReceiverCardOptionLabel,
+} from "@/lib/receiver-cards"
 import { Cpu, Tag, Ruler, Cable, Zap, LayoutGrid, FileDown } from "lucide-react"
 
 export function OverviewSettings() {
@@ -35,17 +40,38 @@ export function OverviewSettings() {
           />
         </div>
 
-        <div className="space-y-1.5">
-          <Label htmlFor="receiver-model" className="text-xs">
-            Model
-          </Label>
-          <Input
-            id="receiver-model"
-            value={overview?.receiverCardModel || "5A75-E"}
-            onChange={(e) => dispatch({ type: "UPDATE_OVERVIEW", payload: { receiverCardModel: e.target.value } })}
-            placeholder="5A75-E"
-            className="h-8 bg-input text-sm font-mono"
-          />
+        <div className="grid grid-cols-2 gap-2">
+          <div className="space-y-1.5">
+            <Label htmlFor="receiver-model" className="text-xs">
+              Model
+            </Label>
+            <Input
+              id="receiver-model"
+              value={overview?.receiverCardModel || DEFAULT_RECEIVER_CARD_MODEL}
+              onChange={(e) => dispatch({ type: "UPDATE_OVERVIEW", payload: { receiverCardModel: e.target.value } })}
+              placeholder={DEFAULT_RECEIVER_CARD_MODEL}
+              className="h-8 bg-input text-sm font-mono"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Preset</Label>
+            <Select
+              onValueChange={(value) =>
+                dispatch({ type: "UPDATE_OVERVIEW", payload: { receiverCardModel: value } })
+              }
+            >
+              <SelectTrigger className="h-8 bg-input text-sm">
+                <SelectValue placeholder="Select" />
+              </SelectTrigger>
+              <SelectContent>
+                {RECEIVER_CARD_MODELS.map((option) => (
+                  <SelectItem key={option.id} value={option.id}>
+                    {formatReceiverCardOptionLabel(option)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
       </div>
 

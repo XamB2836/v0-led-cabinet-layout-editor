@@ -2,6 +2,7 @@ import type { Cabinet, LabelsMode, LayoutData } from "./types"
 import { getCabinetReceiverCardCount } from "./types"
 import { getCabinetBounds, getLayoutBounds } from "./validation"
 import { getEffectivePitchMm } from "./pitch-utils"
+import { DEFAULT_RECEIVER_CARD_MODEL } from "./receiver-cards"
 
 const LABEL_TOLERANCE_MM = 1
 
@@ -69,7 +70,7 @@ export function getReceiverCardLabel(layout: LayoutData, cabinet: Cabinet) {
     return cabinet.receiverCardOverride.trim()
   }
   const model = layout.project.overview.receiverCardModel?.trim()
-  return model && model.length > 0 ? model : "5A75-E"
+  return model && model.length > 0 ? model : DEFAULT_RECEIVER_CARD_MODEL
 }
 
 export function getLayoutPixelDimensions(layout: LayoutData) {

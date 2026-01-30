@@ -15,6 +15,12 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import {
+  DEFAULT_RECEIVER_CARD_MODEL,
+  RECEIVER_CARD_MODELS,
+  formatReceiverCardOptionLabel,
+} from "@/lib/receiver-cards"
 import { AlertCircle, AlertTriangle, Trash2, CheckCircle, Settings, Sliders, Cable } from "lucide-react"
 import { OverviewSettings } from "./overview-settings"
 import { DataRoutesPanel } from "./data-routes-panel"
@@ -33,7 +39,7 @@ export function PropertiesPanel() {
   const heightPx = bounds.height > 0 ? Math.round(bounds.height / pitch) : 0
 
   const receiverCardCount = selectedCabinet ? getCabinetReceiverCardCount(selectedCabinet) : 1
-  const receiverModelDefault = layout.project.overview.receiverCardModel || "5A75-E"
+  const receiverModelDefault = layout.project.overview.receiverCardModel || DEFAULT_RECEIVER_CARD_MODEL
   const [receiverModelDraft, setReceiverModelDraft] = useState(receiverModelDefault)
   const [gridLabelDraft, setGridLabelDraft] = useState("")
   const controllerPlacement = layout.project.controllerPlacement ?? "external"
@@ -172,7 +178,7 @@ export function PropertiesPanel() {
   }
 
   const handleApplyReceiverModel = () => {
-    const nextModel = receiverModelDraft.trim() || "5A75-E"
+    const nextModel = receiverModelDraft.trim() || DEFAULT_RECEIVER_CARD_MODEL
     let changed = false
 
     if (nextModel !== layout.project.overview.receiverCardModel) {
@@ -302,12 +308,26 @@ export function PropertiesPanel() {
                           Apply to all
                         </Button>
                       </div>
-                      <Input
-                        value={receiverModelDraft}
-                        onChange={(e) => setReceiverModelDraft(e.target.value)}
-                        className="h-8 bg-input text-sm font-mono"
-                        placeholder="5A75-E"
-                      />
+                      <div className="grid grid-cols-2 gap-2">
+                        <Input
+                          value={receiverModelDraft}
+                          onChange={(e) => setReceiverModelDraft(e.target.value)}
+                          className="h-8 bg-input text-sm font-mono"
+                          placeholder={DEFAULT_RECEIVER_CARD_MODEL}
+                        />
+                        <Select onValueChange={(value) => setReceiverModelDraft(value)}>
+                          <SelectTrigger className="h-8 bg-input text-xs">
+                            <SelectValue placeholder="Preset" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {RECEIVER_CARD_MODELS.map((option) => (
+                              <SelectItem key={option.id} value={option.id}>
+                                {formatReceiverCardOptionLabel(option)}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
                       <div className="space-y-2">
                         <div className="flex items-center justify-between">
                           <Label className="text-xs">Cards</Label>

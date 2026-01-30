@@ -15,6 +15,7 @@ import {
 import { isDataRouteOverCapacity } from "@/lib/data-utils"
 import { getPowerFeedLoadW, isPowerFeedOverloaded } from "@/lib/power-utils"
 import { getEffectivePitchMm } from "@/lib/pitch-utils"
+import { DEFAULT_RECEIVER_CARD_MODEL } from "@/lib/receiver-cards"
 import { Button } from "@/components/ui/button"
 import { ZoomIn, ZoomOut, Maximize, Ruler } from "lucide-react"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
@@ -1522,7 +1523,7 @@ export function LayoutCanvas() {
     const labelsMode = overview?.labelsMode || "internal"
     const showCabinetLabels = overview?.showCabinetLabels ?? true
     const showReceiverCards = overview?.showReceiverCards ?? true
-    const receiverCardModel = overview?.receiverCardModel || "5A75-E"
+    const receiverCardModel = overview?.receiverCardModel || DEFAULT_RECEIVER_CARD_MODEL
     const showDataRoutes = overview?.showDataRoutes ?? true
     const showPowerRoutes = overview?.showPowerRoutes ?? true
     const showModuleGrid = overview?.showModuleGrid ?? true

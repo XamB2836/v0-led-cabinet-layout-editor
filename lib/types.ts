@@ -1,4 +1,5 @@
 // Core data types for LED Cabinet Layout Editor
+import { DEFAULT_RECEIVER_CARD_MODEL } from "./receiver-cards"
 
 export interface CabinetType {
   typeId: string
@@ -151,7 +152,7 @@ export const DEFAULT_LAYOUT: LayoutData = {
     grid: { enabled: true, step_mm: 160 },
     overview: {
       showReceiverCards: true,
-      receiverCardModel: "5A75-E",
+      receiverCardModel: DEFAULT_RECEIVER_CARD_MODEL,
       labelsMode: "grid",
       showCabinetLabels: true,
       showPixels: true,

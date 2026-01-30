@@ -5,6 +5,7 @@ import { drawOverview } from "./overview-renderer"
 import { getTitleParts } from "./overview-utils"
 import { getCabinetReceiverCardCount, parseRouteCabinetId } from "./types"
 import { getPowerFeedLoadW } from "./power-utils"
+import { DEFAULT_RECEIVER_CARD_MODEL } from "./receiver-cards"
 
 const PAGE_SIZES_MM = {
   A4: { width: 210, height: 297 },
@@ -122,7 +123,7 @@ function buildPdfLegendLayout(ctx: CanvasRenderingContext2D, layout: LayoutData,
   const columnGap = Math.round(2.4 * pxPerMm)
   const maxBoxWidth = Math.round(95 * pxPerMm)
 
-  const receiverType = layout.project.overview.receiverCardModel?.trim() || "5A75-E"
+  const receiverType = layout.project.overview.receiverCardModel?.trim() || DEFAULT_RECEIVER_CARD_MODEL
   const controllerOverride = layout.project.controllerLabel?.trim()
   const controllerLabel = controllerOverride || layout.project.controller
   const totalLoadW = getTotalLayoutLoadW(layout)
