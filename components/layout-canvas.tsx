@@ -1403,15 +1403,12 @@ function drawPowerFeeds(
 
     // Draw connections between cabinets with orthogonal lines
     if (points.length > 1) {
-      const rowGap = scaledWorldSize(30, zoom, 18, 30)
-      const feedMinY = Math.min(...points.map((point) => point.y))
-      const feedMaxY = Math.max(...points.map((point) => point.y))
       const drawFeedConnections = (strokeStyle: string, width: number) => {
         ctx.strokeStyle = strokeStyle
         ctx.lineWidth = width
         ctx.beginPath()
         ctx.moveTo(points[0].x, points[0].y)
-        let lastVerticalDir: number | null = null
+        let lastDir: "h" | "v" | null = null
 
         for (let i = 1; i < points.length; i++) {
           const prev = points[i - 1]
@@ -1420,56 +1417,46 @@ function drawPowerFeeds(
           const dy = curr.y - prev.y
           const absDx = Math.abs(dx)
           const absDy = Math.abs(dy)
-          const dirY = Math.sign(dy) || 0
 
           if (useManualSteps) {
             if (absDx < 10 || absDy < 10) {
               ctx.lineTo(curr.x, curr.y)
+              if (absDx < 10 && absDy >= 10) lastDir = "v"
+              else if (absDy < 10 && absDx >= 10) lastDir = "h"
               continue
             }
-            ctx.lineTo(prev.x, curr.y)
-            ctx.lineTo(curr.x, curr.y)
-            continue
-          }
-
-          if (absDy < 10 && prev.bounds && curr.bounds) {
-            const prevCard = prev.cardRect ?? getReceiverCardRect(prev.bounds, zoom, 0.35)
-            const currCard = curr.cardRect ?? getReceiverCardRect(curr.bounds, zoom, 0.35)
-            const rowCenterY = (prev.y + curr.y) / 2
-            const isBottomRow = rowCenterY > (layoutBounds.minY + layoutBounds.maxY) / 2
-            const liftY = isBottomRow
-              ? Math.max(prevCard.y + prevCard.height, currCard.y + currCard.height) + rowGap
-              : Math.min(prevCard.y, currCard.y) - rowGap
-            ctx.lineTo(prev.x, liftY)
-            ctx.lineTo(curr.x, liftY)
-            ctx.lineTo(curr.x, curr.y)
-            continue
-          }
-
-          if (absDx < 10) {
-            if (lastVerticalDir !== null && dirY !== 0 && dirY !== lastVerticalDir) {
-              const turnY = dirY > 0 ? feedMinY : feedMaxY
-              ctx.lineTo(prev.x, turnY)
-              ctx.lineTo(curr.x, turnY)
+            if (lastDir === "h") {
+              ctx.lineTo(curr.x, prev.y)
               ctx.lineTo(curr.x, curr.y)
-            } else {
-              ctx.lineTo(curr.x, curr.y)
+              lastDir = "v"
+              continue
             }
-            if (dirY !== 0) lastVerticalDir = dirY
+            if (lastDir === "v") {
+              ctx.lineTo(prev.x, curr.y)
+              ctx.lineTo(curr.x, curr.y)
+              lastDir = "h"
+              continue
+            }
+            if (absDx >= absDy) {
+              ctx.lineTo(curr.x, prev.y)
+              ctx.lineTo(curr.x, curr.y)
+              lastDir = "v"
+            } else {
+              ctx.lineTo(prev.x, curr.y)
+              ctx.lineTo(curr.x, curr.y)
+              lastDir = "h"
+            }
             continue
           }
 
-          if (lastVerticalDir !== null && dirY !== 0 && dirY !== lastVerticalDir) {
-            const turnY = dirY > 0 ? feedMinY : feedMaxY
-            ctx.lineTo(prev.x, turnY)
-            ctx.lineTo(curr.x, turnY)
+          if (absDx < 10 || absDy < 10) {
             ctx.lineTo(curr.x, curr.y)
-          } else {
-            // Turn at the destination cabinet to avoid mid-span backtracking.
-            ctx.lineTo(prev.x, curr.y)
-            ctx.lineTo(curr.x, curr.y)
+            continue
           }
-          if (dirY !== 0) lastVerticalDir = dirY
+
+          // Turn at the destination cabinet to keep routing tight to the path.
+          ctx.lineTo(prev.x, curr.y)
+          ctx.lineTo(curr.x, curr.y)
         }
         ctx.stroke()
       }
