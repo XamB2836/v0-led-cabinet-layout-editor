@@ -1,9 +1,10 @@
 import type { LayoutData, LabelsMode, Cabinet, CabinetType, DataRouteStep } from "./types"
-import { computeGridLabel, getCabinetReceiverCardCount, parseRouteCabinetId } from "./types"
+import { computeGridLabel, formatRouteCabinetId, getCabinetReceiverCardCount, parseRouteCabinetId } from "./types"
 import { isDataRouteOverCapacity } from "./data-utils"
 import { getPowerFeedLoadW, isPowerFeedOverloaded } from "./power-utils"
 import { getCabinetBounds, getLayoutBounds, validateLayout } from "./validation"
 import { getLayoutPixelDimensions, getReceiverCardLabel, shouldShowGridLabels } from "./overview-utils"
+import { getMappingNumberLabelMap } from "./mapping-numbers"
 
 export interface OverviewPalette {
   background: string
@@ -40,6 +41,7 @@ export interface OverviewRenderOptions {
   showDataRoutes: boolean
   showPowerRoutes: boolean
   showModuleGrid: boolean
+  showMappingNumbers?: boolean
   uiScale?: number
   dimensionOffsetMm?: number
   dimensionSide?: "left" | "right"
@@ -469,6 +471,177 @@ function drawReceiverCard(
   ctx.beginPath()
   ctx.arc(connectorX, connectorY, 3.2 / zoom, 0, Math.PI * 2)
   ctx.fill()
+}
+
+type MappingLabelBox = { x: number; y: number; width: number; height: number }
+
+function getMappingLabelMetrics(zoom: number, size: "small" | "medium" | "large") {
+  const baseSize = size === "small" ? 10 : size === "large" ? 16 : 13
+  return {
+    fontSize: scaledWorldSize(baseSize, zoom, 9, 20),
+    paddingX: scaledWorldSize(6, zoom, 4, 10),
+    paddingY: scaledWorldSize(4, zoom, 3, 8),
+    radius: scaledWorldSize(4, zoom, 3, 8),
+    inset: scaledWorldSize(6, zoom, 4, 12),
+  }
+}
+
+function getMappingLabelBox(
+  ctx: CanvasRenderingContext2D,
+  label: string,
+  zoom: number,
+  size: "small" | "medium" | "large",
+  position: "top-left" | "top-right" | "bottom-left" | "bottom-right" | "custom",
+  target: { x: number; y: number; width: number; height: number },
+  override?: { position?: "top-left" | "top-right" | "bottom-left" | "bottom-right" | "custom"; x?: number; y?: number },
+): MappingLabelBox {
+  const metrics = getMappingLabelMetrics(zoom, size)
+  ctx.font = `bold ${metrics.fontSize}px ${FONT_FAMILY}`
+  const textWidth = ctx.measureText(label).width
+  const boxWidth = textWidth + metrics.paddingX * 2
+  const boxHeight = metrics.fontSize + metrics.paddingY * 2
+  const fallbackPosition = position === "custom" ? "top-right" : position
+  const resolvedPosition = override?.position ?? fallbackPosition
+  const activeBounds = target
+
+  let boxX = activeBounds.x + metrics.inset
+  let boxY = activeBounds.y + metrics.inset
+
+  if (resolvedPosition === "custom") {
+    const anchorX = target.x + target.width * clamp(override?.x ?? 0.5, 0, 1)
+    const anchorY = target.y + target.height * clamp(override?.y ?? 0.5, 0, 1)
+    boxX = anchorX - boxWidth / 2
+    boxY = anchorY - boxHeight / 2
+  } else if (resolvedPosition === "top-right") {
+    boxX = activeBounds.x + activeBounds.width - metrics.inset - boxWidth
+    boxY = activeBounds.y + metrics.inset
+  } else if (resolvedPosition === "bottom-left") {
+    boxX = activeBounds.x + metrics.inset
+    boxY = activeBounds.y + activeBounds.height - metrics.inset - boxHeight
+  } else if (resolvedPosition === "bottom-right") {
+    boxX = activeBounds.x + activeBounds.width - metrics.inset - boxWidth
+    boxY = activeBounds.y + activeBounds.height - metrics.inset - boxHeight
+  }
+
+  const maxX = activeBounds.x + activeBounds.width - boxWidth
+  const maxY = activeBounds.y + activeBounds.height - boxHeight
+  const clampedMaxX = Math.max(activeBounds.x, maxX)
+  const clampedMaxY = Math.max(activeBounds.y, maxY)
+
+  return {
+    x: clamp(boxX, activeBounds.x, clampedMaxX),
+    y: clamp(boxY, activeBounds.y, clampedMaxY),
+    width: boxWidth,
+    height: boxHeight,
+  }
+}
+
+type ModuleCell = { x: number; y: number; width: number; height: number; centerX: number; centerY: number }
+
+function getModuleCells(
+  bounds: { x: number; y: number; width: number; height: number },
+  moduleWidth: number,
+  moduleHeight: number,
+  moduleGridOrigin?: { x: number; y: number } | null,
+): ModuleCell[] {
+  if (!moduleWidth || !moduleHeight) {
+    return [
+      {
+        x: bounds.x,
+        y: bounds.y,
+        width: bounds.width,
+        height: bounds.height,
+        centerX: bounds.x + bounds.width / 2,
+        centerY: bounds.y + bounds.height / 2,
+      },
+    ]
+  }
+
+  const originX = moduleGridOrigin?.x ?? bounds.x
+  const originY = moduleGridOrigin?.y ?? bounds.y
+  const startX = originX + Math.floor((bounds.x - originX) / moduleWidth) * moduleWidth
+  const startY = originY + Math.floor((bounds.y - originY) / moduleHeight) * moduleHeight
+  const endX = bounds.x + bounds.width
+  const endY = bounds.y + bounds.height
+  const cells: ModuleCell[] = []
+
+  for (let x = startX; x < endX - 1e-6; x += moduleWidth) {
+    const x1 = Math.max(x, bounds.x)
+    const x2 = Math.min(x + moduleWidth, endX)
+    if (x2 <= x1 + 1e-6) continue
+
+    for (let y = startY; y < endY - 1e-6; y += moduleHeight) {
+      const y1 = Math.max(y, bounds.y)
+      const y2 = Math.min(y + moduleHeight, endY)
+      if (y2 <= y1 + 1e-6) continue
+      cells.push({
+        x: x1,
+        y: y1,
+        width: x2 - x1,
+        height: y2 - y1,
+        centerX: (x1 + x2) / 2,
+        centerY: (y1 + y2) / 2,
+      })
+    }
+  }
+
+  return cells
+}
+
+function drawMappingNumbers(
+  ctx: CanvasRenderingContext2D,
+  layout: LayoutData,
+  zoom: number,
+  mappingNumbers: LayoutData["project"]["overview"]["mappingNumbers"],
+  moduleWidth: number,
+  moduleHeight: number,
+  moduleGridOrigin?: { x: number; y: number } | null,
+) {
+  if (!mappingNumbers?.show) return
+  const labels = getMappingNumberLabelMap(layout)
+  if (labels.size === 0) return
+
+  const size = mappingNumbers.fontSize ?? "medium"
+  const position = mappingNumbers.position ?? "top-right"
+  const badge = mappingNumbers.badge ?? true
+  const overrides = mappingNumbers.positionOverrides ?? {}
+  const metrics = getMappingLabelMetrics(zoom, size)
+
+  ctx.save()
+  ctx.textAlign = "center"
+  ctx.textBaseline = "middle"
+
+  layout.cabinets.forEach((cabinet) => {
+    const bounds = getCabinetBounds(cabinet, layout.cabinetTypes)
+    if (!bounds) return
+    const cardCount = getCabinetReceiverCardCount(cabinet)
+    const moduleCells = getModuleCells(bounds, moduleWidth, moduleHeight, moduleGridOrigin)
+
+    moduleCells.forEach((cell) => {
+      const endpointId =
+        cardCount === 2
+          ? formatRouteCabinetId(cabinet.id, cell.centerY <= bounds.y + bounds.height / 2 ? 0 : 1)
+          : cabinet.id
+      const label = labels.get(endpointId)
+      if (!label) return
+      const box = getMappingLabelBox(ctx, label, zoom, size, position, cell, overrides[endpointId])
+
+      if (badge) {
+        ctx.fillStyle = "rgba(15, 23, 42, 0.9)"
+        ctx.strokeStyle = "#38bdf8"
+        ctx.lineWidth = Math.max(0.9 / zoom, 0.6 / zoom)
+        drawRoundedRect(ctx, box.x, box.y, box.width, box.height, metrics.radius)
+        ctx.fill()
+        ctx.stroke()
+      }
+
+      ctx.fillStyle = "#f8fafc"
+      ctx.font = `bold ${metrics.fontSize}px ${FONT_FAMILY}`
+      ctx.fillText(label, box.x + box.width / 2, box.y + box.height / 2)
+    })
+  })
+
+  ctx.restore()
 }
 
 function drawDataRoutes(
@@ -908,6 +1081,72 @@ function drawPowerFeeds(ctx: CanvasRenderingContext2D, layout: LayoutData, zoom:
   }
 
   const layoutMidY = (layoutBounds.minY + layoutBounds.maxY) / 2
+  const labelGap = scaledWorldSize(14, zoom, 10, 22)
+  const distributeLabelCenters = (
+    items: { id: string; desiredX: number; width: number }[],
+    gap: number,
+  ) => {
+    const sorted = [...items].sort((a, b) => a.desiredX - b.desiredX)
+    const centers = new Map<string, number>()
+    let lastRight = Number.NEGATIVE_INFINITY
+    sorted.forEach((item) => {
+      const half = item.width / 2
+      const minCenter = lastRight + gap + half
+      const center = item.desiredX < minCenter ? minCenter : item.desiredX
+      centers.set(item.id, center)
+      lastRight = center + half
+    })
+    return centers
+  }
+
+  const bottomPlans: { id: string; desiredX: number; width: number }[] = []
+  const topPlans: { id: string; desiredX: number; width: number }[] = []
+
+  powerFeeds.forEach((feed) => {
+    if (feed.assignedCabinetIds.length === 0) return
+    const feedSteps = getPowerSteps(feed)
+    const points: { x: number; y: number }[] = []
+    feedSteps.forEach((step) => {
+      if (step.type === "point") {
+        points.push({ x: step.x_mm, y: step.y_mm })
+        return
+      }
+      const cabinet = layout.cabinets.find((c) => c.id === step.endpointId)
+      if (!cabinet) return
+      const bounds = getCabinetBounds(cabinet, layout.cabinetTypes)
+      if (!bounds) return
+      const cardCount = getCabinetReceiverCardCount(cabinet)
+      const rects = getReceiverCardRects(bounds, zoom, cardCount)
+      let anchorX = bounds.x + bounds.width / 2
+      let anchorY = bounds.y + bounds.height / 2
+      if (rects.length > 0) {
+        const anchorRect =
+          rects.length === 1 ? rects[0] : bounds.y + bounds.height / 2 > layoutMidY ? rects[1] : rects[0]
+        const anchor = getPowerAnchorPoint(anchorRect, bounds, zoom)
+        anchorX = anchor.x
+        anchorY = anchor.y
+      }
+      points.push({ x: anchorX, y: anchorY })
+    })
+    if (points.length === 0) return
+
+    ctx.font = `bold ${fontSize}px ${FONT_FAMILY}`
+    const loadW = getPowerFeedLoadW(feed, layout.cabinets, layout.cabinetTypes)
+    const breakerText = feed.breaker || feed.label
+    const labelText = `${breakerText} | ${loadW}W`
+    const connectorText = feed.connector
+    const maxTextWidth = Math.max(ctx.measureText(labelText).width, ctx.measureText(connectorText).width)
+    const boxWidth = maxTextWidth + labelPaddingX * 2
+    const labelPosition = feed.labelPosition && feed.labelPosition !== "auto" ? feed.labelPosition : "bottom"
+    if (labelPosition === "bottom") {
+      bottomPlans.push({ id: feed.id, desiredX: points[0].x, width: boxWidth })
+    } else if (labelPosition === "top") {
+      topPlans.push({ id: feed.id, desiredX: points[0].x, width: boxWidth })
+    }
+  })
+
+  const bottomCenters = distributeLabelCenters(bottomPlans, labelGap)
+  const topCenters = distributeLabelCenters(topPlans, labelGap)
 
   powerFeeds.forEach((feed) => {
     if (feed.assignedCabinetIds.length === 0) return
@@ -1005,6 +1244,11 @@ function drawPowerFeeds(ctx: CanvasRenderingContext2D, layout: LayoutData, zoom:
     } else {
       labelCenterY = points[0].y
     }
+    if (labelPosition === "bottom") {
+      labelCenterX = bottomCenters.get(feed.id) ?? labelCenterX
+    } else if (labelPosition === "top") {
+      labelCenterX = topCenters.get(feed.id) ?? labelCenterX
+    }
     const boxX = labelCenterX - boxWidth / 2
     const boxY = labelCenterY - boxHeight / 2
 
@@ -1035,19 +1279,22 @@ function drawPowerFeeds(ctx: CanvasRenderingContext2D, layout: LayoutData, zoom:
       labelLineY = labelCenterY - boxHeight / 2
     }
 
-    ctx.strokeStyle = outlineColor
-    ctx.lineWidth = outlineWidth
-    ctx.beginPath()
-    ctx.moveTo(labelLineX, labelLineY)
-    ctx.lineTo(points[0].x, points[0].y)
-    ctx.stroke()
+    const drawLabelConnector = (strokeStyle: string, width: number) => {
+      ctx.strokeStyle = strokeStyle
+      ctx.lineWidth = width
+      ctx.beginPath()
+      ctx.moveTo(labelLineX, labelLineY)
+      const dx = points[0].x - labelLineX
+      const dy = points[0].y - labelLineY
+      if (Math.abs(dx) > 1 && Math.abs(dy) > 1) {
+        ctx.lineTo(points[0].x, labelLineY)
+      }
+      ctx.lineTo(points[0].x, points[0].y)
+      ctx.stroke()
+    }
 
-    ctx.strokeStyle = lineColor
-    ctx.lineWidth = lineWidth
-    ctx.beginPath()
-    ctx.moveTo(labelLineX, labelLineY)
-    ctx.lineTo(points[0].x, points[0].y)
-    ctx.stroke()
+    drawLabelConnector(outlineColor, outlineWidth)
+    drawLabelConnector(lineColor, lineWidth)
 
     if (points.length > 1) {
       const rowGap = scaledWorldSize(30, zoom, 18, 30)
@@ -1290,12 +1537,15 @@ export function drawOverview(ctx: CanvasRenderingContext2D, layout: LayoutData, 
   }
 
   const showCabinetLabels = options.showCabinetLabels ?? layout.project.overview.showCabinetLabels ?? true
+  const gridLabelAxis = layout.project.overview.gridLabelAxis ?? "columns"
   const showGridLabels = showCabinetLabels && shouldShowGridLabels(options.labelsMode)
   const receiverCardModel = layout.project.overview.receiverCardModel
   const showReceiverCards = (options.showReceiverCards ?? true) && (layout.project.overview.showReceiverCards ?? true)
   const showDataRoutes = (options.showDataRoutes ?? true) && (layout.project.overview.showDataRoutes ?? true)
   const showPowerRoutes = (options.showPowerRoutes ?? true) && (layout.project.overview.showPowerRoutes ?? true)
   const showModuleGrid = (options.showModuleGrid ?? true) && (layout.project.overview.showModuleGrid ?? true)
+  const mappingNumbers = layout.project.overview.mappingNumbers
+  const showMappingNumbers = (options.showMappingNumbers ?? true) && (mappingNumbers?.show ?? false)
   const forcePortLabelsBottom =
     options.forcePortLabelsBottom ?? layout.project.overview.forcePortLabelsBottom ?? false
   const moduleSize = layout.project.overview.moduleSize
@@ -1429,11 +1679,15 @@ export function drawOverview(ctx: CanvasRenderingContext2D, layout: LayoutData, 
     })
   }
 
+  if (showMappingNumbers) {
+    drawMappingNumbers(ctx, layout, uiZoom, mappingNumbers, moduleWidth, moduleHeight, moduleGridOrigin)
+  }
+
   if (showGridLabels) {
     layout.cabinets.forEach((cabinet) => {
       const bounds = getCabinetBounds(cabinet, layout.cabinetTypes)
       if (!bounds) return
-      const label = computeGridLabel(cabinet, layout.cabinets, layout.cabinetTypes)
+      const label = computeGridLabel(cabinet, layout.cabinets, layout.cabinetTypes, gridLabelAxis)
       const labelFontSize = Math.max(11, 13 / uiZoom)
       ctx.font = `bold ${labelFontSize}px ${FONT_FAMILY}`
       const textWidth = ctx.measureText(label).width

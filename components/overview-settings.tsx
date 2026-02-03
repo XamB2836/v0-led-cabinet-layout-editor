@@ -1,9 +1,12 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import { useEditor } from "@/lib/editor-context"
+import { DEFAULT_LAYOUT } from "@/lib/types"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
+import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
 import {
@@ -11,12 +14,44 @@ import {
   RECEIVER_CARD_MODELS,
   formatReceiverCardOptionLabel,
 } from "@/lib/receiver-cards"
-import { Cpu, Tag, Ruler, Cable, Zap, LayoutGrid, FileDown } from "lucide-react"
+import { Cpu, Tag, Ruler, Cable, Zap, LayoutGrid, FileDown, Hash } from "lucide-react"
 
 export function OverviewSettings() {
   const { state, dispatch } = useEditor()
   const { layout } = state
   const { overview, exportSettings } = layout.project
+  const mappingDefaults = DEFAULT_LAYOUT.project.overview.mappingNumbers
+  const mappingNumbers = overview?.mappingNumbers ?? mappingDefaults
+  const showMappingNumbers = mappingNumbers?.show ?? false
+  const gridLabelAxis = overview?.gridLabelAxis ?? "columns"
+  const labelSequenceValue = mappingNumbers.labels?.join(", ") ?? ""
+  const [labelSequenceDraft, setLabelSequenceDraft] = useState(labelSequenceValue)
+
+  useEffect(() => {
+    setLabelSequenceDraft(labelSequenceValue)
+  }, [labelSequenceValue])
+
+  const updateMappingNumbers = (updates: Partial<typeof mappingNumbers>) => {
+    dispatch({
+      type: "UPDATE_OVERVIEW",
+      payload: { mappingNumbers: { ...mappingNumbers, ...updates } },
+    })
+  }
+
+  const handleApplyLabelSequence = () => {
+    const tokens = labelSequenceDraft
+      .split(/[, ]+/)
+      .map((value) => value.trim())
+      .filter(Boolean)
+    const parsed = tokens
+      .map((value) => Number.parseInt(value, 10))
+      .filter((value) => Number.isFinite(value))
+    updateMappingNumbers({ labels: parsed.length > 0 ? parsed : undefined })
+  }
+
+  const handleClearManualAssignments = () => {
+    updateMappingNumbers({ manualAssignments: { perChain: {}, perEndpoint: {} } })
+  }
 
   return (
     <div className="space-y-4">
@@ -93,6 +128,23 @@ export function OverviewSettings() {
             checked={overview?.showCabinetLabels ?? true}
             onCheckedChange={(checked) => dispatch({ type: "UPDATE_OVERVIEW", payload: { showCabinetLabels: checked } })}
           />
+        </div>
+        <div className="space-y-1.5">
+          <Label className="text-xs">Label axis</Label>
+          <Select
+            value={gridLabelAxis}
+            onValueChange={(value: "columns" | "rows") =>
+              dispatch({ type: "UPDATE_OVERVIEW", payload: { gridLabelAxis: value } })
+            }
+          >
+            <SelectTrigger className="h-8 bg-input text-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="columns">Columns -&gt; Letters (A1, B1)</SelectItem>
+              <SelectItem value="rows">Rows -&gt; Letters (A1, A2)</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
         <p className="text-xs text-muted-foreground mt-1">Toggle the cabinet grid labels on the layout.</p>
       </div>
@@ -213,6 +265,171 @@ export function OverviewSettings() {
           />
         </div>
         <p className="text-xs text-muted-foreground">Display blue data chain lines between cabinets</p>
+      </div>
+
+      <Separator />
+
+      <div className="space-y-3">
+        <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+          <Hash className="w-3 h-3 text-sky-400" />
+          Mapping Numbers
+        </div>
+
+        <div className="flex items-center justify-between">
+          <Label htmlFor="show-mapping-numbers" className="text-sm">
+            Show mapping numbers
+          </Label>
+          <Switch
+            id="show-mapping-numbers"
+            checked={showMappingNumbers}
+            onCheckedChange={(checked) => updateMappingNumbers({ show: checked })}
+          />
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Labels represent the HUB output group index feeding each module chain (odd numbers by default).
+        </p>
+
+        {showMappingNumbers && (
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Mode</Label>
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  type="button"
+                  variant={mappingNumbers.mode === "auto" ? "secondary" : "outline"}
+                  size="sm"
+                  className="h-8 text-xs"
+                  onClick={() => updateMappingNumbers({ mode: "auto" })}
+                >
+                  Auto
+                </Button>
+                <Button
+                  type="button"
+                  variant={mappingNumbers.mode === "manual" ? "secondary" : "outline"}
+                  size="sm"
+                  className="h-8 text-xs"
+                  onClick={() => updateMappingNumbers({ mode: "manual" })}
+                >
+                  Manual
+                </Button>
+              </div>
+            </div>
+
+            {mappingNumbers.mode === "auto" ? (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs">Restart per receiver card</Label>
+                  <Switch
+                    checked={mappingNumbers.restartPerCard ?? true}
+                    onCheckedChange={(checked) => updateMappingNumbers({ restartPerCard: checked })}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Label sequence</Label>
+                  <Input
+                    value={labelSequenceDraft}
+                    onChange={(e) => setLabelSequenceDraft(e.target.value)}
+                    onBlur={handleApplyLabelSequence}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault()
+                        ;(e.target as HTMLInputElement).blur()
+                      }
+                    }}
+                    className="h-8 bg-input text-sm font-mono"
+                    placeholder="1, 3, 5, 7, 9"
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    Comma-separated labels. If you run out, odd numbers continue (17, 19, 21...).
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Manual value</Label>
+                  <Input
+                    value={mappingNumbers.manualValue ?? ""}
+                    onChange={(e) => updateMappingNumbers({ manualValue: e.target.value })}
+                    className="h-8 bg-input text-sm font-mono"
+                    placeholder="e.g. 1"
+                  />
+                </div>
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs">Apply to chain</Label>
+                  <Switch
+                    checked={mappingNumbers.applyToChain ?? true}
+                    onCheckedChange={(checked) => updateMappingNumbers({ applyToChain: checked })}
+                  />
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  Click a cabinet (or card) on the canvas to assign the value.
+                </p>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2 text-[11px]"
+                  onClick={handleClearManualAssignments}
+                >
+                  Clear manual assignments
+                </Button>
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Font size</Label>
+                <Select
+                  value={mappingNumbers.fontSize ?? "medium"}
+                  onValueChange={(value: "small" | "medium" | "large") => updateMappingNumbers({ fontSize: value })}
+                >
+                  <SelectTrigger className="h-8 bg-input text-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="small">Small</SelectItem>
+                    <SelectItem value="medium">Medium</SelectItem>
+                    <SelectItem value="large">Large</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Position</Label>
+                <Select
+                  value={mappingNumbers.position ?? "top-right"}
+                  onValueChange={(value: "top-left" | "top-right" | "bottom-left" | "bottom-right" | "custom") =>
+                    updateMappingNumbers({ position: value })
+                  }
+                >
+                  <SelectTrigger className="h-8 bg-input text-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="top-left">Top-left</SelectItem>
+                    <SelectItem value="top-right">Top-right</SelectItem>
+                    <SelectItem value="bottom-left">Bottom-left</SelectItem>
+                    <SelectItem value="bottom-right">Bottom-right</SelectItem>
+                    <SelectItem value="custom">Custom</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <Label className="text-xs">Background badge</Label>
+              <Switch
+                checked={mappingNumbers.badge ?? true}
+                onCheckedChange={(checked) => updateMappingNumbers({ badge: checked })}
+              />
+            </div>
+            {mappingNumbers.position === "custom" && (
+              <p className="text-[11px] text-muted-foreground">
+                Drag the label in the canvas to place it.
+              </p>
+            )}
+          </div>
+        )}
       </div>
 
       <Separator />

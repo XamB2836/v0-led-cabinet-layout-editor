@@ -54,10 +54,13 @@ export function getGridLabelMap(layout: LayoutData) {
   const rowValues = groupPositions(positions.map((item) => item.y))
 
   const labels = new Map<string, string>()
+  const gridLabelAxis = layout.project.overview.gridLabelAxis ?? "columns"
   positions.forEach((item) => {
     const col = nearestIndex(columnValues, item.x)
     const row = nearestIndex(rowValues, item.y)
-    labels.set(item.id, `${columnLabel(col)}${row + 1}`)
+    const letterIndex = gridLabelAxis === "rows" ? row : col
+    const numberIndex = gridLabelAxis === "rows" ? col : row
+    labels.set(item.id, `${columnLabel(letterIndex)}${numberIndex + 1}`)
   })
   return labels
 }

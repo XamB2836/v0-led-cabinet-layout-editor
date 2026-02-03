@@ -27,12 +27,43 @@ export interface GridSettings {
 }
 
 export type LabelsMode = "internal" | "grid"
+export type GridLabelAxis = "columns" | "rows"
+
+export type MappingNumbersMode = "auto" | "manual"
+export type MappingNumbersFontSize = "small" | "medium" | "large"
+export type MappingNumbersPosition = "top-left" | "top-right" | "bottom-left" | "bottom-right" | "custom"
+
+export interface MappingNumbersManualAssignments {
+  perChain: Record<string, string>
+  perEndpoint: Record<string, string>
+}
+
+export interface MappingNumbersPositionOverride {
+  position?: MappingNumbersPosition
+  x?: number
+  y?: number
+}
+
+export interface MappingNumbersSettings {
+  show: boolean
+  mode: MappingNumbersMode
+  restartPerCard: boolean
+  labels?: number[]
+  fontSize: MappingNumbersFontSize
+  position: MappingNumbersPosition
+  badge: boolean
+  manualValue?: string
+  applyToChain?: boolean
+  manualAssignments?: MappingNumbersManualAssignments
+  positionOverrides?: Record<string, MappingNumbersPositionOverride>
+}
 
 export interface OverviewSettings {
   showReceiverCards: boolean
   receiverCardModel: string
   labelsMode: LabelsMode
   showCabinetLabels: boolean
+  gridLabelAxis: GridLabelAxis
   showPixels: boolean
   showDataRoutes: boolean
   forcePortLabelsBottom: boolean
@@ -40,6 +71,7 @@ export interface OverviewSettings {
   showModuleGrid: boolean
   moduleSize: "320x160" | "160x160"
   moduleOrientation: "landscape" | "portrait"
+  mappingNumbers: MappingNumbersSettings
 }
 
 export type DataRouteStep =
@@ -155,6 +187,7 @@ export const DEFAULT_LAYOUT: LayoutData = {
       receiverCardModel: DEFAULT_RECEIVER_CARD_MODEL,
       labelsMode: "grid",
       showCabinetLabels: true,
+      gridLabelAxis: "columns",
       showPixels: true,
       showDataRoutes: true,
       forcePortLabelsBottom: false,
@@ -162,6 +195,19 @@ export const DEFAULT_LAYOUT: LayoutData = {
       showModuleGrid: true,
       moduleSize: "320x160",
       moduleOrientation: "portrait",
+      mappingNumbers: {
+        show: false,
+        mode: "auto",
+        restartPerCard: true,
+        labels: [1, 3, 5, 7, 9, 11, 13, 15],
+        fontSize: "medium",
+        position: "top-right",
+        badge: true,
+        manualValue: "",
+        applyToChain: true,
+        manualAssignments: { perChain: {}, perEndpoint: {} },
+        positionOverrides: {},
+      },
     },
     dataRoutes: [],
     powerFeeds: [],
@@ -178,7 +224,12 @@ export const DEFAULT_LAYOUT: LayoutData = {
   cabinets: [],
 }
 
-export function computeGridLabel(cabinet: Cabinet, allCabinets: Cabinet[], cabinetTypes: CabinetType[]): string {
+export function computeGridLabel(
+  cabinet: Cabinet,
+  allCabinets: Cabinet[],
+  cabinetTypes: CabinetType[],
+  gridLabelAxis: GridLabelAxis = "columns",
+): string {
   const override = cabinet.gridLabelOverride?.trim()
   if (override) return override
 
@@ -226,8 +277,10 @@ export function computeGridLabel(cabinet: Cabinet, allCabinets: Cabinet[], cabin
     return label
   }
 
-  const letter = columnLabel(colIndex)
-  const number = rowIndex + 1
+  const letterIndex = gridLabelAxis === "rows" ? rowIndex : colIndex
+  const numberIndex = gridLabelAxis === "rows" ? colIndex : rowIndex
+  const letter = columnLabel(letterIndex)
+  const number = numberIndex + 1
   return `${letter}${number}`
 }
 

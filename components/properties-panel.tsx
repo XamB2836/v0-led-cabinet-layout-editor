@@ -33,6 +33,7 @@ export function PropertiesPanel() {
   const errors = validateLayout(layout)
   const bounds = getLayoutBounds(layout)
   const labelsMode = layout.project.overview.labelsMode
+  const gridLabelAxis = layout.project.overview.gridLabelAxis ?? "columns"
 
   const pitch = layout.project.pitch_mm
   const widthPx = bounds.width > 0 ? Math.round(bounds.width / pitch) : 0
@@ -221,7 +222,7 @@ export function PropertiesPanel() {
     if (labelsMode !== "grid") return cabinetId
     const cabinet = layout.cabinets.find((c) => c.id === cabinetId)
     if (!cabinet) return cabinetId
-    return computeGridLabel(cabinet, layout.cabinets, layout.cabinetTypes)
+    return computeGridLabel(cabinet, layout.cabinets, layout.cabinetTypes, gridLabelAxis)
   }
 
   const controllerCabinetLabel = controllerCabinet ? getCabinetLabel(controllerCabinet.id) : null

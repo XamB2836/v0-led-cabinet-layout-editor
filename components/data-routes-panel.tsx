@@ -30,6 +30,7 @@ export function DataRoutesPanel() {
   const { state, dispatch } = useEditor()
   const { layout, routingMode } = state
   const { dataRoutes, powerFeeds, controller } = layout.project
+  const gridLabelAxis = layout.project.overview.gridLabelAxis ?? "columns"
   const activeRoute = routingMode.type === "data" ? dataRoutes.find((r) => r.id === routingMode.routeId) : null
 
   const controllerPorts: Record<LayoutData["project"]["controller"], number> = {
@@ -80,7 +81,7 @@ export function DataRoutesPanel() {
     const { cabinetId, cardIndex } = parseRouteCabinetId(endpointId)
     const cabinet = layout.cabinets.find((c) => c.id === cabinetId)
     if (!cabinet) return endpointId
-    const label = computeGridLabel(cabinet, layout.cabinets, layout.cabinetTypes)
+    const label = computeGridLabel(cabinet, layout.cabinets, layout.cabinetTypes, gridLabelAxis)
     if (cardIndex === undefined) {
       const cardCount = getCabinetReceiverCardCount(cabinet)
       return cardCount > 1 ? `${label}a` : label

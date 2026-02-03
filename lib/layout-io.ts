@@ -3,10 +3,32 @@ import { DEFAULT_LAYOUT, type LayoutData } from "./types"
 export function normalizeLayout(input: LayoutData): LayoutData {
   const legacyControllerLabel = (input.project as { exportSettings?: { controllerLabel?: string } } | undefined)
     ?.exportSettings?.controllerLabel
+  const defaultOverview = DEFAULT_LAYOUT.project.overview
+  const incomingOverview = input.project?.overview
+  const mappingNumbers = {
+    ...defaultOverview.mappingNumbers,
+    ...incomingOverview?.mappingNumbers,
+    manualAssignments: {
+      ...defaultOverview.mappingNumbers.manualAssignments,
+      ...incomingOverview?.mappingNumbers?.manualAssignments,
+      perChain: {
+        ...defaultOverview.mappingNumbers.manualAssignments?.perChain,
+        ...incomingOverview?.mappingNumbers?.manualAssignments?.perChain,
+      },
+      perEndpoint: {
+        ...defaultOverview.mappingNumbers.manualAssignments?.perEndpoint,
+        ...incomingOverview?.mappingNumbers?.manualAssignments?.perEndpoint,
+      },
+    },
+    positionOverrides: {
+      ...defaultOverview.mappingNumbers.positionOverrides,
+      ...incomingOverview?.mappingNumbers?.positionOverrides,
+    },
+  }
   const project = {
     ...DEFAULT_LAYOUT.project,
     ...input.project,
-    overview: { ...DEFAULT_LAYOUT.project.overview, ...input.project?.overview },
+    overview: { ...defaultOverview, ...incomingOverview, mappingNumbers },
     exportSettings: { ...DEFAULT_LAYOUT.project.exportSettings, ...input.project?.exportSettings },
     dataRoutes: input.project?.dataRoutes ?? DEFAULT_LAYOUT.project.dataRoutes,
     powerFeeds: input.project?.powerFeeds ?? DEFAULT_LAYOUT.project.powerFeeds,

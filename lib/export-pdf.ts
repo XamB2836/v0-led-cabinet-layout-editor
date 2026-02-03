@@ -404,6 +404,63 @@ function computeLabelBounds(layout: LayoutData, ctx: CanvasRenderingContext2D, z
 
   const powerFeeds = layout.project.powerFeeds ?? []
   if (powerFeeds.length > 0) {
+    const getReceiverCardRects = (bounds: { x: number; y: number; width: number; height: number }, count: 0 | 1 | 2) => {
+      if (count <= 0) return []
+      const maxWidth = Math.min(80 / uiZoom, bounds.width * 0.6)
+      const minWidth = Math.min(28 / uiZoom, maxWidth)
+      const heightFraction = count === 2 ? 0.18 : 0.22
+      const maxHeight = Math.min(14 / uiZoom, bounds.height * heightFraction)
+      const minHeight = Math.min(8 / uiZoom, maxHeight)
+      const cardWidth = Math.min(maxWidth, Math.max(minWidth, bounds.width * 0.7))
+      const cardHeight = Math.min(maxHeight, Math.max(minHeight, bounds.height * 0.2))
+      const cardX = bounds.x + bounds.width / 2 - cardWidth / 2
+      const cardY = bounds.y + bounds.height / 2 - cardHeight / 2
+
+      if (count === 1) {
+        return [{ x: cardX, y: cardY, width: cardWidth, height: cardHeight }]
+      }
+
+      const gap = Math.min(10 / uiZoom, cardHeight)
+      const totalHeight = cardHeight * 2 + gap
+      const startY = bounds.y + bounds.height / 2 - totalHeight / 2
+      return [
+        { x: cardX, y: startY, width: cardWidth, height: cardHeight },
+        { x: cardX, y: startY + cardHeight + gap, width: cardWidth, height: cardHeight },
+      ]
+    }
+
+    const getPowerAnchorPoint = (
+      cardRect: { x: number; y: number; width: number; height: number },
+      bounds: { x: number; y: number; width: number; height: number },
+    ) => {
+      const margin = Math.min(8 / uiZoom, bounds.width * 0.04)
+      const offset = Math.min(6 / uiZoom, cardRect.width * 0.25)
+      const anchorX = Math.max(bounds.x + margin, cardRect.x - offset)
+      return { x: anchorX, y: cardRect.y + cardRect.height / 2 }
+    }
+
+    const getPowerSteps = (feed: LayoutData["project"]["powerFeeds"][number]) => {
+      if (feed.manualMode && feed.steps && feed.steps.length > 0) return feed.steps
+      return feed.assignedCabinetIds.map((cabinetId) => ({ type: "cabinet", endpointId: cabinetId }))
+    }
+
+    const distributeLabelCenters = (
+      items: { id: string; desiredX: number; width: number }[],
+      gap: number,
+    ) => {
+      const sorted = [...items].sort((a, b) => a.desiredX - b.desiredX)
+      const centers = new Map<string, number>()
+      let lastRight = Number.NEGATIVE_INFINITY
+      sorted.forEach((item) => {
+        const half = item.width / 2
+        const minCenter = lastRight + gap + half
+        const center = item.desiredX < minCenter ? minCenter : item.desiredX
+        centers.set(item.id, center)
+        lastRight = center + half
+      })
+      return centers
+    }
+
     const fontSize = scaledWorldSize(14, uiZoom, 12, 18)
     const fontPx = fontSize * zoom
     const labelPaddingX = scaledWorldSize(9, uiZoom, 6, 13)
@@ -413,11 +470,73 @@ function computeLabelBounds(layout: LayoutData, ctx: CanvasRenderingContext2D, z
     const sideLabelGap = scaledWorldSize(12, uiZoom, 8, 18)
     const powerLabelSideGap = scaledWorldSize(60, uiZoom, 40, 90)
     const bottomClearance = scaledWorldSize(16, uiZoom, 10, 22)
+    const labelGap = scaledWorldSize(14, uiZoom, 10, 22)
 
     const sideOffsetLeft =
       maxPortLabelWidthLeft > 0 ? powerLabelSideGap + maxPortLabelWidthLeft + sideLabelGap : labelSideGap
     const sideOffsetRight =
       maxPortLabelWidthRight > 0 ? powerLabelSideGap + maxPortLabelWidthRight + sideLabelGap : labelSideGap
+
+    const bottomPlans: { id: string; desiredX: number; width: number }[] = []
+    const topPlans: { id: string; desiredX: number; width: number }[] = []
+
+    powerFeeds.forEach((feed) => {
+      if (feed.assignedCabinetIds.length === 0) return
+      const steps = getPowerSteps(feed)
+      let anchorX: number | null = null
+      let anchorY: number | null = null
+
+      for (const step of steps) {
+        if (step.type === "point") {
+          anchorX = step.x_mm
+          anchorY = step.y_mm
+          break
+        }
+        const cabinet = layout.cabinets.find((c) => c.id === step.endpointId)
+        if (!cabinet) continue
+        const bounds = getCabinetBounds(cabinet, layout.cabinetTypes)
+        if (!bounds) continue
+        const cardCount = getCabinetReceiverCardCount(cabinet)
+        const rects = getReceiverCardRects(bounds, cardCount)
+        if (rects.length > 0) {
+          const layoutMidY = (layoutBounds.minY + layoutBounds.maxY) / 2
+          const anchorRect =
+            rects.length === 1 ? rects[0] : bounds.y + bounds.height / 2 > layoutMidY ? rects[1] : rects[0]
+          const anchor = getPowerAnchorPoint(anchorRect, bounds)
+          anchorX = anchor.x
+          anchorY = anchor.y
+        } else {
+          anchorX = bounds.x + bounds.width / 2
+          anchorY = bounds.y + bounds.height / 2
+        }
+        break
+      }
+
+      if (anchorX === null || anchorY === null) return
+
+      const loadW = getPowerFeedLoadW(feed, layout.cabinets, layout.cabinetTypes)
+      const breakerText = feed.breaker || feed.label
+      const labelText = `${breakerText} | ${loadW}W`
+      const connectorText = feed.connector
+
+      ctx.font = `bold ${fontPx}px ${FONT_FAMILY}`
+      const labelMeasured = ctx.measureText(labelText).width / zoom
+      const connectorMeasured = ctx.measureText(connectorText).width / zoom
+      const labelEstimated = labelText.length * fontSize * 0.62
+      const connectorEstimated = connectorText.length * fontSize * 0.62
+      const maxTextWidth = Math.max(labelMeasured, connectorMeasured, labelEstimated, connectorEstimated)
+      const boxWidth = maxTextWidth + labelPaddingX * 2
+
+      const labelPosition = feed.labelPosition && feed.labelPosition !== "auto" ? feed.labelPosition : "bottom"
+      if (labelPosition === "bottom") {
+        bottomPlans.push({ id: feed.id, desiredX: anchorX, width: boxWidth })
+      } else if (labelPosition === "top") {
+        topPlans.push({ id: feed.id, desiredX: anchorX, width: boxWidth })
+      }
+    })
+
+    const bottomCenters = distributeLabelCenters(bottomPlans, labelGap)
+    const topCenters = distributeLabelCenters(topPlans, labelGap)
 
     powerFeeds.forEach((feed) => {
       if (feed.assignedCabinetIds.length === 0) return
@@ -444,7 +563,7 @@ function computeLabelBounds(layout: LayoutData, ctx: CanvasRenderingContext2D, z
       const boxHeight = fontSize * 2.4 + labelPaddingY * 2
 
       const labelPosition = feed.labelPosition && feed.labelPosition !== "auto" ? feed.labelPosition : "bottom"
-      const labelCenterX =
+      let labelCenterX =
         labelPosition === "left"
           ? layoutBounds.minX - sideOffsetLeft - boxWidth / 2
           : labelPosition === "right"
@@ -461,6 +580,11 @@ function computeLabelBounds(layout: LayoutData, ctx: CanvasRenderingContext2D, z
         labelCenterY = feedBounds.minY - labelOffset
       } else {
         labelCenterY = anchorY
+      }
+      if (labelPosition === "bottom") {
+        labelCenterX = bottomCenters.get(feed.id) ?? labelCenterX
+      } else if (labelPosition === "top") {
+        labelCenterX = topCenters.get(feed.id) ?? labelCenterX
       }
 
       minX = Math.min(minX, labelCenterX - boxWidth / 2)

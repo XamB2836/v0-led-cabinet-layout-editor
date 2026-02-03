@@ -5,9 +5,10 @@ import type React from "react"
 import { useRef, useEffect, useState, useCallback } from "react"
 import { useEditor } from "@/lib/editor-context"
 import { getCabinetBounds, validateLayout } from "@/lib/validation"
-import type { Cabinet, CabinetType, DataRoute, DataRouteStep, PowerFeed } from "@/lib/types"
+import type { Cabinet, CabinetType, DataRoute, DataRouteStep, LayoutData, PowerFeed } from "@/lib/types"
 import {
   computeGridLabel,
+  DEFAULT_LAYOUT,
   formatRouteCabinetId,
   getCabinetReceiverCardCount,
   parseRouteCabinetId,
@@ -16,6 +17,7 @@ import { isDataRouteOverCapacity } from "@/lib/data-utils"
 import { getPowerFeedLoadW, isPowerFeedOverloaded } from "@/lib/power-utils"
 import { getEffectivePitchMm } from "@/lib/pitch-utils"
 import { DEFAULT_RECEIVER_CARD_MODEL } from "@/lib/receiver-cards"
+import { findRouteIdForEndpoint, getMappingNumberLabelMap } from "@/lib/mapping-numbers"
 import { Button } from "@/components/ui/button"
 import { ZoomIn, ZoomOut, Maximize, Ruler } from "lucide-react"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
@@ -549,6 +551,176 @@ function drawGridLabel(
   ctx.fillText(label, boxX + 4 / zoom, boxY + 3 / zoom)
 }
 
+type MappingLabelBox = { x: number; y: number; width: number; height: number }
+
+function getMappingLabelMetrics(zoom: number, size: "small" | "medium" | "large") {
+  const baseSize = size === "small" ? 10 : size === "large" ? 16 : 13
+  return {
+    fontSize: scaledWorldSize(baseSize, zoom, 9, 20),
+    paddingX: scaledWorldSize(6, zoom, 4, 10),
+    paddingY: scaledWorldSize(4, zoom, 3, 8),
+    radius: scaledWorldSize(4, zoom, 3, 8),
+    inset: scaledWorldSize(6, zoom, 4, 12),
+  }
+}
+
+function getMappingLabelBox(
+  ctx: CanvasRenderingContext2D,
+  label: string,
+  zoom: number,
+  size: "small" | "medium" | "large",
+  position: "top-left" | "top-right" | "bottom-left" | "bottom-right" | "custom",
+  target: { x: number; y: number; width: number; height: number },
+  override?: { position?: "top-left" | "top-right" | "bottom-left" | "bottom-right" | "custom"; x?: number; y?: number },
+): MappingLabelBox {
+  const metrics = getMappingLabelMetrics(zoom, size)
+  ctx.font = `bold ${metrics.fontSize}px Inter, sans-serif`
+  const textWidth = ctx.measureText(label).width
+  const boxWidth = textWidth + metrics.paddingX * 2
+  const boxHeight = metrics.fontSize + metrics.paddingY * 2
+  const fallbackPosition = position === "custom" ? "top-right" : position
+  const resolvedPosition = override?.position ?? fallbackPosition
+  const activeBounds = target
+
+  let boxX = activeBounds.x + metrics.inset
+  let boxY = activeBounds.y + metrics.inset
+
+  if (resolvedPosition === "custom") {
+    const anchorX = target.x + target.width * clamp(override?.x ?? 0.5, 0, 1)
+    const anchorY = target.y + target.height * clamp(override?.y ?? 0.5, 0, 1)
+    boxX = anchorX - boxWidth / 2
+    boxY = anchorY - boxHeight / 2
+  } else if (resolvedPosition === "top-right") {
+    boxX = activeBounds.x + activeBounds.width - metrics.inset - boxWidth
+    boxY = activeBounds.y + metrics.inset
+  } else if (resolvedPosition === "bottom-left") {
+    boxX = activeBounds.x + metrics.inset
+    boxY = activeBounds.y + activeBounds.height - metrics.inset - boxHeight
+  } else if (resolvedPosition === "bottom-right") {
+    boxX = activeBounds.x + activeBounds.width - metrics.inset - boxWidth
+    boxY = activeBounds.y + activeBounds.height - metrics.inset - boxHeight
+  }
+
+  const maxX = activeBounds.x + activeBounds.width - boxWidth
+  const maxY = activeBounds.y + activeBounds.height - boxHeight
+  const clampedMaxX = Math.max(activeBounds.x, maxX)
+  const clampedMaxY = Math.max(activeBounds.y, maxY)
+
+  return {
+    x: clamp(boxX, activeBounds.x, clampedMaxX),
+    y: clamp(boxY, activeBounds.y, clampedMaxY),
+    width: boxWidth,
+    height: boxHeight,
+  }
+}
+
+type ModuleCell = { x: number; y: number; width: number; height: number; centerX: number; centerY: number }
+
+function getModuleCells(
+  bounds: { x: number; y: number; width: number; height: number },
+  moduleWidth: number,
+  moduleHeight: number,
+  moduleGridOrigin?: { x: number; y: number } | null,
+): ModuleCell[] {
+  if (!moduleWidth || !moduleHeight) {
+    return [
+      {
+        x: bounds.x,
+        y: bounds.y,
+        width: bounds.width,
+        height: bounds.height,
+        centerX: bounds.x + bounds.width / 2,
+        centerY: bounds.y + bounds.height / 2,
+      },
+    ]
+  }
+
+  const originX = moduleGridOrigin?.x ?? bounds.x
+  const originY = moduleGridOrigin?.y ?? bounds.y
+  const startX = originX + Math.floor((bounds.x - originX) / moduleWidth) * moduleWidth
+  const startY = originY + Math.floor((bounds.y - originY) / moduleHeight) * moduleHeight
+  const endX = bounds.x + bounds.width
+  const endY = bounds.y + bounds.height
+  const cells: ModuleCell[] = []
+
+  for (let x = startX; x < endX - 1e-6; x += moduleWidth) {
+    const x1 = Math.max(x, bounds.x)
+    const x2 = Math.min(x + moduleWidth, endX)
+    if (x2 <= x1 + 1e-6) continue
+
+    for (let y = startY; y < endY - 1e-6; y += moduleHeight) {
+      const y1 = Math.max(y, bounds.y)
+      const y2 = Math.min(y + moduleHeight, endY)
+      if (y2 <= y1 + 1e-6) continue
+      cells.push({
+        x: x1,
+        y: y1,
+        width: x2 - x1,
+        height: y2 - y1,
+        centerX: (x1 + x2) / 2,
+        centerY: (y1 + y2) / 2,
+      })
+    }
+  }
+
+  return cells
+}
+
+function drawMappingNumbers(
+  ctx: CanvasRenderingContext2D,
+  layout: LayoutData,
+  zoom: number,
+  mappingNumbers: LayoutData["project"]["overview"]["mappingNumbers"],
+  labels: Map<string, string>,
+  moduleWidth: number,
+  moduleHeight: number,
+  moduleGridOrigin?: { x: number; y: number } | null,
+) {
+  if (!mappingNumbers?.show || labels.size === 0) return
+
+  const size = mappingNumbers.fontSize ?? "medium"
+  const position = mappingNumbers.position ?? "top-right"
+  const badge = mappingNumbers.badge ?? true
+  const overrides = mappingNumbers.positionOverrides ?? {}
+  const metrics = getMappingLabelMetrics(zoom, size)
+
+  ctx.save()
+  ctx.textAlign = "center"
+  ctx.textBaseline = "middle"
+
+  layout.cabinets.forEach((cabinet) => {
+    const bounds = getCabinetBounds(cabinet, layout.cabinetTypes)
+    if (!bounds) return
+    const cardCount = getCabinetReceiverCardCount(cabinet)
+    const moduleCells = getModuleCells(bounds, moduleWidth, moduleHeight, moduleGridOrigin)
+
+    moduleCells.forEach((cell) => {
+      const endpointId =
+        cardCount === 2
+          ? formatRouteCabinetId(cabinet.id, cell.centerY <= bounds.y + bounds.height / 2 ? 0 : 1)
+          : cabinet.id
+      const label = labels.get(endpointId)
+      if (!label) return
+      const box = getMappingLabelBox(ctx, label, zoom, size, position, cell, overrides[endpointId])
+
+      if (badge) {
+        ctx.fillStyle = "rgba(15, 23, 42, 0.9)"
+        ctx.strokeStyle = "#38bdf8"
+        ctx.lineWidth = Math.max(0.9 / zoom, 0.6 / zoom)
+        drawRoundedRect(ctx, box.x, box.y, box.width, box.height, metrics.radius)
+        ctx.fill()
+        ctx.stroke()
+      }
+
+      ctx.fillStyle = "#f8fafc"
+      ctx.font = `bold ${metrics.fontSize}px Inter, sans-serif`
+      ctx.fillText(label, box.x + box.width / 2, box.y + box.height / 2)
+    })
+  })
+
+  ctx.restore()
+}
+
 function drawControllerBadge(
   ctx: CanvasRenderingContext2D,
   bounds: { x: number; y: number; width: number; height: number },
@@ -1007,6 +1179,73 @@ function drawPowerFeeds(
     }
   }
 
+  const labelGap = scaledWorldSize(14, zoom, 10, 22)
+  const distributeLabelCenters = (
+    items: { id: string; desiredX: number; width: number }[],
+    gap: number,
+  ) => {
+    const sorted = [...items].sort((a, b) => a.desiredX - b.desiredX)
+    const centers = new Map<string, number>()
+    let lastRight = Number.NEGATIVE_INFINITY
+    sorted.forEach((item) => {
+      const half = item.width / 2
+      const minCenter = lastRight + gap + half
+      const center = item.desiredX < minCenter ? minCenter : item.desiredX
+      centers.set(item.id, center)
+      lastRight = center + half
+    })
+    return centers
+  }
+
+  const bottomPlans: { id: string; desiredX: number; width: number }[] = []
+  const topPlans: { id: string; desiredX: number; width: number }[] = []
+
+  powerFeeds.forEach((feed) => {
+    if (feed.assignedCabinetIds.length === 0) return
+    const feedSteps = getPowerSteps(feed)
+    const points: { x: number; y: number }[] = []
+    feedSteps.forEach((step) => {
+      if (step.type === "point") {
+        points.push({ x: step.x_mm, y: step.y_mm })
+        return
+      }
+      const cabinet = cabinets.find((c) => c.id === step.endpointId)
+      if (!cabinet) return
+      const bounds = getCabinetBounds(cabinet, cabinetTypes)
+      if (!bounds) return
+      const cardCount = getCabinetReceiverCardCount(cabinet)
+      const rects = getReceiverCardRects(bounds, zoom, cardCount)
+      let anchorX = bounds.x + bounds.width / 2
+      let anchorY = bounds.y + bounds.height / 2
+      if (rects.length > 0) {
+        const anchorRect =
+          rects.length === 1 ? rects[0] : bounds.y + bounds.height / 2 > layoutMidY ? rects[1] : rects[0]
+        const anchor = getPowerAnchorPoint(anchorRect, bounds, zoom)
+        anchorX = anchor.x
+        anchorY = anchor.y
+      }
+      points.push({ x: anchorX, y: anchorY })
+    })
+    if (points.length === 0) return
+
+    ctx.font = `bold ${fontSize}px Inter, sans-serif`
+    const loadW = getPowerFeedLoadW(feed, cabinets, cabinetTypes)
+    const breakerText = feed.breaker || feed.label
+    const labelText = `${breakerText} | ${loadW}W`
+    const connectorText = feed.connector
+    const maxTextWidth = Math.max(ctx.measureText(labelText).width, ctx.measureText(connectorText).width)
+    const boxWidth = maxTextWidth + labelPadding * 2
+    const labelPosition = feed.labelPosition && feed.labelPosition !== "auto" ? feed.labelPosition : "bottom"
+    if (labelPosition === "bottom") {
+      bottomPlans.push({ id: feed.id, desiredX: points[0].x, width: boxWidth })
+    } else if (labelPosition === "top") {
+      topPlans.push({ id: feed.id, desiredX: points[0].x, width: boxWidth })
+    }
+  })
+
+  const bottomCenters = distributeLabelCenters(bottomPlans, labelGap)
+  const topCenters = distributeLabelCenters(topPlans, labelGap)
+
   powerFeeds.forEach((feed) => {
     if (feed.assignedCabinetIds.length === 0) return
 
@@ -1108,6 +1347,11 @@ function drawPowerFeeds(
     } else {
       labelCenterY = points[0].y
     }
+    if (labelPosition === "bottom") {
+      labelCenterX = bottomCenters.get(feed.id) ?? labelCenterX
+    } else if (labelPosition === "top") {
+      labelCenterX = topCenters.get(feed.id) ?? labelCenterX
+    }
     const boxX = labelCenterX - boxWidth / 2
     const boxY = labelCenterY - boxHeight / 2
 
@@ -1140,19 +1384,22 @@ function drawPowerFeeds(
     } else if (labelPosition === "bottom") {
       labelLineY = labelCenterY - boxHeight / 2
     }
-    ctx.strokeStyle = "rgba(2, 6, 23, 0.9)"
-    ctx.lineWidth = outlineWidth
-    ctx.beginPath()
-    ctx.moveTo(labelLineX, labelLineY)
-    ctx.lineTo(points[0].x, points[0].y)
-    ctx.stroke()
+    const drawLabelConnector = (strokeStyle: string, width: number) => {
+      ctx.strokeStyle = strokeStyle
+      ctx.lineWidth = width
+      ctx.beginPath()
+      ctx.moveTo(labelLineX, labelLineY)
+      const dx = points[0].x - labelLineX
+      const dy = points[0].y - labelLineY
+      if (Math.abs(dx) > 1 && Math.abs(dy) > 1) {
+        ctx.lineTo(points[0].x, labelLineY)
+      }
+      ctx.lineTo(points[0].x, points[0].y)
+      ctx.stroke()
+    }
 
-    ctx.strokeStyle = lineColor
-    ctx.lineWidth = lineWidth
-    ctx.beginPath()
-    ctx.moveTo(labelLineX, labelLineY)
-    ctx.lineTo(points[0].x, points[0].y)
-    ctx.stroke()
+    drawLabelConnector("rgba(2, 6, 23, 0.9)", outlineWidth)
+    drawLabelConnector(lineColor, lineWidth)
 
     // Draw connections between cabinets with orthogonal lines
     if (points.length > 1) {
@@ -1382,6 +1629,7 @@ export function LayoutCanvas() {
   const dragStartPositionsRef = useRef<Map<string, { x: number; y: number }>>(new Map())
   const draggingRoutePointRef = useRef<{ routeId: string; stepIndex: number } | null>(null)
   const draggingPowerPointRef = useRef<{ feedId: string; stepIndex: number } | null>(null)
+  const draggingMappingLabelRef = useRef<{ endpointId: string; cabinetId: string } | null>(null)
   const [selectionBox, setSelectionBox] = useState<{
     start: { x: number; y: number }
     end: { x: number; y: number }
@@ -1521,14 +1769,18 @@ export function LayoutCanvas() {
         : null
     const controllerInCabinet = !!controllerCabinet
     const labelsMode = overview?.labelsMode || "internal"
+    const gridLabelAxis = overview?.gridLabelAxis ?? "columns"
     const showCabinetLabels = overview?.showCabinetLabels ?? true
     const showReceiverCards = overview?.showReceiverCards ?? true
     const receiverCardModel = overview?.receiverCardModel || DEFAULT_RECEIVER_CARD_MODEL
-    const showDataRoutes = overview?.showDataRoutes ?? true
-    const showPowerRoutes = overview?.showPowerRoutes ?? true
-    const showModuleGrid = overview?.showModuleGrid ?? true
-    const forcePortLabelsBottom = overview?.forcePortLabelsBottom ?? false
-    const moduleSize = overview?.moduleSize || "320x160"
+      const showDataRoutes = overview?.showDataRoutes ?? true
+      const showPowerRoutes = overview?.showPowerRoutes ?? true
+      const showModuleGrid = overview?.showModuleGrid ?? true
+      const forcePortLabelsBottom = overview?.forcePortLabelsBottom ?? false
+      const mappingNumbers = overview?.mappingNumbers ?? DEFAULT_LAYOUT.project.overview.mappingNumbers
+      const showMappingNumbers = mappingNumbers?.show ?? false
+      const mappingLabelMap = showMappingNumbers ? getMappingNumberLabelMap(layout) : new Map<string, string>()
+      const moduleSize = overview?.moduleSize || "320x160"
     const moduleOrientation = overview?.moduleOrientation || "portrait"
     const baseModule = moduleSize === "160x160" ? { width: 160, height: 160 } : { width: 320, height: 160 }
     const moduleWidth = moduleOrientation === "portrait" ? baseModule.height : baseModule.width
@@ -1620,7 +1872,7 @@ export function LayoutCanvas() {
 
       if (showCabinetLabels) {
         if (labelsMode === "grid") {
-          const displayLabel = computeGridLabel(cabinet, layout.cabinets, layout.cabinetTypes)
+          const displayLabel = computeGridLabel(cabinet, layout.cabinets, layout.cabinetTypes, gridLabelAxis)
           deferredCabinetLabels.push({ bounds, label: displayLabel, mode: "grid" })
         } else {
           deferredCabinetLabels.push({ bounds, label: cabinet.id, mode: "internal" })
@@ -1740,11 +1992,11 @@ export function LayoutCanvas() {
     }
 
     // Draw receiver cards on top so data lines sit underneath the label
-    if (showReceiverCards) {
-      layout.cabinets.forEach((cabinet) => {
-        const bounds = getCabinetBounds(cabinet, layout.cabinetTypes)
-        if (!bounds) return
-        const cardCount = getCabinetReceiverCardCount(cabinet)
+      if (showReceiverCards) {
+        layout.cabinets.forEach((cabinet) => {
+          const bounds = getCabinetBounds(cabinet, layout.cabinetTypes)
+          if (!bounds) return
+          const cardCount = getCabinetReceiverCardCount(cabinet)
         if (cardCount === 0) return
         const cardModel =
           cabinet.receiverCardOverride === null ? null : cabinet.receiverCardOverride || receiverCardModel
@@ -1753,14 +2005,18 @@ export function LayoutCanvas() {
         rects.forEach((rect) => {
           drawReceiverCard(ctx, rect, cardModel, zoom)
           drawPowerAnchorDot(ctx, rect, bounds, zoom)
+          })
         })
-      })
-    }
+      }
 
-    if (routeBadges.length > 0) {
-      const fontSize = Math.max(9, 10 / zoom)
-      ctx.save()
-      ctx.fillStyle = "#3b82f6"
+      if (showMappingNumbers) {
+        drawMappingNumbers(ctx, layout, zoom, mappingNumbers, mappingLabelMap, moduleWidth, moduleHeight, moduleGridOrigin)
+      }
+
+      if (routeBadges.length > 0) {
+        const fontSize = Math.max(9, 10 / zoom)
+        ctx.save()
+        ctx.fillStyle = "#3b82f6"
       ctx.textAlign = "center"
       ctx.textBaseline = "middle"
       ctx.font = `bold ${fontSize}px Inter, sans-serif`
@@ -1982,10 +2238,132 @@ export function LayoutCanvas() {
       routingMode.type === "data" ? layout.project.dataRoutes.find((r) => r.id === routingMode.routeId) : null
     const activeFeed =
       routingMode.type === "power" ? layout.project.powerFeeds.find((f) => f.id === routingMode.feedId) : null
+    const mappingNumbers = layout.project.overview.mappingNumbers ?? DEFAULT_LAYOUT.project.overview.mappingNumbers
+    const showMappingNumbers = mappingNumbers?.show ?? false
+    const moduleSize = layout.project.overview.moduleSize ?? "320x160"
+    const moduleOrientation = layout.project.overview.moduleOrientation ?? "portrait"
+    const baseModule = moduleSize === "160x160" ? { width: 160, height: 160 } : { width: 320, height: 160 }
+    const moduleWidth = moduleOrientation === "portrait" ? baseModule.height : baseModule.width
+    const moduleHeight = moduleOrientation === "portrait" ? baseModule.width : baseModule.height
+    const moduleGridBounds = getLayoutBoundsFromCabinets(layout.cabinets, layout.cabinetTypes)
+    const moduleGridOrigin = moduleGridBounds ? { x: moduleGridBounds.minX, y: moduleGridBounds.minY } : null
 
     if (e.button === 1 || (e.button === 0 && e.altKey)) {
       setIsPanning(true)
       setLastPanPos({ x: e.clientX, y: e.clientY })
+      return
+    }
+
+    if (
+      showMappingNumbers &&
+      mappingNumbers.position === "custom" &&
+      routingMode.type === "none" &&
+      cabinet &&
+      e.button === 0
+    ) {
+      const ctx = canvasRef.current?.getContext("2d")
+      if (ctx) {
+        const bounds = getCabinetBounds(cabinet, layout.cabinetTypes)
+        if (bounds) {
+          const labelMap = getMappingNumberLabelMap(layout)
+          const cardCount = getCabinetReceiverCardCount(cabinet)
+          const moduleCells = getModuleCells(bounds, moduleWidth, moduleHeight, moduleGridOrigin)
+          for (const cell of moduleCells) {
+            const endpointId =
+              cardCount === 2
+                ? formatRouteCabinetId(cabinet.id, cell.centerY <= bounds.y + bounds.height / 2 ? 0 : 1)
+                : cabinet.id
+            const label = labelMap.get(endpointId)
+            if (!label) continue
+            const box = getMappingLabelBox(
+              ctx,
+              label,
+              zoom,
+              mappingNumbers.fontSize ?? "medium",
+              mappingNumbers.position ?? "top-right",
+              cell,
+              mappingNumbers.positionOverrides?.[endpointId],
+            )
+            if (
+              world.x >= box.x &&
+              world.x <= box.x + box.width &&
+              world.y >= box.y &&
+              world.y <= box.y + box.height
+            ) {
+              draggingMappingLabelRef.current = { endpointId, cabinetId: cabinet.id }
+              return
+            }
+          }
+        }
+      }
+    }
+
+    if (
+      showMappingNumbers &&
+      mappingNumbers.mode === "manual" &&
+      routingMode.type === "none" &&
+      cabinet &&
+      e.button === 0 &&
+      !isMultiSelect
+    ) {
+      const bounds = getCabinetBounds(cabinet, layout.cabinetTypes)
+      const cardCount = getCabinetReceiverCardCount(cabinet)
+      let endpointId = cabinet.id
+      if (bounds && cardCount === 2) {
+        const moduleCells = getModuleCells(bounds, moduleWidth, moduleHeight, moduleGridOrigin)
+        const hitCell = moduleCells.find(
+          (cell) =>
+            world.x >= cell.x &&
+            world.x <= cell.x + cell.width &&
+            world.y >= cell.y &&
+            world.y <= cell.y + cell.height,
+        )
+        const cardIndex = hitCell
+          ? hitCell.centerY <= bounds.y + bounds.height / 2
+            ? 0
+            : 1
+          : world.y <= bounds.y + bounds.height / 2
+            ? 0
+            : 1
+        endpointId = formatRouteCabinetId(cabinet.id, cardIndex)
+      }
+      const applyToChain = mappingNumbers.applyToChain ?? true
+      const routeId = applyToChain ? findRouteIdForEndpoint(layout.project.dataRoutes, endpointId) : null
+      const perChain = { ...(mappingNumbers.manualAssignments?.perChain ?? {}) }
+      const perEndpoint = { ...(mappingNumbers.manualAssignments?.perEndpoint ?? {}) }
+      const currentValue = perEndpoint[endpointId] ?? (routeId ? perChain[routeId] : "") ?? ""
+      let nextValue = (mappingNumbers.manualValue ?? "").trim()
+
+      if (!nextValue) {
+        const prompted = window.prompt("Mapping number", currentValue)
+        if (prompted === null) {
+          return
+        }
+        nextValue = prompted.trim()
+      }
+
+      if (applyToChain && routeId) {
+        if (nextValue.length > 0) {
+          perChain[routeId] = nextValue
+        } else {
+          delete perChain[routeId]
+        }
+      } else if (nextValue.length > 0) {
+        perEndpoint[endpointId] = nextValue
+      } else {
+        delete perEndpoint[endpointId]
+      }
+
+      dispatch({
+        type: "UPDATE_OVERVIEW",
+        payload: {
+          mappingNumbers: {
+            ...mappingNumbers,
+            manualAssignments: { perChain, perEndpoint },
+          },
+        },
+      })
+      dispatch({ type: "PUSH_HISTORY" })
       return
     }
 
@@ -2249,6 +2627,51 @@ export function LayoutCanvas() {
   }
 
   const handleMouseMove = (e: React.MouseEvent) => {
+    if (draggingMappingLabelRef.current) {
+      const world = screenToWorld(e.clientX, e.clientY)
+      const { endpointId, cabinetId } = draggingMappingLabelRef.current
+      const cabinet = layout.cabinets.find((c) => c.id === cabinetId)
+      if (!cabinet) return
+      const bounds = getCabinetBounds(cabinet, layout.cabinetTypes)
+      if (!bounds) return
+      const mappingNumbers = layout.project.overview.mappingNumbers ?? DEFAULT_LAYOUT.project.overview.mappingNumbers
+      const moduleSize = layout.project.overview.moduleSize ?? "320x160"
+      const moduleOrientation = layout.project.overview.moduleOrientation ?? "portrait"
+      const baseModule = moduleSize === "160x160" ? { width: 160, height: 160 } : { width: 320, height: 160 }
+      const moduleWidth = moduleOrientation === "portrait" ? baseModule.height : baseModule.width
+      const moduleHeight = moduleOrientation === "portrait" ? baseModule.width : baseModule.height
+      const moduleGridBounds = getLayoutBoundsFromCabinets(layout.cabinets, layout.cabinetTypes)
+      const moduleGridOrigin = moduleGridBounds ? { x: moduleGridBounds.minX, y: moduleGridBounds.minY } : null
+      const moduleCells = getModuleCells(bounds, moduleWidth, moduleHeight, moduleGridOrigin)
+      let targetCell =
+        moduleCells.find(
+          (cell) =>
+            world.x >= cell.x &&
+            world.x <= cell.x + cell.width &&
+            world.y >= cell.y &&
+            world.y <= cell.y + cell.height,
+        ) ?? null
+      if (!targetCell && moduleCells.length > 0) {
+        targetCell = moduleCells.reduce((closest, cell) => {
+          const prevDist = Math.hypot(closest.centerX - world.x, closest.centerY - world.y)
+          const nextDist = Math.hypot(cell.centerX - world.x, cell.centerY - world.y)
+          return nextDist < prevDist ? cell : closest
+        }, moduleCells[0])
+      }
+      if (!targetCell) return
+      const nextOverrides = { ...(mappingNumbers.positionOverrides ?? {}) }
+      nextOverrides[endpointId] = {
+        position: "custom",
+        x: clamp((world.x - targetCell.x) / targetCell.width, 0, 1),
+        y: clamp((world.y - targetCell.y) / targetCell.height, 0, 1),
+      }
+      dispatch({
+        type: "UPDATE_OVERVIEW",
+        payload: { mappingNumbers: { ...mappingNumbers, positionOverrides: nextOverrides } },
+      })
+      return
+    }
+
     if (draggingRoutePointRef.current && routingMode.type === "data") {
       const world = screenToWorld(e.clientX, e.clientY)
       const { routeId, stepIndex } = draggingRoutePointRef.current
@@ -2375,12 +2798,16 @@ export function LayoutCanvas() {
     if (draggingPowerPointRef.current) {
       dispatch({ type: "PUSH_HISTORY" })
     }
+    if (draggingMappingLabelRef.current) {
+      dispatch({ type: "PUSH_HISTORY" })
+    }
     setIsPanning(false)
     isDraggingCabinetRef.current = false
     draggingCabinetIdRef.current = null
     dragStartPositionsRef.current = new Map()
     draggingRoutePointRef.current = null
     draggingPowerPointRef.current = null
+    draggingMappingLabelRef.current = null
   }
 
 
