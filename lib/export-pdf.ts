@@ -6,6 +6,7 @@ import { getTitleParts } from "./overview-utils"
 import { getCabinetReceiverCardCount, parseRouteCabinetId } from "./types"
 import { getPowerFeedLoadW } from "./power-utils"
 import { DEFAULT_RECEIVER_CARD_MODEL } from "./receiver-cards"
+import { getEffectivePitchMm } from "./pitch-utils"
 
 const PAGE_SIZES_MM = {
   A4: { width: 210, height: 297 },
@@ -16,14 +17,63 @@ const FONT_FAMILY = "Geist, sans-serif"
 const WEIGHT_REF_AREA_MM2 = 1120 * 640
 const WEIGHT_REF_KG = 19
 const LB_PER_KG = 2.20462
+const NUMMAX_LOGO_SRC = "/nummax-logo-lockup.png"
+const NUMMAX_LOGO_ASPECT = 3 // 600x200 lockup
+const NUMMAX_LEGEND_LOGO_HEIGHT_RATIO = 0.72
+const NUMMAX_HEADER_LOGO_HEIGHT_RATIO = 0.72
+let nummaxLogoPromise: Promise<HTMLImageElement | null> | null = null
 
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value))
 }
 
+function loadNummaxLogo() {
+  if (typeof window === "undefined") return Promise.resolve(null)
+  if (!nummaxLogoPromise) {
+    nummaxLogoPromise = new Promise((resolve) => {
+      const image = new Image()
+      image.onload = () => resolve(image)
+      image.onerror = () => resolve(null)
+      image.src = NUMMAX_LOGO_SRC
+    })
+  }
+  return nummaxLogoPromise
+}
+
 function scaledWorldSize(basePx: number, zoom: number, minPx: number, maxPx: number) {
   const sizePx = clamp(basePx * zoom, minPx, maxPx)
   return sizePx / zoom
+}
+
+function scaledReadableWorldSize(
+  basePx: number,
+  zoom: number,
+  minPx: number,
+  maxPx: number,
+  readabilityScale: number,
+) {
+  return scaledWorldSize(basePx * readabilityScale, zoom, minPx * readabilityScale, maxPx * readabilityScale)
+}
+
+function getPortLabelOffset(baseOffset: number, labelHeight: number) {
+  return Math.max(baseOffset, labelHeight * 0.8)
+}
+
+function getPowerLabelOffset(baseOffset: number, boxHeight: number) {
+  return Math.max(baseOffset, boxHeight * 0.78)
+}
+
+function getOverviewReadabilityScale(layout: LayoutData) {
+  if (layout.cabinets.length === 0) return 1.05
+  const bounds = getLayoutBounds(layout)
+  const shortSide = Math.min(bounds.width || 0, bounds.height || 0)
+  let scale = 1.05
+  if (shortSide <= 400) scale = 1.45
+  else if (shortSide <= 700) scale = 1.32
+  else if (shortSide <= 1000) scale = 1.22
+  else if (shortSide <= 1600) scale = 1.12
+  const densityAdjust = layout.cabinets.length >= 24 ? 0.9 : layout.cabinets.length >= 12 ? 0.96 : 1
+  return clamp(scale * densityAdjust, 1.0, 1.45)
 }
 
 function getCabinetAreaMm2(cabinet: LayoutData["cabinets"][number], types: LayoutData["cabinetTypes"]) {
@@ -98,6 +148,88 @@ function getCabinetSizeCounts(layout: LayoutData) {
   })
 }
 
+function areCabinetBoundsConnected(
+  a: { x: number; y: number; x2: number; y2: number },
+  b: { x: number; y: number; x2: number; y2: number },
+) {
+  const tolerance = 1 // 1mm tolerance for near-touching cabinets
+  const overlapX = a.x < b.x2 && a.x2 > b.x
+  const overlapY = a.y < b.y2 && a.y2 > b.y
+  if (overlapX && overlapY) return true
+
+  const horizontalTouch =
+    (Math.abs(a.x2 - b.x) <= tolerance || Math.abs(b.x2 - a.x) <= tolerance) && !(a.y2 <= b.y || b.y2 <= a.y)
+  const verticalTouch =
+    (Math.abs(a.y2 - b.y) <= tolerance || Math.abs(b.y2 - a.y) <= tolerance) && !(a.x2 <= b.x || b.x2 <= a.x)
+
+  return horizontalTouch || verticalTouch
+}
+
+type ScreenSizeCount = { widthPx: number; heightPx: number; count: number }
+
+function getScreenSizeCounts(layout: LayoutData): ScreenSizeCount[] {
+  const pitchMm = getEffectivePitchMm(layout.project.pitch_mm || 0)
+  if (!pitchMm || layout.cabinets.length === 0) {
+    return []
+  }
+
+  const cabinetBounds = layout.cabinets
+    .map((cabinet) => getCabinetBounds(cabinet, layout.cabinetTypes))
+    .filter((bounds): bounds is NonNullable<ReturnType<typeof getCabinetBounds>> => bounds !== null)
+
+  if (cabinetBounds.length === 0) {
+    return []
+  }
+
+  const visited = new Array(cabinetBounds.length).fill(false)
+  const counts = new Map<string, ScreenSizeCount>()
+
+  for (let i = 0; i < cabinetBounds.length; i++) {
+    if (visited[i]) continue
+    visited[i] = true
+
+    const queue = [i]
+    let minX = cabinetBounds[i].x
+    let minY = cabinetBounds[i].y
+    let maxX = cabinetBounds[i].x2
+    let maxY = cabinetBounds[i].y2
+
+    while (queue.length > 0) {
+      const currentIndex = queue.shift()
+      if (currentIndex === undefined) continue
+      const current = cabinetBounds[currentIndex]
+      minX = Math.min(minX, current.x)
+      minY = Math.min(minY, current.y)
+      maxX = Math.max(maxX, current.x2)
+      maxY = Math.max(maxY, current.y2)
+
+      for (let j = 0; j < cabinetBounds.length; j++) {
+        if (visited[j]) continue
+        if (!areCabinetBoundsConnected(current, cabinetBounds[j])) continue
+        visited[j] = true
+        queue.push(j)
+      }
+    }
+
+    const widthPx = Math.round((maxX - minX) / pitchMm)
+    const heightPx = Math.round((maxY - minY) / pitchMm)
+    const key = `${widthPx}x${heightPx}`
+    const entry = counts.get(key)
+    if (entry) {
+      entry.count += 1
+    } else {
+      counts.set(key, { widthPx, heightPx, count: 1 })
+    }
+  }
+
+  return Array.from(counts.values()).sort((a, b) => {
+    const areaDiff = b.widthPx * b.heightPx - a.widthPx * a.heightPx
+    if (areaDiff !== 0) return areaDiff
+    if (b.widthPx !== a.widthPx) return b.widthPx - a.widthPx
+    return b.heightPx - a.heightPx
+  })
+}
+
 type LegendRow = { label: string; valueLines: string[] }
 type LegendLayout = {
   rows: LegendRow[]
@@ -105,10 +237,12 @@ type LegendLayout = {
   boxHeight: number
   paddingX: number
   paddingY: number
+  headerHeight: number
   columnGap: number
   lineHeight: number
   rowGap: number
   labelWidth: number
+  titleFont: string
   labelFont: string
   valueFont: string
   pxPerMm: number
@@ -116,8 +250,10 @@ type LegendLayout = {
 
 function buildPdfLegendLayout(ctx: CanvasRenderingContext2D, layout: LayoutData, pxPerMm: number): LegendLayout {
   const bodyFontPx = Math.round(3.0 * pxPerMm)
+  const titleFontPx = Math.round(3.3 * pxPerMm)
   const paddingX = Math.round(2.4 * pxPerMm)
   const paddingY = Math.round(2.2 * pxPerMm)
+  const headerHeight = Math.round(bodyFontPx * 2.1)
   const rowGap = Math.round(0.7 * pxPerMm)
   const lineHeight = Math.round(bodyFontPx * 1.32)
   const columnGap = Math.round(2.4 * pxPerMm)
@@ -140,6 +276,12 @@ function buildPdfLegendLayout(ctx: CanvasRenderingContext2D, layout: LayoutData,
     cabinetEntries.length === 0
       ? "none"
       : cabinetEntries.map((entry) => `${entry.width}x${entry.height} (${entry.count}x)`).join("\n")
+  const screenEntries = getScreenSizeCounts(layout)
+  const numberOfDisplays = Math.max(1, Math.round(layout.project.overview.numberOfDisplays ?? 1))
+  const pixelMatrixValue =
+    screenEntries.length === 0
+      ? "none"
+      : screenEntries.map((entry) => `${entry.widthPx}x${entry.heightPx} px`).join("\n")
   const breakerCounts = (layout.project.powerFeeds ?? []).reduce(
     (acc, feed) => {
       if (feed.assignedCabinetIds.length === 0) return acc
@@ -156,15 +298,18 @@ function buildPdfLegendLayout(ctx: CanvasRenderingContext2D, layout: LayoutData,
   const breakerValue = breakerCountParts.length > 0 ? breakerCountParts.join(", ") : "0"
 
   const rows = [
-    { label: "Max power", value: `${totalLoadW} W` },
+    { label: "Max Power", value: `${totalLoadW} W` },
     { label: "Breaker", value: breakerValue },
     { label: "Receiver", value: receiverType },
-    { label: "Card type", value: controllerLabel },
+    { label: "Card Type", value: controllerLabel },
     { label: "Weight", value: `${weightLb} lb / ${weightKg.toFixed(1)} kg` },
     { label: "Modules", value: `${moduleLabel} / ${moduleCount} pcs / ${pitchLabel}` },
+    { label: "Nb. of Display", value: `${numberOfDisplays}` },
+    { label: "Pixel Matrix", value: pixelMatrixValue },
     { label: "Cabinets", value: cabinetsValue },
   ]
 
+  const titleFont = `700 ${titleFontPx}px ${FONT_FAMILY}`
   const labelFont = `600 ${bodyFontPx}px ${FONT_FAMILY}`
   const valueFont = `400 ${bodyFontPx}px ${FONT_FAMILY}`
 
@@ -204,10 +349,19 @@ function buildPdfLegendLayout(ctx: CanvasRenderingContext2D, layout: LayoutData,
     return Math.max(max, rowMax)
   }, 0)
 
-  const contentWidth = labelWidth + columnGap + maxValueWidth
+  const rowContentWidth = labelWidth + columnGap + maxValueWidth
+  const logoHeight = Math.round(headerHeight * NUMMAX_LEGEND_LOGO_HEIGHT_RATIO)
+  const logoWidth = Math.round(logoHeight * NUMMAX_LOGO_ASPECT)
+  const titleToLogoGap = Math.round(4.4 * pxPerMm)
+  ctx.font = titleFont
+  const titleWidth = ctx.measureText("DISPLAY SPEC").width
+  const headerContentWidth = titleWidth + titleToLogoGap + logoWidth
+  const contentWidth = Math.max(rowContentWidth, headerContentWidth)
   const boxWidth = Math.ceil(contentWidth + paddingX * 2)
   const boxHeight =
     paddingY * 2 +
+    headerHeight +
+    Math.round(0.8 * pxPerMm) +
     wrappedRows.reduce((sum, row) => sum + row.valueLines.length * lineHeight, 0) +
     rowGap * (wrappedRows.length - 1)
 
@@ -217,61 +371,183 @@ function buildPdfLegendLayout(ctx: CanvasRenderingContext2D, layout: LayoutData,
     boxHeight,
     paddingX,
     paddingY,
+    headerHeight,
     columnGap,
     lineHeight,
     rowGap,
     labelWidth,
+    titleFont,
     labelFont,
     valueFont,
     pxPerMm,
   }
 }
 
+function roundedRectPath(ctx: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, radius: number) {
+  const r = Math.max(0, Math.min(radius, width / 2, height / 2))
+  ctx.beginPath()
+  ctx.moveTo(x + r, y)
+  ctx.lineTo(x + width - r, y)
+  ctx.quadraticCurveTo(x + width, y, x + width, y + r)
+  ctx.lineTo(x + width, y + height - r)
+  ctx.quadraticCurveTo(x + width, y + height, x + width - r, y + height)
+  ctx.lineTo(x + r, y + height)
+  ctx.quadraticCurveTo(x, y + height, x, y + height - r)
+  ctx.lineTo(x, y + r)
+  ctx.quadraticCurveTo(x, y, x + r, y)
+  ctx.closePath()
+}
+
+function drawNummaxLogoMark(ctx: CanvasRenderingContext2D, x: number, y: number, size: number) {
+  const radius = Math.max(3, Math.round(size * 0.2))
+  roundedRectPath(ctx, x, y, size, size, radius)
+  ctx.fillStyle = "#0f172a"
+  ctx.fill()
+
+  // Accent triangle in the top-right to keep the mark visually distinct.
+  ctx.beginPath()
+  ctx.moveTo(x + size * 0.62, y)
+  ctx.lineTo(x + size, y)
+  ctx.lineTo(x + size, y + size * 0.38)
+  ctx.closePath()
+  ctx.fillStyle = "#2563eb"
+  ctx.fill()
+
+  // Stylized "N" stroke.
+  ctx.strokeStyle = "#f8fafc"
+  ctx.lineWidth = Math.max(2, Math.round(size * 0.12))
+  ctx.lineCap = "round"
+  ctx.lineJoin = "round"
+  ctx.beginPath()
+  ctx.moveTo(x + size * 0.24, y + size * 0.78)
+  ctx.lineTo(x + size * 0.24, y + size * 0.24)
+  ctx.lineTo(x + size * 0.76, y + size * 0.76)
+  ctx.lineTo(x + size * 0.76, y + size * 0.22)
+  ctx.stroke()
+}
+
+function drawNummaxLogo(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  logoImage: HTMLImageElement | null,
+) {
+  if (logoImage && logoImage.naturalWidth > 0 && logoImage.naturalHeight > 0 && width > 0 && height > 0) {
+    const sourceAspect = logoImage.naturalWidth / logoImage.naturalHeight
+    const targetAspect = width / height
+    const drawWidth = sourceAspect >= targetAspect ? width : height * sourceAspect
+    const drawHeight = sourceAspect >= targetAspect ? width / sourceAspect : height
+    const drawX = x + (width - drawWidth) / 2
+    const drawY = y + (height - drawHeight) / 2
+    ctx.drawImage(logoImage, drawX, drawY, drawWidth, drawHeight)
+    return
+  }
+  const fallbackSize = Math.min(width, height)
+  const fallbackX = x + (width - fallbackSize) / 2
+  const fallbackY = y + (height - fallbackSize) / 2
+  drawNummaxLogoMark(ctx, fallbackX, fallbackY, fallbackSize)
+}
+
 function drawPdfLegend(
   ctx: CanvasRenderingContext2D,
   legend: LegendLayout,
-  options: { rightX: number; topY: number },
+  options: { rightX: number; topY: number; logoImage?: HTMLImageElement | null },
 ) {
-  const { rightX, topY } = options
+  const { rightX, topY, logoImage = null } = options
   const {
     rows,
     boxWidth,
     boxHeight,
     paddingX,
     paddingY,
+    headerHeight,
     columnGap,
     lineHeight,
     rowGap,
     labelWidth,
+    titleFont,
     labelFont,
     valueFont,
     pxPerMm,
   } = legend
   const boxX = rightX - boxWidth
   const boxY = topY
+  const cornerRadius = Math.max(3, Math.round(1.4 * pxPerMm))
+  const contentStartY = boxY + paddingY + headerHeight
+  const valueX = boxX + paddingX + labelWidth + columnGap
+  const separatorX = boxX + paddingX + labelWidth + Math.round(columnGap / 2)
+  const titleText = "DISPLAY SPEC"
+  const logoHeight = Math.round(headerHeight * NUMMAX_LEGEND_LOGO_HEIGHT_RATIO)
+  const logoWidth = Math.round(logoHeight * NUMMAX_LOGO_ASPECT)
+  const logoX = boxX + boxWidth - paddingX - logoWidth
+  const logoY = boxY + Math.round((headerHeight - logoHeight) / 2)
 
   ctx.save()
-  ctx.fillStyle = "rgba(255, 255, 255, 0.9)"
-  ctx.strokeStyle = "#e2e8f0"
+  ctx.shadowColor = "rgba(15, 23, 42, 0.12)"
+  ctx.shadowBlur = Math.round(1.8 * pxPerMm)
+  ctx.shadowOffsetY = Math.max(1, Math.round(0.5 * pxPerMm))
+  roundedRectPath(ctx, boxX, boxY, boxWidth, boxHeight, cornerRadius)
+  ctx.fillStyle = "rgba(255, 255, 255, 0.98)"
+  ctx.fill()
+  ctx.restore()
+
+  ctx.save()
+  roundedRectPath(ctx, boxX, boxY, boxWidth, boxHeight, cornerRadius)
+  ctx.clip()
+  ctx.fillStyle = "#f1f5f9"
+  ctx.fillRect(boxX, boxY, boxWidth, headerHeight + Math.round(0.6 * pxPerMm))
+  ctx.restore()
+
+  ctx.save()
+  roundedRectPath(ctx, boxX, boxY, boxWidth, boxHeight, cornerRadius)
+  ctx.strokeStyle = "#cbd5e1"
   ctx.lineWidth = Math.max(1, Math.round(0.12 * pxPerMm))
-  ctx.fillRect(boxX, boxY, boxWidth, boxHeight)
-  ctx.strokeRect(boxX, boxY, boxWidth, boxHeight)
+  ctx.stroke()
 
   ctx.textAlign = "left"
   ctx.textBaseline = "top"
-  let cursorY = boxY + paddingY
-  rows.forEach((row) => {
+
+  drawNummaxLogo(ctx, logoX, logoY, logoWidth, logoHeight, logoImage)
+
+  ctx.font = titleFont
+  ctx.fillStyle = "#0f172a"
+  ctx.fillText(titleText, boxX + paddingX, boxY + paddingY * 0.7)
+
+  ctx.strokeStyle = "#dbe2ea"
+  ctx.lineWidth = 1
+  ctx.beginPath()
+  ctx.moveTo(boxX + paddingX, contentStartY - Math.round(0.5 * pxPerMm))
+  ctx.lineTo(boxX + boxWidth - paddingX, contentStartY - Math.round(0.5 * pxPerMm))
+  ctx.stroke()
+
+  let cursorY = contentStartY
+  rows.forEach((row, rowIndex) => {
+    const rowHeight = row.valueLines.length * lineHeight
+    if (rowIndex % 2 === 1) {
+      ctx.fillStyle = "#f8fafc"
+      ctx.fillRect(boxX + Math.round(0.8 * pxPerMm), cursorY, boxWidth - Math.round(1.6 * pxPerMm), rowHeight)
+    }
+
+    ctx.strokeStyle = "#e2e8f0"
+    ctx.lineWidth = 1
+    ctx.beginPath()
+    ctx.moveTo(separatorX, cursorY)
+    ctx.lineTo(separatorX, cursorY + rowHeight)
+    ctx.stroke()
+
     ctx.font = labelFont
-    ctx.fillStyle = "#0f172a"
+    ctx.fillStyle = "#334155"
     ctx.fillText(row.label, boxX + paddingX, cursorY)
 
     ctx.font = valueFont
-    ctx.fillStyle = "#1f2937"
+    ctx.fillStyle = "#0f172a"
     row.valueLines.forEach((line, index) => {
-      ctx.fillText(line, boxX + paddingX + labelWidth + columnGap, cursorY + index * lineHeight)
+      ctx.fillText(line, valueX, cursorY + index * lineHeight)
     })
 
-    cursorY += row.valueLines.length * lineHeight + rowGap
+    cursorY += rowHeight + rowGap
   })
   ctx.restore()
 }
@@ -296,7 +572,13 @@ function getLayoutBoundsFromCabinets(
   return { minX, minY, maxX, maxY }
 }
 
-function computeLabelBounds(layout: LayoutData, ctx: CanvasRenderingContext2D, zoom: number, uiScale = 1) {
+function computeLabelBounds(
+  layout: LayoutData,
+  ctx: CanvasRenderingContext2D,
+  zoom: number,
+  uiScale = 1,
+  readabilityScale = 1,
+) {
   const uiZoom = uiScale > 0 ? zoom / uiScale : zoom
   const layoutBounds = getLayoutBounds(layout)
   let minX = layoutBounds.minX
@@ -317,12 +599,12 @@ function computeLabelBounds(layout: LayoutData, ctx: CanvasRenderingContext2D, z
   })
   rowCenters.sort((a, b) => a - b)
 
-  const dataFontSize = scaledWorldSize(14, uiZoom, 12, 18)
+  const dataFontSize = scaledReadableWorldSize(14, uiZoom, 12, 18, readabilityScale)
   const dataFontPx = dataFontSize * zoom
-  const dataLabelPadding = scaledWorldSize(8, uiZoom, 6, 12)
-  const dataLabelOffset = 90
-  const dataLabelSideGap = scaledWorldSize(60, uiZoom, 40, 90)
+  const dataLabelPadding = scaledReadableWorldSize(8, uiZoom, 6, 12, readabilityScale)
+  const dataLabelSideGap = scaledReadableWorldSize(60, uiZoom, 40, 90, readabilityScale)
   const dataLabelHeight = dataFontSize + dataLabelPadding * 1.6
+  const dataLabelOffset = getPortLabelOffset(90 * readabilityScale, dataLabelHeight)
   let maxPortLabelWidthLeft = 0
   let maxPortLabelWidthRight = 0
   let hasBottomPortLabel = false
@@ -406,11 +688,11 @@ function computeLabelBounds(layout: LayoutData, ctx: CanvasRenderingContext2D, z
   if (powerFeeds.length > 0) {
     const getReceiverCardRects = (bounds: { x: number; y: number; width: number; height: number }, count: 0 | 1 | 2) => {
       if (count <= 0) return []
-      const maxWidth = Math.min(80 / uiZoom, bounds.width * 0.6)
-      const minWidth = Math.min(28 / uiZoom, maxWidth)
+      const maxWidth = Math.min((100 * readabilityScale) / uiZoom, bounds.width * 0.7)
+      const minWidth = Math.min((34 * readabilityScale) / uiZoom, maxWidth)
       const heightFraction = count === 2 ? 0.18 : 0.22
-      const maxHeight = Math.min(14 / uiZoom, bounds.height * heightFraction)
-      const minHeight = Math.min(8 / uiZoom, maxHeight)
+      const maxHeight = Math.min((18 * readabilityScale) / uiZoom, bounds.height * (heightFraction + 0.03))
+      const minHeight = Math.min((10 * readabilityScale) / uiZoom, maxHeight)
       const cardWidth = Math.min(maxWidth, Math.max(minWidth, bounds.width * 0.7))
       const cardHeight = Math.min(maxHeight, Math.max(minHeight, bounds.height * 0.2))
       const cardX = bounds.x + bounds.width / 2 - cardWidth / 2
@@ -420,7 +702,7 @@ function computeLabelBounds(layout: LayoutData, ctx: CanvasRenderingContext2D, z
         return [{ x: cardX, y: cardY, width: cardWidth, height: cardHeight }]
       }
 
-      const gap = Math.min(10 / uiZoom, cardHeight)
+      const gap = Math.min((10 * readabilityScale) / uiZoom, cardHeight)
       const totalHeight = cardHeight * 2 + gap
       const startY = bounds.y + bounds.height / 2 - totalHeight / 2
       return [
@@ -433,8 +715,8 @@ function computeLabelBounds(layout: LayoutData, ctx: CanvasRenderingContext2D, z
       cardRect: { x: number; y: number; width: number; height: number },
       bounds: { x: number; y: number; width: number; height: number },
     ) => {
-      const margin = Math.min(8 / uiZoom, bounds.width * 0.04)
-      const offset = Math.min(6 / uiZoom, cardRect.width * 0.25)
+      const margin = Math.min((8 * readabilityScale) / uiZoom, bounds.width * 0.04)
+      const offset = Math.min((6 * readabilityScale) / uiZoom, cardRect.width * 0.25)
       const anchorX = Math.max(bounds.x + margin, cardRect.x - offset)
       return { x: anchorX, y: cardRect.y + cardRect.height / 2 }
     }
@@ -461,16 +743,16 @@ function computeLabelBounds(layout: LayoutData, ctx: CanvasRenderingContext2D, z
       return centers
     }
 
-    const fontSize = scaledWorldSize(14, uiZoom, 12, 18)
+    const fontSize = scaledReadableWorldSize(14, uiZoom, 12, 18, readabilityScale)
     const fontPx = fontSize * zoom
-    const labelPaddingX = scaledWorldSize(9, uiZoom, 6, 13)
-    const labelPaddingY = scaledWorldSize(6, uiZoom, 4, 9)
-    const labelOffset = 140
-    const labelSideGap = scaledWorldSize(110, uiZoom, 70, 160)
-    const sideLabelGap = scaledWorldSize(12, uiZoom, 8, 18)
-    const powerLabelSideGap = scaledWorldSize(60, uiZoom, 40, 90)
-    const bottomClearance = scaledWorldSize(16, uiZoom, 10, 22)
-    const labelGap = scaledWorldSize(14, uiZoom, 10, 22)
+    const labelPaddingX = scaledReadableWorldSize(9, uiZoom, 6, 13, readabilityScale)
+    const labelPaddingY = scaledReadableWorldSize(6, uiZoom, 4, 9, readabilityScale)
+    const baseLabelOffset = 140
+    const labelSideGap = scaledReadableWorldSize(110, uiZoom, 70, 160, readabilityScale)
+    const sideLabelGap = scaledReadableWorldSize(12, uiZoom, 8, 18, readabilityScale)
+    const powerLabelSideGap = scaledReadableWorldSize(60, uiZoom, 40, 90, readabilityScale)
+    const bottomClearance = scaledReadableWorldSize(16, uiZoom, 10, 22, readabilityScale)
+    const labelGap = scaledReadableWorldSize(14, uiZoom, 10, 22, readabilityScale)
 
     const sideOffsetLeft =
       maxPortLabelWidthLeft > 0 ? powerLabelSideGap + maxPortLabelWidthLeft + sideLabelGap : labelSideGap
@@ -561,6 +843,7 @@ function computeLabelBounds(layout: LayoutData, ctx: CanvasRenderingContext2D, z
       const maxTextWidth = Math.max(labelMeasured, connectorMeasured, labelEstimated, connectorEstimated)
       const boxWidth = maxTextWidth + labelPaddingX * 2
       const boxHeight = fontSize * 2.4 + labelPaddingY * 2
+      const labelOffset = getPowerLabelOffset(baseLabelOffset * readabilityScale, boxHeight)
 
       const labelPosition = feed.labelPosition && feed.labelPosition !== "auto" ? feed.labelPosition : "bottom"
       let labelCenterX =
@@ -669,6 +952,7 @@ export async function exportOverviewPdf(layout: LayoutData) {
 
   const ctx = canvas.getContext("2d")
   if (!ctx) return
+  const nummaxLogoImage = await loadNummaxLogo()
 
   const headerMm = 8
   const marginMm = 6
@@ -679,15 +963,17 @@ export async function exportOverviewPdf(layout: LayoutData) {
   const legendGapPx = Math.round(3 * pxPerMm)
 
   const bounds = getLayoutBounds(layout)
-  let dimensionOffsetMm = 260
-  const extraLeftMm = 320
-  const extraRightMm = 380
-  const extraTopMm = dimensionOffsetMm + 120
-  const extraBottomMm = 520
+  const readabilityScale = getOverviewReadabilityScale(layout)
+  const layoutWidthMm = Math.max(1, bounds.width)
+  const layoutHeightMm = Math.max(1, bounds.height)
+  let dimensionOffsetMm = clamp(Math.round(layoutHeightMm * 0.25), 100, 180)
+  const extraSideMm = clamp(Math.round(layoutWidthMm * 0.12), 120, 280)
+  const extraTopMm = dimensionOffsetMm + clamp(Math.round(layoutHeightMm * 0.09), 55, 120)
+  const extraBottomMm = clamp(Math.round(layoutHeightMm * 0.42), 170, 330)
 
   const baseBounds = {
-    minX: bounds.minX - extraLeftMm,
-    maxX: bounds.maxX + extraRightMm,
+    minX: bounds.minX - extraSideMm,
+    maxX: bounds.maxX + extraSideMm,
     minY: bounds.minY - extraTopMm,
     maxY: bounds.maxY + extraBottomMm,
   }
@@ -705,7 +991,7 @@ export async function exportOverviewPdf(layout: LayoutData) {
       topY: headerPx + marginPx + contentAvailableHeight + legendGapPx,
     }
   }
-  const uiScale = 3.0
+  const uiScale = clamp(renderDpi / outputDpi, 1, 2)
 
   let printBounds = { ...baseBounds }
   for (let i = 0; i < 4; i++) {
@@ -715,7 +1001,7 @@ export async function exportOverviewPdf(layout: LayoutData) {
       contentWidth && contentHeight
         ? Math.min(contentAvailableWidth / contentWidth, contentAvailableHeight / contentHeight)
         : 1
-    const labelBounds = computeLabelBounds(layout, ctx, zoom, uiScale)
+    const labelBounds = computeLabelBounds(layout, ctx, zoom, uiScale, readabilityScale)
     const minX = Math.min(baseBounds.minX, labelBounds.minX)
     const maxX = Math.max(baseBounds.maxX, labelBounds.maxX)
     const minY = Math.min(baseBounds.minY, labelBounds.minY)
@@ -765,6 +1051,7 @@ export async function exportOverviewPdf(layout: LayoutData) {
     showPowerRoutes: layout.project.overview.showPowerRoutes,
     showModuleGrid: layout.project.overview.showModuleGrid,
     forcePortLabelsBottom: layout.project.overview.forcePortLabelsBottom,
+    readabilityScale,
     uiScale,
     dimensionOffsetMm,
     dimensionSide: "right",
@@ -788,13 +1075,30 @@ export async function exportOverviewPdf(layout: LayoutData) {
     },
   })
 
-  // Title
+  // Sheet header title + brand
+  const headerLogoHeight = Math.round(headerPx * NUMMAX_HEADER_LOGO_HEIGHT_RATIO)
+  const headerLogoWidth = Math.round(headerLogoHeight * NUMMAX_LOGO_ASPECT)
+  const headerLogoX = canvas.width - marginPx - headerLogoWidth
+  const headerLogoY = Math.round((headerPx - headerLogoHeight) / 2)
+  drawNummaxLogo(ctx, headerLogoX, headerLogoY, headerLogoWidth, headerLogoHeight, nummaxLogoImage)
+
+  const title = getTitleParts(layout).join(" - ")
+  const titleLeftBound = marginPx + Math.round(1.6 * pxPerMm)
+  const titleRightBound = headerLogoX - Math.round(2.0 * pxPerMm)
+  const titleCenterX = canvas.width / 2
+  const titleHalfAvailable = Math.max(0, Math.min(titleCenterX - titleLeftBound, titleRightBound - titleCenterX))
+  const titleAvailableWidth = Math.max(0, titleHalfAvailable * 2)
+  let titleFontPx = Math.round(5 * pxPerMm)
+  const titleFontMinPx = Math.round(3.4 * pxPerMm)
   ctx.fillStyle = "#0f172a"
-  ctx.font = `700 ${Math.round(5 * pxPerMm)}px Geist, sans-serif`
+  while (titleFontPx > titleFontMinPx) {
+    ctx.font = `700 ${titleFontPx}px ${FONT_FAMILY}`
+    if (ctx.measureText(title).width <= titleAvailableWidth) break
+    titleFontPx -= 1
+  }
   ctx.textAlign = "center"
   ctx.textBaseline = "middle"
-  const title = getTitleParts(layout).join(" - ")
-  ctx.fillText(title, canvas.width / 2, headerPx / 2)
+  ctx.fillText(title, titleCenterX, headerPx / 2)
 
   const viewLabel = viewSide === "back" ? "BACK VIEW" : "FRONT VIEW"
   const viewFontPx = Math.round(3.4 * pxPerMm)
@@ -808,6 +1112,7 @@ export async function exportOverviewPdf(layout: LayoutData) {
     drawPdfLegend(ctx, legendLayout, {
       rightX: legendPosition.rightX,
       topY: legendPosition.topY,
+      logoImage: nummaxLogoImage,
     })
   }
 

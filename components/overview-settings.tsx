@@ -24,6 +24,7 @@ export function OverviewSettings() {
   const mappingNumbers = overview?.mappingNumbers ?? mappingDefaults
   const showMappingNumbers = mappingNumbers?.show ?? false
   const gridLabelAxis = overview?.gridLabelAxis ?? "columns"
+  const numberOfDisplays = Math.max(1, overview?.numberOfDisplays ?? 1)
   const labelSequenceValue = mappingNumbers.labels?.join(", ") ?? ""
   const [labelSequenceDraft, setLabelSequenceDraft] = useState(labelSequenceValue)
 
@@ -478,6 +479,24 @@ export function OverviewSettings() {
           </Select>
         </div>
         <p className="text-xs text-muted-foreground">Printed on the PDF header.</p>
+        <div className="space-y-1.5">
+          <Label htmlFor="number-of-displays" className="text-xs">
+            Number of Displays
+          </Label>
+          <Input
+            id="number-of-displays"
+            type="number"
+            min={1}
+            step={1}
+            value={numberOfDisplays}
+            onChange={(e) => {
+              const parsed = Number.parseInt(e.target.value, 10)
+              if (!Number.isFinite(parsed)) return
+              dispatch({ type: "UPDATE_OVERVIEW", payload: { numberOfDisplays: Math.max(1, parsed) } })
+            }}
+            className="h-8 bg-input text-sm"
+          />
+        </div>
         <div className="flex items-center justify-between">
           <Label htmlFor="show-legend" className="text-sm">
             Show Legend

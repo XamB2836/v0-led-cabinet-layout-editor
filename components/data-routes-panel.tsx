@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Plus, Trash2, Zap, Cable, Wand2, MousePointer, X } from "lucide-react"
+import { Plus, Trash2, Zap, Cable, Wand2, MousePointer, X, RotateCcw } from "lucide-react"
 import type { DataRoute, DataRouteStep, LayoutData, PowerFeed } from "@/lib/types"
 import {
   computeGridLabel,
@@ -16,7 +16,7 @@ import {
   getCabinetReceiverCardCount,
   parseRouteCabinetId,
 } from "@/lib/types"
-import { getPowerFeedLoadW } from "@/lib/power-utils"
+import { getBreakerMaxW, getPowerFeedLoadW } from "@/lib/power-utils"
 import {
   getControllerLimits,
   getDataRouteLoadPx,
@@ -375,7 +375,7 @@ export function DataRoutesPanel() {
   }
 
   const handleAutoPower = () => {
-    if (layout.cabinets.length === 0 || powerFeeds.length === 0) return
+    if (layout.cabinets.length === 0) return
 
     const cabinetsWithBounds = layout.cabinets
       .map((c) => {
@@ -402,36 +402,124 @@ export function DataRoutesPanel() {
     // Order each column bottom -> top (higher Y is lower on the canvas)
     columns.forEach((col) => col.sort((a, b) => b.centerY - a.centerY))
 
-    // Distribute columns across power feeds
-    const colsPerFeed = Math.ceil(columns.length / powerFeeds.length)
-
-    powerFeeds.forEach((feed, feedIndex) => {
-      const startCol = feedIndex * colsPerFeed
-      const endCol = Math.min(startCol + colsPerFeed, columns.length)
-      const cabinetIds: string[] = []
-
-      for (let c = startCol; c < endCol; c++) {
-        const colCabinets = columns[c].map((item) => item.cabinet.id)
-        if ((c - startCol) % 2 === 1) {
-          colCabinets.reverse()
-        }
-        cabinetIds.push(...colCabinets)
+    const orderedCabinetIds: string[] = []
+    columns.forEach((col, colIndex) => {
+      const colCabinets = col.map((item) => item.cabinet.id)
+      if (colIndex % 2 === 1) {
+        colCabinets.reverse()
       }
+      orderedCabinetIds.push(...colCabinets)
+    })
+
+    if (orderedCabinetIds.length === 0) return
+
+    const defaultTemplate = powerFeeds[0]
+    const createAutoFeed = (index: number): PowerFeed => ({
+      id: `feed-${Date.now()}-${index}`,
+      label: defaultTemplate?.label || "220V @20A",
+      breaker: defaultTemplate?.breaker || "220V 20A",
+      connector: defaultTemplate?.connector || "NAC3FX-W",
+      consumptionW: 0,
+      assignedCabinetIds: [],
+    })
+
+    const workingFeeds: PowerFeed[] =
+      powerFeeds.length > 0 ? powerFeeds.map((feed) => ({ ...feed })) : [createAutoFeed(1)]
+    const assignedByFeed: string[][] = workingFeeds.map(() => [])
+    const feedLoads = workingFeeds.map(() => 0)
+    const feedLookup = new Map(powerFeeds.map((feed) => [feed.id, feed]))
+
+    const cabinetLoadWById = new Map(
+      layout.cabinets.map((cabinet) => [
+        cabinet.id,
+        getPowerFeedLoadW(
+          {
+            id: "__cabinet-load__",
+            label: "",
+            connector: "",
+            consumptionW: 0,
+            assignedCabinetIds: [cabinet.id],
+          },
+          layout.cabinets,
+          layout.cabinetTypes,
+        ),
+      ]),
+    )
+
+    let activeFeedIndex = 0
+    orderedCabinetIds.forEach((cabinetId) => {
+      const cabinetLoadW = cabinetLoadWById.get(cabinetId) ?? 0
+
+      while (true) {
+        if (activeFeedIndex >= workingFeeds.length) {
+          const newFeed = createAutoFeed(workingFeeds.length + 1)
+          workingFeeds.push(newFeed)
+          assignedByFeed.push([])
+          feedLoads.push(0)
+        }
+
+        const feed = workingFeeds[activeFeedIndex]
+        const maxW = getBreakerMaxW(feed.breaker)
+        const maxLoadW = maxW ?? Number.POSITIVE_INFINITY
+        const nextLoadW = feedLoads[activeFeedIndex] + cabinetLoadW
+        const isEmptyFeed = assignedByFeed[activeFeedIndex].length === 0
+
+        if (nextLoadW <= maxLoadW || isEmptyFeed) {
+          assignedByFeed[activeFeedIndex].push(cabinetId)
+          feedLoads[activeFeedIndex] = nextLoadW
+          break
+        }
+
+        activeFeedIndex += 1
+      }
+    })
+
+    for (let index = powerFeeds.length; index < workingFeeds.length; index++) {
+      dispatch({ type: "ADD_POWER_FEED", payload: workingFeeds[index] })
+    }
+
+    workingFeeds.forEach((feed, index) => {
+      const assignedCabinetIds = assignedByFeed[index] ?? []
+      const existingFeed = feedLookup.get(feed.id)
+      const isManual = existingFeed?.manualMode ?? feed.manualMode ?? false
+      const existingSteps = existingFeed?.steps ?? feed.steps
 
       dispatch({
         type: "UPDATE_POWER_FEED",
         payload: {
           id: feed.id,
           updates: {
-            assignedCabinetIds: cabinetIds,
-            steps: feed.manualMode
-              ? cabinetIds.map((cabinetId) => ({ type: "cabinet", endpointId: cabinetId }))
-              : feed.steps,
+            assignedCabinetIds,
+            steps: isManual
+              ? assignedCabinetIds.map((cabinetId) => ({ type: "cabinet", endpointId: cabinetId }))
+              : existingSteps,
           },
         },
       })
     })
 
+    dispatch({ type: "PUSH_HISTORY" })
+  }
+
+  const handleResetDataRoutes = () => {
+    if (dataRoutes.length === 0) return
+    dataRoutes.forEach((route) => {
+      dispatch({ type: "DELETE_DATA_ROUTE", payload: route.id })
+    })
+    if (routingMode.type === "data") {
+      dispatch({ type: "SET_ROUTING_MODE", payload: { type: "none" } })
+    }
+    dispatch({ type: "PUSH_HISTORY" })
+  }
+
+  const handleResetPowerFeeds = () => {
+    if (powerFeeds.length === 0) return
+    powerFeeds.forEach((feed) => {
+      dispatch({ type: "DELETE_POWER_FEED", payload: feed.id })
+    })
+    if (routingMode.type === "power") {
+      dispatch({ type: "SET_ROUTING_MODE", payload: { type: "none" } })
+    }
     dispatch({ type: "PUSH_HISTORY" })
   }
 
@@ -463,6 +551,17 @@ export function DataRoutesPanel() {
               Data Routes
             </div>
             <div className="flex gap-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleResetDataRoutes}
+                disabled={dataRoutes.length === 0}
+                title="Reset all data routes"
+                className="h-7 px-2 text-xs text-zinc-300 hover:text-zinc-100"
+              >
+                <RotateCcw className="w-3 h-3 mr-1" />
+                Reset
+              </Button>
               <Button
                 variant="ghost"
                 size="sm"
@@ -698,8 +797,18 @@ export function DataRoutesPanel() {
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={handleAutoPower}
+                onClick={handleResetPowerFeeds}
                 disabled={powerFeeds.length === 0}
+                title="Reset all power feeds"
+                className="h-7 px-2 text-xs text-zinc-300 hover:text-zinc-100"
+              >
+                <RotateCcw className="w-3 h-3 mr-1" />
+                Reset
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleAutoPower}
                 title="Auto-assign cabinets"
                 className="h-7 px-2 text-xs text-orange-100 hover:text-orange-50"
               >
@@ -713,7 +822,7 @@ export function DataRoutesPanel() {
           </div>
 
           {powerFeeds.length === 0 ? (
-            <p className="text-xs text-zinc-500 italic">No power feeds. Click + to add.</p>
+            <p className="text-xs text-zinc-500 italic">No power feeds. Click Auto or + to add.</p>
           ) : (
             <div className="space-y-3">
               {powerFeeds.map((feed, index) => {

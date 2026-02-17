@@ -69,6 +69,7 @@ export interface OverviewSettings {
   forcePortLabelsBottom: boolean
   showPowerRoutes: boolean
   showModuleGrid: boolean
+  numberOfDisplays: number
   moduleSize: "320x160" | "160x160"
   moduleOrientation: "landscape" | "portrait"
   mappingNumbers: MappingNumbersSettings
@@ -94,6 +95,7 @@ export interface PowerFeed {
   breaker?: string
   connector: string
   consumptionW: number
+  loadOverrideW?: number
   assignedCabinetIds: string[]
   manualMode?: boolean
   steps?: DataRouteStep[]
@@ -193,6 +195,7 @@ export const DEFAULT_LAYOUT: LayoutData = {
       forcePortLabelsBottom: false,
       showPowerRoutes: true,
       showModuleGrid: true,
+      numberOfDisplays: 1,
       moduleSize: "320x160",
       moduleOrientation: "portrait",
       mappingNumbers: {

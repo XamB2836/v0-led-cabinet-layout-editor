@@ -46,6 +46,7 @@ export interface OverviewRenderOptions {
   dimensionOffsetMm?: number
   dimensionSide?: "left" | "right"
   forcePortLabelsBottom?: boolean
+  readabilityScale?: number
   selectedCabinetId?: string | null
   palette?: Partial<OverviewPalette>
 }
@@ -117,14 +118,15 @@ function drawDimensionLines(
   offsetTopMm = 40,
   offsetSideMm = offsetTopMm,
   side: "left" | "right" = "left",
+  readabilityScale = 1,
 ) {
   const bounds = getLayoutBounds(layout)
   if (bounds.width === 0 || bounds.height === 0) return
 
-  const fontSize = Math.max(11, 14 / zoom)
+  const fontSize = Math.max(11 * readabilityScale, (14 * readabilityScale) / zoom)
   ctx.strokeStyle = palette.dimensionLine
   ctx.fillStyle = palette.dimensionText
-  ctx.lineWidth = 1.5 / zoom
+  ctx.lineWidth = (1.5 * readabilityScale) / zoom
   ctx.font = `${fontSize}px ${FONT_FAMILY}`
   ctx.textAlign = "center"
   ctx.textBaseline = "middle"
@@ -140,8 +142,8 @@ function drawDimensionLines(
   ctx.stroke()
   ctx.beginPath()
   ctx.stroke()
-  drawArrow(ctx, bounds.minX, topY, Math.PI, 7 / zoom)
-  drawArrow(ctx, bounds.maxX, topY, 0, 7 / zoom)
+  drawArrow(ctx, bounds.minX, topY, Math.PI, (7 * readabilityScale) / zoom)
+  drawArrow(ctx, bounds.maxX, topY, 0, (7 * readabilityScale) / zoom)
 
   // Vertical dimension
   const dimX = side === "right" ? rightX : leftX
@@ -151,8 +153,8 @@ function drawDimensionLines(
   ctx.stroke()
   ctx.beginPath()
   ctx.stroke()
-  drawArrow(ctx, dimX, bounds.minY, -Math.PI / 2, 7 / zoom)
-  drawArrow(ctx, dimX, bounds.maxY, Math.PI / 2, 7 / zoom)
+  drawArrow(ctx, dimX, bounds.minY, -Math.PI / 2, (7 * readabilityScale) / zoom)
+  drawArrow(ctx, dimX, bounds.maxY, Math.PI / 2, (7 * readabilityScale) / zoom)
 
   const pixels = getLayoutPixelDimensions(layout)
   const widthLabel = showPixels && pixels.width_px
@@ -162,10 +164,10 @@ function drawDimensionLines(
     ? `${bounds.height} mm / ${pixels.height_px} px`
     : `${bounds.height} mm`
 
-  ctx.fillText(widthLabel, bounds.minX + bounds.width / 2, topY - 10 / zoom)
+  ctx.fillText(widthLabel, bounds.minX + bounds.width / 2, topY - (10 * readabilityScale) / zoom)
 
   ctx.save()
-  const textOffset = side === "right" ? 10 / zoom : -10 / zoom
+  const textOffset = side === "right" ? (10 * readabilityScale) / zoom : (-10 * readabilityScale) / zoom
   ctx.translate(dimX + textOffset, bounds.minY + bounds.height / 2)
   ctx.rotate(-Math.PI / 2)
   ctx.fillText(heightLabel, 0, 0)
@@ -178,13 +180,14 @@ function getReceiverCardRects(
   bounds: { x: number; y: number; width: number; height: number },
   zoom: number,
   count: 0 | 1 | 2,
+  readabilityScale = 1,
 ): CardRect[] {
   if (count <= 0) return []
-  const maxWidth = Math.min(80 / zoom, bounds.width * 0.6)
-  const minWidth = Math.min(28 / zoom, maxWidth)
+  const maxWidth = Math.min((100 * readabilityScale) / zoom, bounds.width * 0.7)
+  const minWidth = Math.min((34 * readabilityScale) / zoom, maxWidth)
   const heightFraction = count === 2 ? 0.18 : 0.22
-  const maxHeight = Math.min(14 / zoom, bounds.height * heightFraction)
-  const minHeight = Math.min(8 / zoom, maxHeight)
+  const maxHeight = Math.min((18 * readabilityScale) / zoom, bounds.height * (heightFraction + 0.03))
+  const minHeight = Math.min((10 * readabilityScale) / zoom, maxHeight)
   const cardWidth = Math.min(maxWidth, Math.max(minWidth, bounds.width * 0.7))
   const cardHeight = Math.min(maxHeight, Math.max(minHeight, bounds.height * 0.2))
   const cardX = bounds.x + bounds.width / 2 - cardWidth / 2
@@ -194,7 +197,7 @@ function getReceiverCardRects(
     return [{ x: cardX, y: cardY, width: cardWidth, height: cardHeight }]
   }
 
-  const gap = Math.min(10 / zoom, cardHeight)
+  const gap = Math.min((10 * readabilityScale) / zoom, cardHeight)
   const totalHeight = cardHeight * 2 + gap
   const startY = bounds.y + bounds.height / 2 - totalHeight / 2
   return [
@@ -203,8 +206,12 @@ function getReceiverCardRects(
   ]
 }
 
-function getReceiverCardRect(bounds: { x: number; y: number; width: number; height: number }, zoom: number) {
-  return getReceiverCardRects(bounds, zoom, 1)[0]
+function getReceiverCardRect(
+  bounds: { x: number; y: number; width: number; height: number },
+  zoom: number,
+  readabilityScale = 1,
+) {
+  return getReceiverCardRects(bounds, zoom, 1, readabilityScale)[0]
 }
 
 function clamp(value: number, min: number, max: number) {
@@ -221,16 +228,17 @@ function getCabinetDataAnchorPoint(
   bounds: { x: number; y: number; width: number; height: number },
   zoom: number,
   cardIndex?: number,
+  readabilityScale = 1,
 ): { x: number; y: number; resolvedIndex?: number; cardCount: 0 | 1 | 2; isVirtual: boolean } {
   const cardCount = getCabinetReceiverCardCount(cabinet)
   if (cardCount > 0) {
-    const rects = getReceiverCardRects(bounds, zoom, cardCount)
+    const rects = getReceiverCardRects(bounds, zoom, cardCount, readabilityScale)
     const resolvedIndex = cardIndex === undefined ? 0 : Math.max(0, Math.min(rects.length - 1, cardIndex))
     const anchorRect = rects[resolvedIndex]
     if (anchorRect) {
       return {
         x: anchorRect.x + anchorRect.width / 2,
-        y: anchorRect.y + anchorRect.height + 6 / zoom,
+        y: anchorRect.y + anchorRect.height + (6 * readabilityScale) / zoom,
         resolvedIndex,
         cardCount,
         isVirtual: false,
@@ -254,11 +262,32 @@ function scaledWorldSize(basePx: number, zoom: number, minPx: number, maxPx: num
   return sizePx / zoom
 }
 
+function scaledReadableWorldSize(
+  basePx: number,
+  zoom: number,
+  minPx: number,
+  maxPx: number,
+  readabilityScale: number,
+) {
+  return scaledWorldSize(basePx * readabilityScale, zoom, minPx * readabilityScale, maxPx * readabilityScale)
+}
+
+function getPortLabelOffset(baseOffset: number, labelHeight: number) {
+  // Keep a minimum gap from cabinets while adapting to larger label boxes.
+  return Math.max(baseOffset, labelHeight * 0.8)
+}
+
+function getPowerLabelOffset(baseOffset: number, boxHeight: number) {
+  // Power labels are taller (2 lines), so they need a bit more clearance.
+  return Math.max(baseOffset, boxHeight * 0.78)
+}
+
 function getDataRouteLabelExtents(
   ctx: CanvasRenderingContext2D,
   layout: LayoutData,
   zoom: number,
   forcePortLabelsBottom: boolean,
+  readabilityScale = 1,
 ) {
   const layoutBounds = getLayoutBoundsFromCabinets(layout.cabinets, layout.cabinetTypes)
   if (!layoutBounds || !layout.project.dataRoutes.length) return null
@@ -274,9 +303,9 @@ function getDataRouteLabelExtents(
   })
   rowCenters.sort((a, b) => a - b)
 
-  const fontSize = scaledWorldSize(14, zoom, 12, 18)
-  const labelPadding = scaledWorldSize(8, zoom, 6, 12)
-  const labelSideGap = scaledWorldSize(60, zoom, 40, 90)
+  const fontSize = scaledReadableWorldSize(14, zoom, 12, 18, readabilityScale)
+  const labelPadding = scaledReadableWorldSize(8, zoom, 6, 12, readabilityScale)
+  const labelSideGap = scaledReadableWorldSize(60, zoom, 40, 90, readabilityScale)
   ctx.font = `bold ${fontSize}px ${FONT_FAMILY}`
 
   let minX = layoutBounds.minX
@@ -369,11 +398,12 @@ function drawControllerBadge(
   bounds: { x: number; y: number; width: number; height: number },
   label: string,
   zoom: number,
+  readabilityScale = 1,
 ) {
-  const fontSize = Math.max(9, 10 / zoom)
-  const paddingX = 6 / zoom
-  const paddingY = 3 / zoom
-  const inset = 6 / zoom
+  const fontSize = Math.max(9 * readabilityScale, (10 * readabilityScale) / zoom)
+  const paddingX = (6 * readabilityScale) / zoom
+  const paddingY = (3 * readabilityScale) / zoom
+  const inset = (6 * readabilityScale) / zoom
 
   ctx.save()
   ctx.font = `bold ${fontSize}px ${FONT_FAMILY}`
@@ -385,8 +415,8 @@ function drawControllerBadge(
 
   ctx.fillStyle = "rgba(15, 23, 42, 0.92)"
   ctx.strokeStyle = "#38bdf8"
-  ctx.lineWidth = Math.max(0.9 / zoom, 0.6 / zoom)
-  drawRoundedRect(ctx, boxX, boxY, boxWidth, boxHeight, 4 / zoom)
+  ctx.lineWidth = Math.max((0.9 * readabilityScale) / zoom, (0.6 * readabilityScale) / zoom)
+  drawRoundedRect(ctx, boxX, boxY, boxWidth, boxHeight, (4 * readabilityScale) / zoom)
   ctx.fill()
   ctx.stroke()
 
@@ -401,9 +431,10 @@ function getPowerAnchorPoint(
   cardRect: CardRect,
   bounds: { x: number; y: number; width: number; height: number },
   zoom: number,
+  readabilityScale = 1,
 ) {
-  const margin = Math.min(8 / zoom, bounds.width * 0.04)
-  const offset = Math.min(6 / zoom, cardRect.width * 0.25)
+  const margin = Math.min((8 * readabilityScale) / zoom, bounds.width * 0.04)
+  const offset = Math.min((6 * readabilityScale) / zoom, cardRect.width * 0.25)
   const anchorX = Math.max(bounds.x + margin, cardRect.x - offset)
   return { x: anchorX, y: cardRect.y + cardRect.height / 2 }
 }
@@ -414,9 +445,10 @@ function drawPowerAnchorDot(
   bounds: { x: number; y: number; width: number; height: number },
   zoom: number,
   color: string,
+  readabilityScale = 1,
 ) {
-  const { x, y } = getPowerAnchorPoint(cardRect, bounds, zoom)
-  const radius = 3.2 / zoom
+  const { x, y } = getPowerAnchorPoint(cardRect, bounds, zoom, readabilityScale)
+  const radius = (3.2 * readabilityScale) / zoom
   ctx.beginPath()
   ctx.arc(x, y, radius, 0, Math.PI * 2)
   ctx.fillStyle = color
@@ -429,28 +461,30 @@ function drawReceiverCard(
   model: string,
   zoom: number,
   palette: OverviewPalette,
+  readabilityScale = 1,
 ) {
   const { x, y, width, height } = rect
-  const baseFontSize = Math.min(8 / zoom, height * 0.75)
-  const minFontSize = 5 / zoom
-  const padding = 4 / zoom
+  const baseFontSize = Math.min((10 * readabilityScale) / zoom, height * 0.78)
+  const minFontSize = (6 * readabilityScale) / zoom
+  const padding = (4 * readabilityScale) / zoom
   const connectorX = x + width / 2
-  const connectorY = y + height + 6 / zoom
+  const connectorY = y + height + (6 * readabilityScale) / zoom
 
   ctx.save()
   ctx.shadowColor = "rgba(15, 23, 42, 0.15)"
-  ctx.shadowBlur = 6 / zoom
-  ctx.shadowOffsetY = 2 / zoom
+  ctx.shadowBlur = (6 * readabilityScale) / zoom
+  ctx.shadowOffsetY = (2 * readabilityScale) / zoom
   ctx.fillStyle = palette.receiverCardFill
   ctx.fillRect(x, y, width, height)
   ctx.restore()
 
   ctx.strokeStyle = palette.receiverCardStroke
-  ctx.lineWidth = 1 / zoom
+  ctx.lineWidth = (1 * readabilityScale) / zoom
   ctx.strokeRect(x, y, width, height)
 
+  const borderInset = (1 * readabilityScale) / zoom
   ctx.fillStyle = palette.receiverCardStroke
-  ctx.fillRect(x + 1 / zoom, y + 1 / zoom, width - 2 / zoom, 2 / zoom)
+  ctx.fillRect(x + borderInset, y + borderInset, width - borderInset * 2, 2 / zoom)
 
   const maxTextWidth = width - padding * 2
   let fontSize = baseFontSize
@@ -469,7 +503,7 @@ function drawReceiverCard(
 
   ctx.fillStyle = "#3b82f6"
   ctx.beginPath()
-  ctx.arc(connectorX, connectorY, 3.2 / zoom, 0, Math.PI * 2)
+  ctx.arc(connectorX, connectorY, (3.2 * readabilityScale) / zoom, 0, Math.PI * 2)
   ctx.fill()
 }
 
@@ -651,19 +685,20 @@ function drawDataRoutes(
   showReceiverCards: boolean,
   receiverCardModel: string,
   forcePortLabelsBottom = false,
+  readabilityScale = 1,
 ) {
   const { dataRoutes, pitch_mm } = layout.project
   if (!dataRoutes || dataRoutes.length === 0) return
 
-  const lineWidth = scaledWorldSize(5, zoom, 3, 9)
-  const outlineWidth = lineWidth + scaledWorldSize(0.9, zoom, 0.6, 1.6)
+  const lineWidth = scaledReadableWorldSize(5, zoom, 3, 9, readabilityScale)
+  const outlineWidth = lineWidth + scaledReadableWorldSize(0.9, zoom, 0.6, 1.6, readabilityScale)
   const outlineColor = "rgba(15, 23, 42, 0.2)"
-  const arrowSize = scaledWorldSize(12, zoom, 8, 20)
-  const fontSize = scaledWorldSize(14, zoom, 12, 18)
-  const labelPadding = scaledWorldSize(8, zoom, 6, 12)
-  const labelRadius = scaledWorldSize(6, zoom, 4, 10)
-  const labelOffset = 90
-  const labelSideGap = scaledWorldSize(60, zoom, 40, 90)
+  const arrowSize = scaledReadableWorldSize(12, zoom, 8, 20, readabilityScale)
+  const fontSize = scaledReadableWorldSize(14, zoom, 12, 18, readabilityScale)
+  const labelPadding = scaledReadableWorldSize(8, zoom, 6, 12, readabilityScale)
+  const labelRadius = scaledReadableWorldSize(6, zoom, 4, 10, readabilityScale)
+  const baseLabelOffset = 90 * readabilityScale
+  const labelSideGap = scaledReadableWorldSize(60, zoom, 40, 90, readabilityScale)
 
   const layoutBounds = getLayoutBoundsFromCabinets(layout.cabinets, layout.cabinetTypes)
   if (!layoutBounds) return
@@ -721,7 +756,7 @@ function drawDataRoutes(
       if (!cabinet) return
       const bounds = getCabinetBounds(cabinet, layout.cabinetTypes)
       if (!bounds) return
-      const anchor = getCabinetDataAnchorPoint(cabinet, bounds, zoom, cardIndex)
+      const anchor = getCabinetDataAnchorPoint(cabinet, bounds, zoom, cardIndex, readabilityScale)
       const hasReceiverCard = anchor.cardCount > 0 && showReceiverCards && !!getReceiverCardLabel(layout, cabinet)
       points.push({
         x: anchor.x,
@@ -746,6 +781,7 @@ function drawDataRoutes(
     ctx.font = `bold ${fontSize}px ${FONT_FAMILY}`
     const labelWidth = ctx.measureText(portLabel).width + labelPadding * 2
     const labelHeight = fontSize + labelPadding * 1.6
+    const labelOffset = getPortLabelOffset(baseLabelOffset, labelHeight)
     const portLabelCenterY = firstPoint.y
     const forceBottom = route.forcePortLabelBottom ?? forcePortLabelsBottom
 
@@ -787,7 +823,7 @@ function drawDataRoutes(
 
     ctx.fillStyle = "rgba(15, 23, 42, 0.95)"
     ctx.strokeStyle = lineColor
-    ctx.lineWidth = scaledWorldSize(2, zoom, 1.5, 3)
+    ctx.lineWidth = scaledReadableWorldSize(2, zoom, 1.5, 3, readabilityScale)
     drawRoundedRect(ctx, portLabelX - labelWidth / 2, labelBoxY, labelWidth, labelHeight, labelRadius)
     ctx.fill()
     ctx.stroke()
@@ -884,7 +920,7 @@ function drawDataRoutes(
 
       const lastPoint = points[points.length - 1]
       if (!lastPoint.hasReceiverCard) {
-        const endSize = Math.max(3.2 / zoom, arrowSize * 0.35)
+         const endSize = Math.max((3.2 * readabilityScale) / zoom, arrowSize * 0.35)
         ctx.beginPath()
         ctx.arc(lastPoint.x, lastPoint.y, endSize, 0, Math.PI * 2)
         ctx.fillStyle = lineColor
@@ -897,7 +933,7 @@ function drawDataRoutes(
       ctx.fillStyle = "#3b82f6"
       virtualAnchors.forEach((anchor) => {
         ctx.beginPath()
-        ctx.arc(anchor.x, anchor.y, 3.2 / zoom, 0, Math.PI * 2)
+        ctx.arc(anchor.x, anchor.y, (3.2 * readabilityScale) / zoom, 0, Math.PI * 2)
         ctx.fill()
       })
       ctx.restore()
@@ -907,7 +943,7 @@ function drawDataRoutes(
   })
 }
 
-function drawPowerFeeds(ctx: CanvasRenderingContext2D, layout: LayoutData, zoom: number) {
+function drawPowerFeeds(ctx: CanvasRenderingContext2D, layout: LayoutData, zoom: number, readabilityScale = 1) {
   const { powerFeeds } = layout.project
   if (!powerFeeds || powerFeeds.length === 0) return
   const getPowerSteps = (feed: LayoutData["project"]["powerFeeds"][number]): DataRouteStep[] => {
@@ -915,20 +951,20 @@ function drawPowerFeeds(ctx: CanvasRenderingContext2D, layout: LayoutData, zoom:
     return feed.assignedCabinetIds.map((cabinetId) => ({ type: "cabinet", endpointId: cabinetId }))
   }
 
-  const lineWidth = scaledWorldSize(5.5, zoom, 3, 9.5)
-  const outlineWidth = lineWidth + scaledWorldSize(0.9, zoom, 0.6, 1.6)
+  const lineWidth = scaledReadableWorldSize(5.5, zoom, 3, 9.5, readabilityScale)
+  const outlineWidth = lineWidth + scaledReadableWorldSize(0.9, zoom, 0.6, 1.6, readabilityScale)
   const outlineColor = "rgba(15, 23, 42, 0.2)"
-  const fontSize = scaledWorldSize(14, zoom, 12, 18)
-  const labelPaddingX = scaledWorldSize(9, zoom, 6, 13)
-  const labelPaddingY = scaledWorldSize(6, zoom, 4, 9)
-  const labelRadius = scaledWorldSize(7, zoom, 4.5, 11)
-  const labelOffset = 140
-  const labelSideGap = scaledWorldSize(110, zoom, 70, 160)
-  const dataLabelSideGap = scaledWorldSize(60, zoom, 40, 90)
-  const sideLabelGap = scaledWorldSize(12, zoom, 8, 18)
-  const breakBarSize = scaledWorldSize(14, zoom, 10, 20)
-  const breakStemSize = scaledWorldSize(10, zoom, 7, 16)
-  const breakHeadSize = scaledWorldSize(12, zoom, 8, 18)
+  const fontSize = scaledReadableWorldSize(14, zoom, 12, 18, readabilityScale)
+  const labelPaddingX = scaledReadableWorldSize(9, zoom, 6, 13, readabilityScale)
+  const labelPaddingY = scaledReadableWorldSize(6, zoom, 4, 9, readabilityScale)
+  const labelRadius = scaledReadableWorldSize(7, zoom, 4.5, 11, readabilityScale)
+  const baseLabelOffset = 140 * readabilityScale
+  const labelSideGap = scaledReadableWorldSize(110, zoom, 70, 160, readabilityScale)
+  const dataLabelSideGap = scaledReadableWorldSize(60, zoom, 40, 90, readabilityScale)
+  const sideLabelGap = scaledReadableWorldSize(12, zoom, 8, 18, readabilityScale)
+  const breakBarSize = scaledReadableWorldSize(14, zoom, 10, 20, readabilityScale)
+  const breakStemSize = scaledReadableWorldSize(10, zoom, 7, 16, readabilityScale)
+  const breakHeadSize = scaledReadableWorldSize(12, zoom, 8, 18, readabilityScale)
 
   const layoutBounds = getLayoutBoundsFromCabinets(layout.cabinets, layout.cabinetTypes)
   if (!layoutBounds) return
@@ -996,10 +1032,10 @@ function drawPowerFeeds(ctx: CanvasRenderingContext2D, layout: LayoutData, zoom:
     }
 
     if (hasBottomLabel) {
-      const dataFontSize = scaledWorldSize(14, zoom, 12, 18)
-      const dataLabelPadding = scaledWorldSize(8, zoom, 6, 12)
+      const dataFontSize = scaledReadableWorldSize(14, zoom, 12, 18, readabilityScale)
+      const dataLabelPadding = scaledReadableWorldSize(8, zoom, 6, 12, readabilityScale)
       const dataLabelHeight = dataFontSize + dataLabelPadding * 1.6
-      const dataLabelOffset = 90
+      const dataLabelOffset = getPortLabelOffset(90 * readabilityScale, dataLabelHeight)
       maxPortLabelBottom = layoutBounds.maxY + dataLabelOffset + dataLabelHeight / 2
     }
   }
@@ -1016,8 +1052,8 @@ function drawPowerFeeds(ctx: CanvasRenderingContext2D, layout: LayoutData, zoom:
     })
     rowCenters.sort((a, b) => a - b)
 
-    const dataFontSize = scaledWorldSize(14, zoom, 12, 18)
-    const dataLabelPadding = scaledWorldSize(8, zoom, 6, 12)
+    const dataFontSize = scaledReadableWorldSize(14, zoom, 12, 18, readabilityScale)
+    const dataLabelPadding = scaledReadableWorldSize(8, zoom, 6, 12, readabilityScale)
     const dataLabelOffset = 90
 
     dataRoutes.forEach((route) => {
@@ -1035,7 +1071,7 @@ function drawPowerFeeds(ctx: CanvasRenderingContext2D, layout: LayoutData, zoom:
       if (!cabinet) return
       const bounds = getCabinetBounds(cabinet, layout.cabinetTypes)
       if (!bounds) return
-      const anchorPoint = getCabinetDataAnchorPoint(cabinet, bounds, zoom, cardIndex)
+      const anchorPoint = getCabinetDataAnchorPoint(cabinet, bounds, zoom, cardIndex, readabilityScale)
       const anchor = { connectorX: anchorPoint.x, connectorY: anchorPoint.y }
 
       const labelText = `Port ${route.port}`
@@ -1081,7 +1117,7 @@ function drawPowerFeeds(ctx: CanvasRenderingContext2D, layout: LayoutData, zoom:
   }
 
   const layoutMidY = (layoutBounds.minY + layoutBounds.maxY) / 2
-  const labelGap = scaledWorldSize(14, zoom, 10, 22)
+  const labelGap = scaledReadableWorldSize(14, zoom, 10, 22, readabilityScale)
   const distributeLabelCenters = (
     items: { id: string; desiredX: number; width: number }[],
     gap: number,
@@ -1116,13 +1152,13 @@ function drawPowerFeeds(ctx: CanvasRenderingContext2D, layout: LayoutData, zoom:
       const bounds = getCabinetBounds(cabinet, layout.cabinetTypes)
       if (!bounds) return
       const cardCount = getCabinetReceiverCardCount(cabinet)
-      const rects = getReceiverCardRects(bounds, zoom, cardCount)
+      const rects = getReceiverCardRects(bounds, zoom, cardCount, readabilityScale)
       let anchorX = bounds.x + bounds.width / 2
       let anchorY = bounds.y + bounds.height / 2
       if (rects.length > 0) {
         const anchorRect =
           rects.length === 1 ? rects[0] : bounds.y + bounds.height / 2 > layoutMidY ? rects[1] : rects[0]
-        const anchor = getPowerAnchorPoint(anchorRect, bounds, zoom)
+        const anchor = getPowerAnchorPoint(anchorRect, bounds, zoom, readabilityScale)
         anchorX = anchor.x
         anchorY = anchor.y
       }
@@ -1179,13 +1215,13 @@ function drawPowerFeeds(ctx: CanvasRenderingContext2D, layout: LayoutData, zoom:
       const bounds = getCabinetBounds(cabinet, layout.cabinetTypes)
       if (!bounds) return
       const cardCount = getCabinetReceiverCardCount(cabinet)
-      const rects = getReceiverCardRects(bounds, zoom, cardCount)
+      const rects = getReceiverCardRects(bounds, zoom, cardCount, readabilityScale)
       let anchorX = bounds.x + bounds.width / 2
       let anchorY = bounds.y + bounds.height / 2
       let anchorRect: CardRect | undefined
       if (rects.length > 0) {
         anchorRect = rects.length === 1 ? rects[0] : bounds.y + bounds.height / 2 > layoutMidY ? rects[1] : rects[0]
-        const anchor = getPowerAnchorPoint(anchorRect, bounds, zoom)
+        const anchor = getPowerAnchorPoint(anchorRect, bounds, zoom, readabilityScale)
         anchorX = anchor.x
         anchorY = anchor.y
       }
@@ -1220,6 +1256,7 @@ function drawPowerFeeds(ctx: CanvasRenderingContext2D, layout: LayoutData, zoom:
     const maxTextWidth = Math.max(ctx.measureText(labelText).width, ctx.measureText(connectorText).width)
     const boxWidth = maxTextWidth + labelPaddingX * 2
     const boxHeight = fontSize * 2.4 + labelPaddingY * 2
+    const labelOffset = getPowerLabelOffset(baseLabelOffset, boxHeight)
     const labelPosition = feed.labelPosition && feed.labelPosition !== "auto" ? feed.labelPosition : "bottom"
     const sideOffsetLeft =
       maxPortLabelWidthLeft > 0 ? dataLabelSideGap + maxPortLabelWidthLeft + sideLabelGap : labelSideGap
@@ -1235,7 +1272,7 @@ function drawPowerFeeds(ctx: CanvasRenderingContext2D, layout: LayoutData, zoom:
     if (labelPosition === "bottom") {
       let labelTop = feedBounds.maxY + labelOffset
       if (maxPortLabelBottom !== null) {
-        const minLabelTop = maxPortLabelBottom + scaledWorldSize(16, zoom, 10, 22)
+        const minLabelTop = maxPortLabelBottom + scaledReadableWorldSize(16, zoom, 10, 22, readabilityScale)
         labelTop = Math.max(labelTop, minLabelTop)
       }
       labelCenterY = labelTop + boxHeight / 2
@@ -1254,7 +1291,7 @@ function drawPowerFeeds(ctx: CanvasRenderingContext2D, layout: LayoutData, zoom:
 
     ctx.fillStyle = "rgba(15, 23, 42, 0.95)"
     ctx.strokeStyle = lineColor
-    ctx.lineWidth = scaledWorldSize(2, zoom, 1.5, 3)
+    ctx.lineWidth = scaledReadableWorldSize(2, zoom, 1.5, 3, readabilityScale)
     drawRoundedRect(ctx, boxX, boxY, boxWidth, boxHeight, labelRadius)
     ctx.fill()
     ctx.stroke()
@@ -1417,7 +1454,7 @@ function drawPowerFeeds(ctx: CanvasRenderingContext2D, layout: LayoutData, zoom:
       ctx.lineTo(arrowRight.x, arrowRight.y)
       ctx.closePath()
       ctx.strokeStyle = outlineColor
-      ctx.lineWidth = scaledWorldSize(1.2, zoom, 0.8, 1.8)
+      ctx.lineWidth = scaledReadableWorldSize(1.2, zoom, 0.8, 1.8, readabilityScale)
       ctx.stroke()
       ctx.fillStyle = lineColor
       ctx.fill()
@@ -1447,23 +1484,24 @@ function drawControllerPorts(
   layout: LayoutData,
   zoom: number,
   minY?: number,
+  readabilityScale = 1,
 ) {
   const bounds = getLayoutBounds(layout)
   if (bounds.width === 0 && bounds.height === 0) return
 
   const { minX, maxX, maxY } = bounds
-  const boxWidth = scaledWorldSize(120, zoom, 100, 160)
-  const boxHeight = scaledWorldSize(40, zoom, 32, 60)
-  const fontSize = scaledWorldSize(11, zoom, 10, 14)
+  const boxWidth = scaledReadableWorldSize(120, zoom, 100, 160, readabilityScale)
+  const boxHeight = scaledReadableWorldSize(40, zoom, 32, 60, readabilityScale)
+  const fontSize = scaledReadableWorldSize(11, zoom, 10, 14, readabilityScale)
 
   const boxX = (minX + maxX) / 2 - boxWidth / 2
-  const baseY = maxY + scaledWorldSize(100, zoom, 70, 160)
+  const baseY = maxY + scaledReadableWorldSize(100, zoom, 70, 160, readabilityScale)
   const boxY = Math.max(baseY, minY ?? baseY)
 
   ctx.save()
   ctx.fillStyle = "#1e293b"
   ctx.strokeStyle = "#475569"
-  ctx.lineWidth = scaledWorldSize(2, zoom, 1.5, 3)
+  ctx.lineWidth = scaledReadableWorldSize(2, zoom, 1.5, 3, readabilityScale)
   ctx.fillRect(boxX, boxY, boxWidth, boxHeight)
   ctx.strokeRect(boxX, boxY, boxWidth, boxHeight)
 
@@ -1480,6 +1518,7 @@ export function drawOverview(ctx: CanvasRenderingContext2D, layout: LayoutData, 
   const { zoom, panX, panY, viewportWidth, viewportHeight } = options
   const uiScale = options.uiScale ?? 1
   const uiZoom = zoom / uiScale
+  const readabilityScale = options.readabilityScale ?? 1
   const errors = validateLayout(layout)
   const errorCabinetIds = new Set(errors.filter((e) => e.type === "error").flatMap((e) => e.cabinetIds))
 
@@ -1616,19 +1655,20 @@ export function drawOverview(ctx: CanvasRenderingContext2D, layout: LayoutData, 
       showReceiverCards,
       receiverCardModel,
       forcePortLabelsBottom,
+      readabilityScale,
     )
   }
 
   if (showPowerRoutes) {
-    drawPowerFeeds(ctx, layout, uiZoom)
+    drawPowerFeeds(ctx, layout, uiZoom, readabilityScale)
   }
 
   layout.cabinets.forEach((cabinet) => {
     const bounds = getCabinetBounds(cabinet, layout.cabinetTypes)
     if (!bounds) return
 
-    const fontSize = Math.max(12, 14 / uiZoom)
-    const smallFontSize = Math.max(9, 10 / uiZoom)
+    const fontSize = Math.max(12 * readabilityScale, (14 * readabilityScale) / uiZoom)
+    const smallFontSize = Math.max(9 * readabilityScale, (10 * readabilityScale) / uiZoom)
 
     if (showCabinetLabels && options.labelsMode === "internal") {
       ctx.fillStyle = palette.labelPrimary
@@ -1640,7 +1680,7 @@ export function drawOverview(ctx: CanvasRenderingContext2D, layout: LayoutData, 
 
     if (controllerPlacement === "cabinet" && controllerCabinetId === cabinet.id) {
       const controllerLabel = layout.project.controllerLabel?.trim() || layout.project.controller
-      drawControllerBadge(ctx, bounds, controllerLabel, uiZoom)
+      drawControllerBadge(ctx, bounds, controllerLabel, uiZoom, readabilityScale)
     }
 
     ctx.fillStyle = palette.labelSecondary
@@ -1648,7 +1688,8 @@ export function drawOverview(ctx: CanvasRenderingContext2D, layout: LayoutData, 
     ctx.textAlign = "right"
     ctx.textBaseline = "alphabetic"
     const sizeLabel = `${Math.round(bounds.width)}x${Math.round(bounds.height)}`
-    ctx.fillText(sizeLabel, bounds.x + bounds.width - 6 / uiZoom, bounds.y + bounds.height - 6 / uiZoom)
+    const sizeLabelInset = (6 * readabilityScale) / uiZoom
+    ctx.fillText(sizeLabel, bounds.x + bounds.width - sizeLabelInset, bounds.y + bounds.height - sizeLabelInset)
   })
 
   if (showReceiverCards) {
@@ -1658,10 +1699,10 @@ export function drawOverview(ctx: CanvasRenderingContext2D, layout: LayoutData, 
       const receiverLabel = getReceiverCardLabel(layout, cabinet)
       if (!receiverLabel) return
       const cardCount = getCabinetReceiverCardCount(cabinet)
-      const rects = getReceiverCardRects(bounds, uiZoom, cardCount)
+      const rects = getReceiverCardRects(bounds, uiZoom, cardCount, readabilityScale)
       rects.forEach((rect) => {
-        drawReceiverCard(ctx, rect, receiverLabel, uiZoom, palette)
-        drawPowerAnchorDot(ctx, rect, bounds, uiZoom, "#f97316")
+        drawReceiverCard(ctx, rect, receiverLabel, uiZoom, palette, readabilityScale)
+        drawPowerAnchorDot(ctx, rect, bounds, uiZoom, "#f97316", readabilityScale)
       })
     })
   }
@@ -1675,21 +1716,21 @@ export function drawOverview(ctx: CanvasRenderingContext2D, layout: LayoutData, 
       const bounds = getCabinetBounds(cabinet, layout.cabinetTypes)
       if (!bounds) return
       const label = computeGridLabel(cabinet, layout.cabinets, layout.cabinetTypes, gridLabelAxis)
-      const labelFontSize = Math.max(11, 13 / uiZoom)
+      const labelFontSize = Math.max(11 * readabilityScale, (13 * readabilityScale) / uiZoom)
       ctx.font = `bold ${labelFontSize}px ${FONT_FAMILY}`
       const textWidth = ctx.measureText(label).width
-      const pad = 4 / uiZoom
+      const pad = (4 * readabilityScale) / uiZoom
       const boxX = bounds.x + pad
       const boxY = bounds.y + pad
-      const boxW = textWidth + 8 / uiZoom
-      const boxH = labelFontSize + 6 / uiZoom
+      const boxW = textWidth + (8 * readabilityScale) / uiZoom
+      const boxH = labelFontSize + (6 * readabilityScale) / uiZoom
 
       ctx.fillStyle = "#f59e0b"
       ctx.fillRect(boxX, boxY, boxW, boxH)
       ctx.fillStyle = "#000000"
       ctx.textAlign = "left"
       ctx.textBaseline = "top"
-      ctx.fillText(label, boxX + 4 / uiZoom, boxY + 3 / uiZoom)
+      ctx.fillText(label, boxX + (4 * readabilityScale) / uiZoom, boxY + (3 * readabilityScale) / uiZoom)
     })
   }
 
@@ -1709,10 +1750,10 @@ export function drawOverview(ctx: CanvasRenderingContext2D, layout: LayoutData, 
 
       let dataPortBottom: number | null = null
       if (showDataRoutes && layout.project.dataRoutes.length > 0) {
-        const fontSize = scaledWorldSize(14, uiZoom, 12, 18)
-        const labelPadding = scaledWorldSize(8, uiZoom, 6, 12)
+        const fontSize = scaledReadableWorldSize(14, uiZoom, 12, 18, readabilityScale)
+        const labelPadding = scaledReadableWorldSize(8, uiZoom, 6, 12, readabilityScale)
         const labelHeight = fontSize + labelPadding * 1.6
-        const labelOffset = 90
+        const labelOffset = getPortLabelOffset(90 * readabilityScale, labelHeight)
 
         for (const route of layout.project.dataRoutes) {
           const firstEndpoint = route.cabinetIds.find((endpointId) => {
@@ -1763,10 +1804,10 @@ export function drawOverview(ctx: CanvasRenderingContext2D, layout: LayoutData, 
 
       let powerLabelBottom: number | null = null
       if (showPowerRoutes && layout.project.powerFeeds.length > 0) {
-        const fontSize = scaledWorldSize(14, uiZoom, 12, 18)
-        const labelPaddingY = scaledWorldSize(6, uiZoom, 4, 9)
-        const labelOffset = 140
+        const fontSize = scaledReadableWorldSize(14, uiZoom, 12, 18, readabilityScale)
+        const labelPaddingY = scaledReadableWorldSize(6, uiZoom, 4, 9, readabilityScale)
         const boxHeight = fontSize * 2.4 + labelPaddingY * 2
+        const labelOffset = getPowerLabelOffset(140 * readabilityScale, boxHeight)
 
         layout.project.powerFeeds.forEach((feed) => {
           if (feed.assignedCabinetIds.length === 0) return
@@ -1783,14 +1824,14 @@ export function drawOverview(ctx: CanvasRenderingContext2D, layout: LayoutData, 
         })
       }
 
-      const clearance = scaledWorldSize(24, uiZoom, 16, 40)
+      const clearance = scaledReadableWorldSize(24, uiZoom, 16, 40, readabilityScale)
       const controllerMinY = Math.max(
-        layoutBounds.maxY + scaledWorldSize(120, uiZoom, 80, 200),
+        layoutBounds.maxY + scaledReadableWorldSize(120, uiZoom, 80, 200, readabilityScale),
         (dataPortBottom ?? -Infinity) + clearance,
         (powerLabelBottom ?? -Infinity) + clearance,
       )
       const controllerLabel = layout.project.controllerLabel?.trim() || layout.project.controller
-      drawControllerPorts(ctx, controllerLabel, layout, uiZoom, controllerMinY)
+      drawControllerPorts(ctx, controllerLabel, layout, uiZoom, controllerMinY, readabilityScale)
     }
   }
 
@@ -1798,9 +1839,9 @@ export function drawOverview(ctx: CanvasRenderingContext2D, layout: LayoutData, 
     const baseOffset = options.dimensionOffsetMm ?? 40
     let sideOffset = baseOffset
     if (showDataRoutes) {
-      const extents = getDataRouteLabelExtents(ctx, layout, uiZoom, forcePortLabelsBottom)
+      const extents = getDataRouteLabelExtents(ctx, layout, uiZoom, forcePortLabelsBottom, readabilityScale)
       const bounds = getLayoutBounds(layout)
-      const clearance = scaledWorldSize(18, uiZoom, 12, 28)
+      const clearance = scaledReadableWorldSize(18, uiZoom, 12, 28, readabilityScale)
       if (extents) {
         if ((options.dimensionSide ?? "left") === "right") {
           const needed = extents.maxX - bounds.maxX + clearance
@@ -1820,6 +1861,7 @@ export function drawOverview(ctx: CanvasRenderingContext2D, layout: LayoutData, 
       baseOffset,
       sideOffset,
       options.dimensionSide,
+      readabilityScale,
     )
   }
 
