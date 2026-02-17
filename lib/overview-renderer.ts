@@ -3,7 +3,7 @@ import { computeGridLabel, formatRouteCabinetId, getCabinetReceiverCardCount, pa
 import { isDataRouteOverCapacity } from "./data-utils"
 import { getPowerFeedLoadW, isPowerFeedOverloaded } from "./power-utils"
 import { getCabinetBounds, getLayoutBounds, validateLayout } from "./validation"
-import { getLayoutPixelDimensions, getReceiverCardLabel, shouldShowGridLabels } from "./overview-utils"
+import { getLayoutPixelDimensions, getOverviewReadabilityScale, getReceiverCardLabel, shouldShowGridLabels } from "./overview-utils"
 import { getMappingNumberLabelMap } from "./mapping-numbers"
 
 export interface OverviewPalette {
@@ -1518,7 +1518,7 @@ export function drawOverview(ctx: CanvasRenderingContext2D, layout: LayoutData, 
   const { zoom, panX, panY, viewportWidth, viewportHeight } = options
   const uiScale = options.uiScale ?? 1
   const uiZoom = zoom / uiScale
-  const readabilityScale = options.readabilityScale ?? 1
+  const readabilityScale = options.readabilityScale ?? getOverviewReadabilityScale(layout)
   const errors = validateLayout(layout)
   const errorCabinetIds = new Set(errors.filter((e) => e.type === "error").flatMap((e) => e.cabinetIds))
 

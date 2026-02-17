@@ -108,3 +108,40 @@ export function getTitleParts(layout: LayoutData) {
 export function shouldShowGridLabels(labelsMode: LabelsMode) {
   return labelsMode === "grid"
 }
+
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value))
+}
+
+export function getOverviewReadabilityScale(layout: LayoutData) {
+  if (layout.cabinets.length === 0) return 1.04
+
+  const bounds = getLayoutBounds(layout)
+  const width = Math.max(1, bounds.width)
+  const height = Math.max(1, bounds.height)
+  const shortSide = Math.min(width, height)
+  const longSide = Math.max(width, height)
+  const areaM2 = (width * height) / 1_000_000
+  const density = layout.cabinets.length / Math.max(areaM2, 0.2)
+
+  let scale = 1.06
+  if (shortSide <= 400) scale = 1.34
+  else if (shortSide <= 700) scale = 1.26
+  else if (shortSide <= 1000) scale = 1.2
+  else if (shortSide <= 1600) scale = 1.12
+
+  if (layout.cabinets.length <= 4) scale += 0.08
+  else if (layout.cabinets.length <= 8) scale += 0.04
+  else if (layout.cabinets.length >= 32) scale -= 0.04
+
+  if (density >= 14) scale *= 0.92
+  else if (density >= 8) scale *= 0.96
+  else if (density <= 2.5) scale *= 1.06
+
+  const aspectRatio = longSide / Math.max(shortSide, 1)
+  if (aspectRatio >= 4 && layout.cabinets.length <= 6) {
+    scale += 0.08
+  }
+
+  return clamp(scale, 1.0, 1.38)
+}

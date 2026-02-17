@@ -1,0 +1,31 @@
+<svg width="320" height="320" viewBox="0 0 320 320" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <circle cx="30" cy="30" r="30" fill="#000000" />
+  <circle cx="95" cy="30" r="16" fill="#000000" />
+  <circle cx="160" cy="30" r="9" fill="#000000" />
+  <circle cx="225" cy="30" r="5" fill="#000000" />
+  <circle cx="290" cy="30" r="19" fill="#000000" />
+
+  <circle cx="30" cy="95" r="18" fill="#000000" />
+  <circle cx="95" cy="95" r="26" fill="#000000" />
+  <circle cx="160" cy="95" r="16" fill="#000000" />
+  <circle cx="225" cy="95" r="9" fill="#000000" />
+  <circle cx="290" cy="95" r="18" fill="#000000" />
+
+  <circle cx="30" cy="160" r="21" fill="#000000" />
+  <circle cx="95" cy="160" r="17" fill="#000000" />
+  <circle cx="160" cy="160" r="29" fill="#000000" />
+  <circle cx="225" cy="160" r="19" fill="#000000" />
+  <circle cx="290" cy="160" r="24" fill="#000000" />
+
+  <circle cx="30" cy="225" r="17" fill="#000000" />
+  <circle cx="95" cy="225" r="8" fill="#000000" />
+  <circle cx="160" cy="225" r="20" fill="#000000" />
+  <circle cx="225" cy="225" r="35" fill="#000000" />
+  <circle cx="290" cy="225" r="29" fill="#000000" />
+
+  <circle cx="30" cy="290" r="14" fill="#000000" />
+  <circle cx="95" cy="290" r="5" fill="#000000" />
+  <circle cx="160" cy="290" r="12" fill="#000000" />
+  <circle cx="225" cy="290" r="20" fill="#000000" />
+  <circle cx="290" cy="290" r="34" fill="#000000" />
+</svg>

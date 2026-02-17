@@ -2,7 +2,7 @@ import { jsPDF } from "jspdf"
 import type { LayoutData } from "./types"
 import { getCabinetBounds, getLayoutBounds } from "./validation"
 import { drawOverview } from "./overview-renderer"
-import { getTitleParts } from "./overview-utils"
+import { getOverviewReadabilityScale, getTitleParts } from "./overview-utils"
 import { getCabinetReceiverCardCount, parseRouteCabinetId } from "./types"
 import { getPowerFeedLoadW } from "./power-utils"
 import { DEFAULT_RECEIVER_CARD_MODEL } from "./receiver-cards"
@@ -61,19 +61,6 @@ function getPortLabelOffset(baseOffset: number, labelHeight: number) {
 
 function getPowerLabelOffset(baseOffset: number, boxHeight: number) {
   return Math.max(baseOffset, boxHeight * 0.78)
-}
-
-function getOverviewReadabilityScale(layout: LayoutData) {
-  if (layout.cabinets.length === 0) return 1.05
-  const bounds = getLayoutBounds(layout)
-  const shortSide = Math.min(bounds.width || 0, bounds.height || 0)
-  let scale = 1.05
-  if (shortSide <= 400) scale = 1.45
-  else if (shortSide <= 700) scale = 1.32
-  else if (shortSide <= 1000) scale = 1.22
-  else if (shortSide <= 1600) scale = 1.12
-  const densityAdjust = layout.cabinets.length >= 24 ? 0.9 : layout.cabinets.length >= 12 ? 0.96 : 1
-  return clamp(scale * densityAdjust, 1.0, 1.45)
 }
 
 function getCabinetAreaMm2(cabinet: LayoutData["cabinets"][number], types: LayoutData["cabinetTypes"]) {
