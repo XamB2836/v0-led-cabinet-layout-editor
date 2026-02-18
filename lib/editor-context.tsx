@@ -17,6 +17,7 @@ type EditorAction =
   | { type: "ADD_CABINET"; payload: Cabinet }
   | { type: "ADD_CABINETS"; payload: Cabinet[] }
   | { type: "UPDATE_CABINET"; payload: { id: string; updates: Partial<Cabinet> } }
+  | { type: "UPDATE_CABINETS"; payload: { id: string; updates: Partial<Cabinet> }[] }
   | { type: "ROTATE_CABINETS_AS_BLOCK"; payload: string[] }
   | { type: "DELETE_CABINET"; payload: string }
   | { type: "DUPLICATE_CABINET"; payload: string }
@@ -157,6 +158,21 @@ function editorReducer(state: EditorState, action: EditorAction): EditorState {
           ),
         },
       }
+
+    case "UPDATE_CABINETS": {
+      if (action.payload.length === 0) return state
+      const updatesById = new Map(action.payload.map((entry) => [entry.id, entry.updates]))
+      return {
+        ...state,
+        layout: {
+          ...state.layout,
+          cabinets: state.layout.cabinets.map((c) => {
+            const updates = updatesById.get(c.id)
+            return updates ? { ...c, ...updates } : c
+          }),
+        },
+      }
+    }
 
     case "ROTATE_CABINETS_AS_BLOCK": {
       const selected = Array.from(new Set(action.payload))
