@@ -1244,7 +1244,7 @@ function drawPowerFeeds(
     const loadW = getPowerFeedLoadW(feed, cabinets, cabinetTypes)
     const breakerText = feed.breaker || feed.label
     const labelText = `${breakerText} | ${loadW}W`
-    const connectorText = feed.connector
+    const connectorText = feed.customLabel?.trim() || feed.connector
     const maxTextWidth = Math.max(ctx.measureText(labelText).width, ctx.measureText(connectorText).width)
     const boxWidth = maxTextWidth + labelPadding * 2
     const labelPosition = feed.labelPosition && feed.labelPosition !== "auto" ? feed.labelPosition : "bottom"
@@ -1327,7 +1327,7 @@ function drawPowerFeeds(
     const loadW = getPowerFeedLoadW(feed, cabinets, cabinetTypes)
     const breakerText = feed.breaker || feed.label
     const labelText = `${breakerText} | ${loadW}W`
-    const connectorText = feed.connector
+    const connectorText = feed.customLabel?.trim() || feed.connector
 
     const maxTextWidth = Math.max(
       ctx.measureText(labelText).width,
@@ -2766,15 +2766,14 @@ export function LayoutCanvas() {
         const snappedDx = desired.x - primaryStart.x
         const snappedDy = desired.y - primaryStart.y
 
+        const updates: { id: string; updates: { x_mm: number; y_mm: number } }[] = []
         dragStartPositionsRef.current.forEach((pos, id) => {
-          dispatch({
-            type: "UPDATE_CABINET",
-            payload: {
-              id,
-              updates: { x_mm: pos.x + snappedDx, y_mm: pos.y + snappedDy },
-            },
+          updates.push({
+            id,
+            updates: { x_mm: pos.x + snappedDx, y_mm: pos.y + snappedDy },
           })
         })
+        dispatch({ type: "UPDATE_CABINETS", payload: updates })
       }
     }
   }

@@ -20,7 +20,7 @@ const LB_PER_KG = 2.20462
 const NUMMAX_LOGO_SRC = "/nummax-logo-lockup.png"
 const NUMMAX_LOGO_ASPECT = 3 // 600x200 lockup
 const NUMMAX_LEGEND_LOGO_HEIGHT_RATIO = 0.72
-const NUMMAX_HEADER_LOGO_HEIGHT_RATIO = 0.72
+const NUMMAX_HEADER_LOGO_HEIGHT_RATIO = 0.9
 let nummaxLogoPromise: Promise<HTMLImageElement | null> | null = null
 
 function clamp(value: number, min: number, max: number) {
@@ -786,7 +786,7 @@ function computeLabelBounds(
       const loadW = getPowerFeedLoadW(feed, layout.cabinets, layout.cabinetTypes)
       const breakerText = feed.breaker || feed.label
       const labelText = `${breakerText} | ${loadW}W`
-      const connectorText = feed.connector
+      const connectorText = feed.customLabel?.trim() || feed.connector
 
       ctx.font = `bold ${fontPx}px ${FONT_FAMILY}`
       const labelMeasured = ctx.measureText(labelText).width / zoom
@@ -820,7 +820,7 @@ function computeLabelBounds(
       const loadW = getPowerFeedLoadW(feed, layout.cabinets, layout.cabinetTypes)
       const breakerText = feed.breaker || feed.label
       const labelText = `${breakerText} | ${loadW}W`
-      const connectorText = feed.connector
+      const connectorText = feed.customLabel?.trim() || feed.connector
 
       ctx.font = `bold ${fontPx}px ${FONT_FAMILY}`
       const labelMeasured = ctx.measureText(labelText).width / zoom

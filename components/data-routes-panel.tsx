@@ -417,6 +417,7 @@ export function DataRoutesPanel() {
     const createAutoFeed = (index: number): PowerFeed => ({
       id: `feed-${Date.now()}-${index}`,
       label: defaultTemplate?.label || "220V @20A",
+      customLabel: defaultTemplate?.customLabel,
       breaker: defaultTemplate?.breaker || "220V 20A",
       connector: defaultTemplate?.connector || "NAC3FX-W",
       consumptionW: 0,
@@ -950,6 +951,20 @@ export function DataRoutesPanel() {
                           onBlur={() => dispatch({ type: "PUSH_HISTORY" })}
                           className="h-8 text-xs bg-zinc-950/60 border-zinc-800 text-zinc-100"
                           placeholder="NAC3FX-W"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs text-zinc-400">Custom label</Label>
+                        <Input
+                          value={feed.customLabel ?? ""}
+                          onChange={(e) =>
+                            handleUpdatePowerFeed(feed.id, {
+                              customLabel: e.target.value.length > 0 ? e.target.value : undefined,
+                            })
+                          }
+                          onBlur={() => dispatch({ type: "PUSH_HISTORY" })}
+                          className="h-8 text-xs bg-zinc-950/60 border-zinc-800 text-zinc-100"
+                          placeholder="Optional (under breaker)"
                         />
                       </div>
                       <div className="space-y-1 col-span-2">

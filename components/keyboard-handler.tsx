@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react"
 import { useEditor } from "@/lib/editor-context"
+import { getCabinetBounds } from "@/lib/validation"
 import type { Cabinet } from "@/lib/types"
 
 export function KeyboardHandler() {
@@ -62,19 +63,27 @@ export function KeyboardHandler() {
             counter++
             return newId
           }
-          const additions = Array.from(new Set(selection))
+          const selected = Array.from(new Set(selection))
             .map((id) => layout.cabinets.find((c) => c.id === id))
             .filter((cabinet): cabinet is Cabinet => !!cabinet)
-            .map((cabinet) => {
-              const type = layout.cabinetTypes.find((t) => t.typeId === cabinet.typeId)
-              const isRotated = cabinet.rot_deg === 90 || cabinet.rot_deg === 270
-              const width = type ? (isRotated ? type.height_mm : type.width_mm) : 100
-              return {
-                ...cabinet,
-                id: nextId(),
-                x_mm: cabinet.x_mm + width,
-              }
-            })
+          if (selected.length === 0) return
+          const selectedBounds = selected.map((cabinet) => ({
+            cabinet,
+            bounds: getCabinetBounds(cabinet, layout.cabinetTypes),
+          }))
+          const minX = Math.min(
+            ...selectedBounds.map(({ cabinet, bounds }) => (bounds ? bounds.x : cabinet.x_mm)),
+          )
+          const maxX = Math.max(
+            ...selectedBounds.map(({ cabinet, bounds }) => (bounds ? bounds.x2 : cabinet.x_mm + 100)),
+          )
+          const offsetX = Math.max(layout.project.grid.step_mm, maxX - minX)
+
+          const additions = selected.map((cabinet) => ({
+            ...cabinet,
+            id: nextId(),
+            x_mm: cabinet.x_mm + offsetX,
+          }))
           if (additions.length > 0) {
             dispatch({ type: "ADD_CABINETS", payload: additions })
             dispatch({ type: "PUSH_HISTORY" })

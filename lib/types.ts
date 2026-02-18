@@ -92,6 +92,7 @@ export interface DataRoute {
 export interface PowerFeed {
   id: string
   label: string
+  customLabel?: string
   breaker?: string
   connector: string
   consumptionW: number

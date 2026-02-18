@@ -1170,7 +1170,7 @@ function drawPowerFeeds(ctx: CanvasRenderingContext2D, layout: LayoutData, zoom:
     const loadW = getPowerFeedLoadW(feed, layout.cabinets, layout.cabinetTypes)
     const breakerText = feed.breaker || feed.label
     const labelText = `${breakerText} | ${loadW}W`
-    const connectorText = feed.connector
+    const connectorText = feed.customLabel?.trim() || feed.connector
     const maxTextWidth = Math.max(ctx.measureText(labelText).width, ctx.measureText(connectorText).width)
     const boxWidth = maxTextWidth + labelPaddingX * 2
     const labelPosition = feed.labelPosition && feed.labelPosition !== "auto" ? feed.labelPosition : "bottom"
@@ -1251,7 +1251,7 @@ function drawPowerFeeds(ctx: CanvasRenderingContext2D, layout: LayoutData, zoom:
     const loadW = getPowerFeedLoadW(feed, layout.cabinets, layout.cabinetTypes)
     const breakerText = feed.breaker || feed.label
     const labelText = `${breakerText} | ${loadW}W`
-    const connectorText = feed.connector
+    const connectorText = feed.customLabel?.trim() || feed.connector
 
     const maxTextWidth = Math.max(ctx.measureText(labelText).width, ctx.measureText(connectorText).width)
     const boxWidth = maxTextWidth + labelPaddingX * 2
