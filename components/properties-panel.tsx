@@ -10,6 +10,7 @@ import {
   getCabinetReceiverCardCount,
   parseRouteCabinetId,
 } from "@/lib/types"
+import { resolveControllerCabinetId } from "@/lib/controller-utils"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -34,6 +35,8 @@ export function PropertiesPanel() {
   const bounds = getLayoutBounds(layout)
   const labelsMode = layout.project.overview.labelsMode
   const gridLabelAxis = layout.project.overview.gridLabelAxis ?? "columns"
+  const mode = layout.project.mode ?? "indoor"
+  const isOutdoorMode = mode === "outdoor"
 
   const pitch = layout.project.pitch_mm
   const widthPx = bounds.width > 0 ? Math.round(bounds.width / pitch) : 0
@@ -44,7 +47,13 @@ export function PropertiesPanel() {
   const [receiverModelDraft, setReceiverModelDraft] = useState(receiverModelDefault)
   const [gridLabelDraft, setGridLabelDraft] = useState("")
   const controllerPlacement = layout.project.controllerPlacement ?? "external"
-  const controllerCabinetId = layout.project.controllerCabinetId
+  const controllerCabinetId = resolveControllerCabinetId(
+    mode,
+    controllerPlacement,
+    layout.project.controllerCabinetId,
+    layout.cabinets,
+    layout.cabinetTypes,
+  )
   const controllerCabinet = controllerCabinetId
     ? layout.cabinets.find((cabinet) => cabinet.id === controllerCabinetId)
     : null
@@ -370,11 +379,15 @@ export function PropertiesPanel() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label className="text-xs">Controller</Label>
+                    <Label className="text-xs">{isOutdoorMode ? "LV Box" : "Controller"}</Label>
                     <div className="text-[11px] text-zinc-500">
-                      {controllerPlacement === "cabinet" && controllerCabinetLabel
-                        ? `${layout.project.controller} in cabinet ${controllerCabinetLabel}`
-                        : `${layout.project.controller} external`}
+                      {isOutdoorMode
+                        ? controllerPlacement === "cabinet" && controllerCabinetLabel
+                          ? `LV Box dans cabinet ${controllerCabinetLabel} (${layout.project.controller}, PI, SWITCH, ANTENNA)`
+                          : `LV Box externe (${layout.project.controller}, PI, SWITCH, ANTENNA)`
+                        : controllerPlacement === "cabinet" && controllerCabinetLabel
+                          ? `${layout.project.controller} in cabinet ${controllerCabinetLabel}`
+                          : `${layout.project.controller} external`}
                     </div>
                     <div className="flex flex-wrap gap-2">
                       <Button
@@ -384,7 +397,13 @@ export function PropertiesPanel() {
                         className="h-7 text-[11px]"
                         onClick={handlePlaceController}
                       >
-                        {isControllerCabinet ? "Controller here" : "Place here"}
+                        {isOutdoorMode
+                          ? isControllerCabinet
+                            ? "LV Box ici"
+                            : "Placer LV Box ici"
+                          : isControllerCabinet
+                            ? "Controller here"
+                            : "Place here"}
                       </Button>
                       {controllerPlacement === "cabinet" ? (
                         <Button
@@ -394,7 +413,7 @@ export function PropertiesPanel() {
                           className="h-7 text-[11px]"
                           onClick={handleClearController}
                         >
-                          Set external
+                          {isOutdoorMode ? "Mettre externe" : "Set external"}
                         </Button>
                       ) : null}
                     </div>

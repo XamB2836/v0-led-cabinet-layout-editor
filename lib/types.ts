@@ -13,6 +13,8 @@ export interface Cabinet {
   x_mm: number
   y_mm: number
   rot_deg: 0 | 90 | 180 | 270
+  screenId?: string // optional logical screen grouping (used for double-face workflows)
+  face?: "A" | "B" // optional display face marker for outdoor double-face
   port?: number
   chainIndex?: number
   receiverCardCount?: 0 | 1 | 2
@@ -28,6 +30,7 @@ export interface GridSettings {
 
 export type LabelsMode = "internal" | "grid"
 export type GridLabelAxis = "columns" | "rows"
+export type ModuleSize = "320x160" | "160x160" | "320x320"
 
 export type MappingNumbersMode = "auto" | "manual"
 export type MappingNumbersFontSize = "small" | "medium" | "large"
@@ -70,7 +73,7 @@ export interface OverviewSettings {
   showPowerRoutes: boolean
   showModuleGrid: boolean
   numberOfDisplays: number
-  moduleSize: "320x160" | "160x160"
+  moduleSize: ModuleSize
   moduleOrientation: "landscape" | "portrait"
   mappingNumbers: MappingNumbersSettings
 }
@@ -113,7 +116,10 @@ export interface ExportSettings {
   showLegend?: boolean
 }
 
+export type ProjectMode = "indoor" | "outdoor"
+
 export interface Project {
+  mode: ProjectMode
   name: string
   client?: string
   units: "mm"
@@ -174,8 +180,9 @@ export const DEFAULT_CABINET_TYPES: CabinetType[] = DEFAULT_HEIGHTS_MM.flatMap((
 )
 
 export const DEFAULT_LAYOUT: LayoutData = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   project: {
+    mode: "indoor",
     name: "NC",
     client: "",
     units: "mm",

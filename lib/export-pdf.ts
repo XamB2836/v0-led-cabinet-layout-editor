@@ -7,6 +7,7 @@ import { getCabinetReceiverCardCount, parseRouteCabinetId } from "./types"
 import { getPowerFeedLoadW } from "./power-utils"
 import { DEFAULT_RECEIVER_CARD_MODEL } from "./receiver-cards"
 import { getEffectivePitchMm } from "./pitch-utils"
+import { getOrientedModuleSize } from "./module-utils"
 
 const PAGE_SIZES_MM = {
   A4: { width: 210, height: 297 },
@@ -94,9 +95,7 @@ function getTotalLayoutWeight(layout: LayoutData) {
 function getModuleSpec(layout: LayoutData) {
   const moduleSize = layout.project.overview.moduleSize
   const moduleOrientation = layout.project.overview.moduleOrientation
-  const baseModule = moduleSize === "160x160" ? { width: 160, height: 160 } : { width: 320, height: 160 }
-  const moduleWidth = moduleOrientation === "portrait" ? baseModule.height : baseModule.width
-  const moduleHeight = moduleOrientation === "portrait" ? baseModule.width : baseModule.height
+  const { baseModule, moduleWidth, moduleHeight } = getOrientedModuleSize(moduleSize, moduleOrientation)
   return { baseModule, moduleWidth, moduleHeight, moduleOrientation }
 }
 

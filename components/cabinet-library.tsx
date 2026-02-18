@@ -23,6 +23,8 @@ export function CabinetLibrary() {
   })
   const [draggedType, setDraggedType] = useState<string | null>(null)
   const [search, setSearch] = useState("")
+  const isOutdoorMode = (layout.project.mode ?? "indoor") === "outdoor"
+  const modeLabel = isOutdoorMode ? "Outdoor" : "Indoor"
   const filteredTypes = useMemo(() => {
     const query = search.trim().toLowerCase()
     const sizeMatch = query.match(/(\d+)\s*[xX]\s*(\d+)/)
@@ -90,6 +92,7 @@ export function CabinetLibrary() {
   }, [layout.cabinetTypes, search])
 
   const handleAddType = () => {
+    if (isOutdoorMode) return
     if (!newType.typeId || !newType.width_mm || !newType.height_mm) return
     if (layout.cabinetTypes.find((t) => t.typeId === newType.typeId)) {
       alert("Type ID already exists")
@@ -118,63 +121,70 @@ export function CabinetLibrary() {
     <div className="w-64 bg-sidebar border-r border-sidebar-border flex flex-col">
       <div className="p-3 border-b border-sidebar-border">
         <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-sidebar-foreground">Cabinet Library</h2>
-          <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
-            <DialogTrigger asChild>
-              <Button variant="ghost" size="sm" className="h-7 w-7 p-0">
-                <Plus className="w-4 h-4" />
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Add Cabinet Type</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-4 pt-4">
-                <div className="space-y-2">
-                  <Label htmlFor="type-id">Type ID</Label>
-                  <Input
-                    id="type-id"
-                    placeholder="e.g., STD_800x480"
-                    value={newType.typeId}
-                    onChange={(e) => setNewType({ ...newType, typeId: e.target.value })}
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="width">Width (mm)</Label>
-                    <Input
-                      id="width"
-                      type="number"
-                      value={newType.width_mm}
-                      onChange={(e) =>
-                        setNewType({
-                          ...newType,
-                          width_mm: Number.parseInt(e.target.value) || 0,
-                        })
-                      }
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="height">Height (mm)</Label>
-                    <Input
-                      id="height"
-                      type="number"
-                      value={newType.height_mm}
-                      onChange={(e) =>
-                        setNewType({
-                          ...newType,
-                          height_mm: Number.parseInt(e.target.value) || 0,
-                        })
-                      }
-                    />
-                  </div>
-                </div>
-                <Button onClick={handleAddType} className="w-full">
-                  Add Type
+          <div>
+            <h2 className="text-sm font-semibold text-sidebar-foreground">Cabinet Library</h2>
+            <div className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">{modeLabel} catalog</div>
+          </div>
+          {!isOutdoorMode ? (
+            <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
+              <DialogTrigger asChild>
+                <Button variant="ghost" size="sm" className="h-7 w-7 p-0">
+                  <Plus className="w-4 h-4" />
                 </Button>
-              </div>
-            </DialogContent>
-          </Dialog>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Add Cabinet Type</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-4 pt-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="type-id">Type ID</Label>
+                    <Input
+                      id="type-id"
+                      placeholder="e.g., STD_800x480"
+                      value={newType.typeId}
+                      onChange={(e) => setNewType({ ...newType, typeId: e.target.value })}
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="width">Width (mm)</Label>
+                      <Input
+                        id="width"
+                        type="number"
+                        value={newType.width_mm}
+                        onChange={(e) =>
+                          setNewType({
+                            ...newType,
+                            width_mm: Number.parseInt(e.target.value) || 0,
+                          })
+                        }
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="height">Height (mm)</Label>
+                      <Input
+                        id="height"
+                        type="number"
+                        value={newType.height_mm}
+                        onChange={(e) =>
+                          setNewType({
+                            ...newType,
+                            height_mm: Number.parseInt(e.target.value) || 0,
+                          })
+                        }
+                      />
+                    </div>
+                  </div>
+                  <Button onClick={handleAddType} className="w-full">
+                    Add Type
+                  </Button>
+                </div>
+              </DialogContent>
+            </Dialog>
+          ) : (
+            <span className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Fixed list</span>
+          )}
         </div>
       </div>
 
@@ -224,6 +234,4 @@ export function CabinetLibrary() {
     </div>
   )
 }
-
-
 

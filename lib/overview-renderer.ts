@@ -5,6 +5,8 @@ import { getPowerFeedLoadW, isPowerFeedOverloaded } from "./power-utils"
 import { getCabinetBounds, getLayoutBounds, validateLayout } from "./validation"
 import { getLayoutPixelDimensions, getOverviewReadabilityScale, getReceiverCardLabel, shouldShowGridLabels } from "./overview-utils"
 import { getMappingNumberLabelMap } from "./mapping-numbers"
+import { getOrientedModuleSize } from "./module-utils"
+import { resolveControllerCabinetId } from "./controller-utils"
 
 export interface OverviewPalette {
   background: string
@@ -175,23 +177,47 @@ function drawDimensionLines(
 }
 
 type CardRect = { x: number; y: number; width: number; height: number }
+type ReceiverCardVariant = "indoor" | "outdoor"
 
 function getReceiverCardRects(
   bounds: { x: number; y: number; width: number; height: number },
   zoom: number,
   count: 0 | 1 | 2,
   readabilityScale = 1,
+  variant: ReceiverCardVariant = "indoor",
 ): CardRect[] {
   if (count <= 0) return []
-  const maxWidth = Math.min((100 * readabilityScale) / zoom, bounds.width * 0.7)
-  const minWidth = Math.min((34 * readabilityScale) / zoom, maxWidth)
+  const maxWidth =
+    variant === "outdoor"
+      ? Math.min((68 * readabilityScale) / zoom, bounds.width * 0.55)
+      : Math.min((100 * readabilityScale) / zoom, bounds.width * 0.7)
+  const minWidth =
+    variant === "outdoor"
+      ? Math.min((30 * readabilityScale) / zoom, maxWidth)
+      : Math.min((34 * readabilityScale) / zoom, maxWidth)
   const heightFraction = count === 2 ? 0.18 : 0.22
-  const maxHeight = Math.min((18 * readabilityScale) / zoom, bounds.height * (heightFraction + 0.03))
-  const minHeight = Math.min((10 * readabilityScale) / zoom, maxHeight)
-  const cardWidth = Math.min(maxWidth, Math.max(minWidth, bounds.width * 0.7))
-  const cardHeight = Math.min(maxHeight, Math.max(minHeight, bounds.height * 0.2))
+  const maxHeight =
+    variant === "outdoor"
+      ? Math.min((29 * readabilityScale) / zoom, bounds.height * (heightFraction + 0.11))
+      : Math.min((18 * readabilityScale) / zoom, bounds.height * (heightFraction + 0.03))
+  const minHeight =
+    variant === "outdoor"
+      ? Math.min((16.5 * readabilityScale) / zoom, maxHeight)
+      : Math.min((10 * readabilityScale) / zoom, maxHeight)
+  const cardWidth =
+    variant === "outdoor"
+      ? Math.min(maxWidth, Math.max(minWidth, bounds.width * 0.42))
+      : Math.min(maxWidth, Math.max(minWidth, bounds.width * 0.7))
+  const cardHeight =
+    variant === "outdoor"
+      ? Math.min(maxHeight, Math.max(minHeight, bounds.height * 0.297))
+      : Math.min(maxHeight, Math.max(minHeight, bounds.height * 0.2))
   const cardX = bounds.x + bounds.width / 2 - cardWidth / 2
-  const cardY = bounds.y + bounds.height / 2 - cardHeight / 2
+  const cardCenterY =
+    variant === "outdoor"
+      ? bounds.y + Math.min(160, bounds.height / 2)
+      : bounds.y + bounds.height / 2
+  const cardY = cardCenterY - cardHeight / 2
 
   if (count === 1) {
     return [{ x: cardX, y: cardY, width: cardWidth, height: cardHeight }]
@@ -199,7 +225,11 @@ function getReceiverCardRects(
 
   const gap = Math.min((10 * readabilityScale) / zoom, cardHeight)
   const totalHeight = cardHeight * 2 + gap
-  const startY = bounds.y + bounds.height / 2 - totalHeight / 2
+  const targetCenterY =
+    variant === "outdoor"
+      ? bounds.y + Math.min(160, bounds.height / 2)
+      : bounds.y + bounds.height / 2
+  const startY = targetCenterY - totalHeight / 2
   return [
     { x: cardX, y: startY, width: cardWidth, height: cardHeight },
     { x: cardX, y: startY + cardHeight + gap, width: cardWidth, height: cardHeight },
@@ -210,8 +240,9 @@ function getReceiverCardRect(
   bounds: { x: number; y: number; width: number; height: number },
   zoom: number,
   readabilityScale = 1,
+  variant: ReceiverCardVariant = "indoor",
 ) {
-  return getReceiverCardRects(bounds, zoom, 1, readabilityScale)[0]
+  return getReceiverCardRects(bounds, zoom, 1, readabilityScale, variant)[0]
 }
 
 function clamp(value: number, min: number, max: number) {
@@ -229,10 +260,11 @@ function getCabinetDataAnchorPoint(
   zoom: number,
   cardIndex?: number,
   readabilityScale = 1,
+  cardVariant: ReceiverCardVariant = "indoor",
 ): { x: number; y: number; resolvedIndex?: number; cardCount: 0 | 1 | 2; isVirtual: boolean } {
   const cardCount = getCabinetReceiverCardCount(cabinet)
   if (cardCount > 0) {
-    const rects = getReceiverCardRects(bounds, zoom, cardCount, readabilityScale)
+    const rects = getReceiverCardRects(bounds, zoom, cardCount, readabilityScale, cardVariant)
     const resolvedIndex = cardIndex === undefined ? 0 : Math.max(0, Math.min(rects.length - 1, cardIndex))
     const anchorRect = rects[resolvedIndex]
     if (anchorRect) {
@@ -399,7 +431,65 @@ function drawControllerBadge(
   label: string,
   zoom: number,
   readabilityScale = 1,
+  mode: "indoor" | "outdoor" = "indoor",
 ) {
+  if (mode === "outdoor") {
+    const inset = (6 * readabilityScale) / zoom
+    const title = "LV BOX"
+    const items = [label, "PI", "SWITCH", "ANTENNA"]
+    const boxWidth = Math.max(
+      (78 * readabilityScale) / zoom,
+      Math.min(bounds.width - inset * 2, bounds.width * 0.5),
+    )
+    const boxHeight = Math.max(
+      (40 * readabilityScale) / zoom,
+      Math.min(bounds.height - inset * 2, bounds.height * 0.33),
+    )
+    const boxX = bounds.x + bounds.width - boxWidth - inset
+    const boxY = bounds.y + bounds.height - boxHeight - inset
+    const titleBandHeight = Math.max((8 * readabilityScale) / zoom, boxHeight * 0.2)
+    const listPadding = Math.max((4 * readabilityScale) / zoom, boxWidth * 0.08)
+    const listTop = boxY + titleBandHeight + Math.max((2 * readabilityScale) / zoom, boxHeight * 0.03)
+    const listBottom = boxY + boxHeight - Math.max((3 * readabilityScale) / zoom, boxHeight * 0.07)
+    const itemStep = (listBottom - listTop) / items.length
+    const titleFontSize = Math.max((6 * readabilityScale) / zoom, titleBandHeight * 0.45)
+    const itemFontSize = Math.max((5.5 * readabilityScale) / zoom, itemStep * 0.55)
+
+    ctx.save()
+    ctx.shadowColor = "rgba(15, 23, 42, 0.2)"
+    ctx.shadowBlur = (4 * readabilityScale) / zoom
+    ctx.shadowOffsetY = (1.2 * readabilityScale) / zoom
+    ctx.fillStyle = "#0b1220"
+    ctx.strokeStyle = "#1f2a44"
+    ctx.lineWidth = Math.max((1.1 * readabilityScale) / zoom, (0.8 * readabilityScale) / zoom)
+    ctx.fillRect(boxX, boxY, boxWidth, boxHeight)
+    ctx.restore()
+
+    ctx.strokeStyle = "#1f2a44"
+    ctx.lineWidth = Math.max((1.1 * readabilityScale) / zoom, (0.8 * readabilityScale) / zoom)
+    ctx.strokeRect(boxX, boxY, boxWidth, boxHeight)
+    ctx.strokeStyle = "#334155"
+    ctx.lineWidth = Math.max((0.8 * readabilityScale) / zoom, (0.6 * readabilityScale) / zoom)
+    ctx.beginPath()
+    ctx.moveTo(boxX + listPadding, boxY + titleBandHeight)
+    ctx.lineTo(boxX + boxWidth - listPadding, boxY + titleBandHeight)
+    ctx.stroke()
+
+    ctx.fillStyle = "#38bdf8"
+    ctx.font = `700 ${titleFontSize}px ${FONT_FAMILY}`
+    ctx.textAlign = "left"
+    ctx.textBaseline = "middle"
+    ctx.fillText(title, boxX + listPadding, boxY + titleBandHeight / 2)
+
+    ctx.fillStyle = "#e2e8f0"
+    ctx.font = `600 ${itemFontSize}px ${FONT_FAMILY}`
+    items.forEach((item, index) => {
+      const textY = listTop + itemStep * (index + 0.5)
+      ctx.fillText(`- ${item}`, boxX + listPadding, textY)
+    })
+    return
+  }
+
   const fontSize = Math.max(9 * readabilityScale, (10 * readabilityScale) / zoom)
   const paddingX = (6 * readabilityScale) / zoom
   const paddingY = (3 * readabilityScale) / zoom
@@ -455,6 +545,92 @@ function drawPowerAnchorDot(
   ctx.fill()
 }
 
+function getOutdoorCabinetPowerPorts(
+  bounds: { x: number; y: number; width: number; height: number },
+  cardRects: CardRect[],
+  zoom: number,
+  readabilityScale = 1,
+) {
+  const cardBottom =
+    cardRects.length > 0
+      ? cardRects.reduce((maxBottom, rect) => Math.max(maxBottom, rect.y + rect.height), Number.NEGATIVE_INFINITY)
+      : bounds.y + bounds.height * 0.34
+  const minRequiredHeight = (20 * readabilityScale) / zoom
+  const maxBarY = bounds.y + bounds.height - minRequiredHeight
+  const minBarY = cardBottom + (6 * readabilityScale) / zoom
+  if (!Number.isFinite(maxBarY) || maxBarY <= bounds.y + (2 * readabilityScale) / zoom) return null
+
+  const barY = Math.min(minBarY, maxBarY)
+  const centerX = bounds.x + bounds.width / 2
+  const barWidth = Math.min(bounds.width * 0.56, (84 * readabilityScale) / zoom)
+  const inX = centerX - barWidth * 0.24
+  const outX = centerX + barWidth * 0.24
+  const stemTopY = barY + (1.2 * readabilityScale) / zoom
+  const stemBottomY = stemTopY + Math.max((5.5 * readabilityScale) / zoom, bounds.height * 0.042)
+  const arrowHalfWidth = Math.max((1.6 * readabilityScale) / zoom, 0.13 * (stemBottomY - stemTopY))
+  const labelY = stemBottomY + Math.max((4.8 * readabilityScale) / zoom, bounds.height * 0.032)
+  const labelSize = Math.max((5.5 * readabilityScale) / zoom, (7 * readabilityScale) / zoom)
+
+  return {
+    barY,
+    barLeftX: centerX - barWidth / 2,
+    barRightX: centerX + barWidth / 2,
+    stemTopY,
+    stemBottomY,
+    arrowHalfWidth,
+    labelY,
+    labelSize,
+    in: { x: inX, y: stemBottomY },
+    out: { x: outX, y: stemBottomY },
+  }
+}
+
+function drawCabinetPowerInOut(
+  ctx: CanvasRenderingContext2D,
+  bounds: { x: number; y: number; width: number; height: number },
+  cardRects: CardRect[],
+  zoom: number,
+  readabilityScale = 1,
+  variant: ReceiverCardVariant = "indoor",
+) {
+  if (variant !== "outdoor" || cardRects.length === 0) return
+
+  const ports = getOutdoorCabinetPowerPorts(bounds, cardRects, zoom, readabilityScale)
+  if (!ports) return
+
+  ctx.save()
+  ctx.strokeStyle = "#111827"
+  ctx.lineWidth = Math.max((1.8 * readabilityScale) / zoom, (1.2 * readabilityScale) / zoom)
+  ctx.beginPath()
+  ctx.moveTo(ports.barLeftX, ports.barY)
+  ctx.lineTo(ports.barRightX, ports.barY)
+  ctx.stroke()
+
+  ctx.strokeStyle = "#f97316"
+  ctx.fillStyle = "#f97316"
+  ctx.lineWidth = Math.max((1.5 * readabilityScale) / zoom, (1 * readabilityScale) / zoom)
+  ;[ports.in.x, ports.out.x].forEach((x) => {
+    ctx.beginPath()
+    ctx.moveTo(x, ports.stemBottomY)
+    ctx.lineTo(x, ports.stemTopY)
+    ctx.stroke()
+
+    ctx.beginPath()
+    ctx.moveTo(x, ports.stemTopY - (2.2 * readabilityScale) / zoom)
+    ctx.lineTo(x - ports.arrowHalfWidth, ports.stemTopY + (1 * readabilityScale) / zoom)
+    ctx.lineTo(x + ports.arrowHalfWidth, ports.stemTopY + (1 * readabilityScale) / zoom)
+    ctx.closePath()
+    ctx.fill()
+  })
+
+  ctx.font = `700 ${ports.labelSize}px ${FONT_FAMILY}`
+  ctx.textAlign = "center"
+  ctx.textBaseline = "top"
+  ctx.fillText("IN", ports.in.x, ports.labelY)
+  ctx.fillText("OUT", ports.out.x, ports.labelY)
+  ctx.restore()
+}
+
 function drawReceiverCard(
   ctx: CanvasRenderingContext2D,
   rect: CardRect,
@@ -462,8 +638,56 @@ function drawReceiverCard(
   zoom: number,
   palette: OverviewPalette,
   readabilityScale = 1,
+  variant: "indoor" | "outdoor" = "indoor",
 ) {
   const { x, y, width, height } = rect
+  if (variant === "outdoor") {
+    const bodyH = Math.max((13 * readabilityScale) / zoom, height * 0.97)
+    const bodyW = Math.min(width * 0.72, bodyH * 1.45)
+    const bodyX = x + width / 2 - bodyW / 2
+    const bodyY = y + height / 2 - bodyH / 2
+
+    const stroke = Math.max((0.9 * readabilityScale) / zoom, (0.7 * readabilityScale) / zoom)
+    const portW = Math.max((5 * readabilityScale) / zoom, bodyW * 0.16)
+    const portH = Math.max((3 * readabilityScale) / zoom, bodyH * 0.16)
+    const portGap = Math.max((3 * readabilityScale) / zoom, bodyH * 0.3)
+    const portX = bodyX - portW * 0.9
+    const topPortY = y + height / 2 - portGap / 2 - portH
+    const bottomPortY = y + height / 2 + portGap / 2
+
+    ctx.save()
+    ctx.shadowColor = "rgba(15, 23, 42, 0.2)"
+    ctx.shadowBlur = (4 * readabilityScale) / zoom
+    ctx.shadowOffsetY = (1.2 * readabilityScale) / zoom
+    ctx.fillStyle = palette.receiverCardFill
+    ctx.fillRect(bodyX, bodyY, bodyW, bodyH)
+    ctx.restore()
+
+    ctx.strokeStyle = palette.receiverCardStroke
+    ctx.lineWidth = stroke
+    ctx.strokeRect(bodyX, bodyY, bodyW, bodyH)
+
+    ctx.fillStyle = "#0f172a"
+    ctx.fillRect(
+      bodyX + (1 * readabilityScale) / zoom,
+      bodyY + (1 * readabilityScale) / zoom,
+      bodyW - (2 * readabilityScale) / zoom,
+      Math.max((1.5 * readabilityScale) / zoom, bodyH * 0.08),
+    )
+
+    ctx.fillStyle = "#94a3b8"
+    ctx.fillRect(portX, topPortY, portW, portH)
+    ctx.fillRect(portX, bottomPortY, portW, portH)
+
+    const labelSize = Math.max((6 * readabilityScale) / zoom, bodyH * 0.28)
+    ctx.fillStyle = "#e2e8f0"
+    ctx.font = `bold ${labelSize}px ${FONT_FAMILY}`
+    ctx.textAlign = "center"
+    ctx.textBaseline = "middle"
+    ctx.fillText("I5", x + width / 2, y + height / 2)
+    return
+  }
+
   const baseFontSize = Math.min((10 * readabilityScale) / zoom, height * 0.78)
   const minFontSize = (6 * readabilityScale) / zoom
   const padding = (4 * readabilityScale) / zoom
@@ -686,6 +910,7 @@ function drawDataRoutes(
   receiverCardModel: string,
   forcePortLabelsBottom = false,
   readabilityScale = 1,
+  cardVariant: ReceiverCardVariant = "indoor",
 ) {
   const { dataRoutes, pitch_mm } = layout.project
   if (!dataRoutes || dataRoutes.length === 0) return
@@ -756,7 +981,7 @@ function drawDataRoutes(
       if (!cabinet) return
       const bounds = getCabinetBounds(cabinet, layout.cabinetTypes)
       if (!bounds) return
-      const anchor = getCabinetDataAnchorPoint(cabinet, bounds, zoom, cardIndex, readabilityScale)
+      const anchor = getCabinetDataAnchorPoint(cabinet, bounds, zoom, cardIndex, readabilityScale, cardVariant)
       const hasReceiverCard = anchor.cardCount > 0 && showReceiverCards && !!getReceiverCardLabel(layout, cabinet)
       points.push({
         x: anchor.x,
@@ -943,7 +1168,13 @@ function drawDataRoutes(
   })
 }
 
-function drawPowerFeeds(ctx: CanvasRenderingContext2D, layout: LayoutData, zoom: number, readabilityScale = 1) {
+function drawPowerFeeds(
+  ctx: CanvasRenderingContext2D,
+  layout: LayoutData,
+  zoom: number,
+  readabilityScale = 1,
+  cardVariant: ReceiverCardVariant = "indoor",
+) {
   const { powerFeeds } = layout.project
   if (!powerFeeds || powerFeeds.length === 0) return
   const getPowerSteps = (feed: LayoutData["project"]["powerFeeds"][number]): DataRouteStep[] => {
@@ -1071,7 +1302,7 @@ function drawPowerFeeds(ctx: CanvasRenderingContext2D, layout: LayoutData, zoom:
       if (!cabinet) return
       const bounds = getCabinetBounds(cabinet, layout.cabinetTypes)
       if (!bounds) return
-      const anchorPoint = getCabinetDataAnchorPoint(cabinet, bounds, zoom, cardIndex, readabilityScale)
+      const anchorPoint = getCabinetDataAnchorPoint(cabinet, bounds, zoom, cardIndex, readabilityScale, cardVariant)
       const anchor = { connectorX: anchorPoint.x, connectorY: anchorPoint.y }
 
       const labelText = `Port ${route.port}`
@@ -1138,13 +1369,37 @@ function drawPowerFeeds(ctx: CanvasRenderingContext2D, layout: LayoutData, zoom:
   const bottomPlans: { id: string; desiredX: number; width: number }[] = []
   const topPlans: { id: string; desiredX: number; width: number }[] = []
 
-  powerFeeds.forEach((feed) => {
-    if (feed.assignedCabinetIds.length === 0) return
-    const feedSteps = getPowerSteps(feed)
-    const points: { x: number; y: number }[] = []
+  type FeedPoint = {
+    x: number
+    y: number
+    bounds: NonNullable<ReturnType<typeof getCabinetBounds>> | null
+    cardRect?: CardRect
+  }
+
+  const buildFeedPoints = (feedSteps: DataRouteStep[], useManualSteps: boolean) => {
+    const points: FeedPoint[] = []
+    const useOutdoorChaining = cardVariant === "outdoor" && !useManualSteps
+
+    if (useOutdoorChaining) {
+      const cabinetSteps = feedSteps.filter((step): step is Extract<DataRouteStep, { type: "cabinet" }> => step.type === "cabinet")
+      cabinetSteps.forEach((step) => {
+        const cabinet = layout.cabinets.find((c) => c.id === step.endpointId)
+        if (!cabinet) return
+        const bounds = getCabinetBounds(cabinet, layout.cabinetTypes)
+        if (!bounds) return
+        const cardCount = getCabinetReceiverCardCount(cabinet)
+        const rects = getReceiverCardRects(bounds, zoom, cardCount, readabilityScale, cardVariant)
+        const ports = getOutdoorCabinetPowerPorts(bounds, rects, zoom, readabilityScale)
+        if (!ports) return
+        points.push({ x: ports.in.x, y: ports.in.y, bounds, cardRect: rects[0] })
+        points.push({ x: ports.out.x, y: ports.out.y, bounds, cardRect: rects[0] })
+      })
+      return { points, useOutdoorChaining }
+    }
+
     feedSteps.forEach((step) => {
       if (step.type === "point") {
-        points.push({ x: step.x_mm, y: step.y_mm })
+        points.push({ x: step.x_mm, y: step.y_mm, bounds: null })
         return
       }
       const cabinet = layout.cabinets.find((c) => c.id === step.endpointId)
@@ -1152,18 +1407,27 @@ function drawPowerFeeds(ctx: CanvasRenderingContext2D, layout: LayoutData, zoom:
       const bounds = getCabinetBounds(cabinet, layout.cabinetTypes)
       if (!bounds) return
       const cardCount = getCabinetReceiverCardCount(cabinet)
-      const rects = getReceiverCardRects(bounds, zoom, cardCount, readabilityScale)
+      const rects = getReceiverCardRects(bounds, zoom, cardCount, readabilityScale, cardVariant)
       let anchorX = bounds.x + bounds.width / 2
       let anchorY = bounds.y + bounds.height / 2
+      let anchorRect: CardRect | undefined
       if (rects.length > 0) {
-        const anchorRect =
-          rects.length === 1 ? rects[0] : bounds.y + bounds.height / 2 > layoutMidY ? rects[1] : rects[0]
+        anchorRect = rects.length === 1 ? rects[0] : bounds.y + bounds.height / 2 > layoutMidY ? rects[1] : rects[0]
         const anchor = getPowerAnchorPoint(anchorRect, bounds, zoom, readabilityScale)
         anchorX = anchor.x
         anchorY = anchor.y
       }
-      points.push({ x: anchorX, y: anchorY })
+      points.push({ x: anchorX, y: anchorY, bounds, cardRect: anchorRect })
     })
+
+    return { points, useOutdoorChaining }
+  }
+
+  powerFeeds.forEach((feed) => {
+    if (feed.assignedCabinetIds.length === 0) return
+    const feedSteps = getPowerSteps(feed)
+    const useManualSteps = !!(feed.manualMode && feed.steps && feed.steps.length > 0)
+    const { points } = buildFeedPoints(feedSteps, useManualSteps)
     if (points.length === 0) return
 
     ctx.font = `bold ${fontSize}px ${FONT_FAMILY}`
@@ -1198,40 +1462,8 @@ function drawPowerFeeds(ctx: CanvasRenderingContext2D, layout: LayoutData, zoom:
     ctx.lineJoin = "round"
 
     const feedSteps = getPowerSteps(feed)
-    const useManualSteps = feed.manualMode && feed.steps && feed.steps.length > 0
-    const points: {
-      x: number
-      y: number
-      bounds: NonNullable<ReturnType<typeof getCabinetBounds>> | null
-      cardRect?: CardRect
-    }[] = []
-    feedSteps.forEach((step) => {
-      if (step.type === "point") {
-        points.push({ x: step.x_mm, y: step.y_mm, bounds: null })
-        return
-      }
-      const cabinet = layout.cabinets.find((c) => c.id === step.endpointId)
-      if (!cabinet) return
-      const bounds = getCabinetBounds(cabinet, layout.cabinetTypes)
-      if (!bounds) return
-      const cardCount = getCabinetReceiverCardCount(cabinet)
-      const rects = getReceiverCardRects(bounds, zoom, cardCount, readabilityScale)
-      let anchorX = bounds.x + bounds.width / 2
-      let anchorY = bounds.y + bounds.height / 2
-      let anchorRect: CardRect | undefined
-      if (rects.length > 0) {
-        anchorRect = rects.length === 1 ? rects[0] : bounds.y + bounds.height / 2 > layoutMidY ? rects[1] : rects[0]
-        const anchor = getPowerAnchorPoint(anchorRect, bounds, zoom, readabilityScale)
-        anchorX = anchor.x
-        anchorY = anchor.y
-      }
-      points.push({
-        x: anchorX,
-        y: anchorY,
-        bounds,
-        cardRect: anchorRect,
-      })
-    })
+    const useManualSteps = !!(feed.manualMode && feed.steps && feed.steps.length > 0)
+    const { points, useOutdoorChaining } = buildFeedPoints(feedSteps, useManualSteps)
 
     if (points.length === 0) {
       ctx.restore()
@@ -1396,7 +1628,7 @@ function drawPowerFeeds(ctx: CanvasRenderingContext2D, layout: LayoutData, zoom:
       drawFeedConnections(lineColor, lineWidth)
     }
 
-    if (points.length > 0) {
+    if (points.length > 0 && !useOutdoorChaining) {
       const lastPoint = points[points.length - 1]
       const secondLast = points.length > 1 ? points[points.length - 2] : { x: labelLineX, y: labelLineY }
       let angle: number
@@ -1485,11 +1717,64 @@ function drawControllerPorts(
   zoom: number,
   minY?: number,
   readabilityScale = 1,
+  mode: "indoor" | "outdoor" = "indoor",
 ) {
   const bounds = getLayoutBounds(layout)
   if (bounds.width === 0 && bounds.height === 0) return
 
   const { minX, maxX, maxY } = bounds
+
+  if (mode === "outdoor") {
+    const title = "LV BOX"
+    const items = [label, "PI", "SWITCH", "ANTENNA"]
+    const boxWidth = scaledReadableWorldSize(128, zoom, 110, 150, readabilityScale)
+    const boxHeight = scaledReadableWorldSize(58, zoom, 46, 74, readabilityScale)
+    const boxX = maxX - boxWidth
+    const baseY = maxY + scaledReadableWorldSize(100, zoom, 70, 160, readabilityScale)
+    const boxY = Math.max(baseY, minY ?? baseY)
+    const titleBandHeight = Math.max((10 * readabilityScale) / zoom, boxHeight * 0.24)
+    const listPadding = Math.max((6 * readabilityScale) / zoom, boxWidth * 0.08)
+    const listTop = boxY + titleBandHeight + Math.max((2 * readabilityScale) / zoom, boxHeight * 0.03)
+    const listBottom = boxY + boxHeight - Math.max((3 * readabilityScale) / zoom, boxHeight * 0.07)
+    const itemStep = (listBottom - listTop) / items.length
+    const titleFontSize = Math.max((7 * readabilityScale) / zoom, titleBandHeight * 0.46)
+    const itemFontSize = Math.max((6 * readabilityScale) / zoom, itemStep * 0.56)
+
+    ctx.save()
+    ctx.shadowColor = "rgba(15, 23, 42, 0.2)"
+    ctx.shadowBlur = (4 * readabilityScale) / zoom
+    ctx.shadowOffsetY = (1.2 * readabilityScale) / zoom
+    ctx.fillStyle = "#0b1220"
+    ctx.strokeStyle = "#1f2a44"
+    ctx.lineWidth = scaledReadableWorldSize(1.1, zoom, 0.8, 1.8, readabilityScale)
+    ctx.fillRect(boxX, boxY, boxWidth, boxHeight)
+    ctx.restore()
+
+    ctx.strokeStyle = "#1f2a44"
+    ctx.lineWidth = scaledReadableWorldSize(1.1, zoom, 0.8, 1.8, readabilityScale)
+    ctx.strokeRect(boxX, boxY, boxWidth, boxHeight)
+    ctx.strokeStyle = "#334155"
+    ctx.lineWidth = Math.max((0.9 * readabilityScale) / zoom, (0.7 * readabilityScale) / zoom)
+    ctx.beginPath()
+    ctx.moveTo(boxX + listPadding, boxY + titleBandHeight)
+    ctx.lineTo(boxX + boxWidth - listPadding, boxY + titleBandHeight)
+    ctx.stroke()
+
+    ctx.fillStyle = "#38bdf8"
+    ctx.font = `700 ${titleFontSize}px ${FONT_FAMILY}`
+    ctx.textAlign = "left"
+    ctx.textBaseline = "middle"
+    ctx.fillText(title, boxX + listPadding, boxY + titleBandHeight / 2)
+
+    ctx.fillStyle = "#e2e8f0"
+    ctx.font = `600 ${itemFontSize}px ${FONT_FAMILY}`
+    items.forEach((item, index) => {
+      const textY = listTop + itemStep * (index + 0.5)
+      ctx.fillText(`- ${item}`, boxX + listPadding, textY)
+    })
+    return
+  }
+
   const boxWidth = scaledReadableWorldSize(120, zoom, 100, 160, readabilityScale)
   const boxHeight = scaledReadableWorldSize(40, zoom, 32, 60, readabilityScale)
   const fontSize = scaledReadableWorldSize(11, zoom, 10, 14, readabilityScale)
@@ -1567,6 +1852,7 @@ export function drawOverview(ctx: CanvasRenderingContext2D, layout: LayoutData, 
   const showGridLabels = showCabinetLabels && shouldShowGridLabels(options.labelsMode)
   const receiverCardModel = layout.project.overview.receiverCardModel
   const showReceiverCards = (options.showReceiverCards ?? true) && (layout.project.overview.showReceiverCards ?? true)
+  const isOutdoorMode = (layout.project.mode ?? "indoor") === "outdoor"
   const showDataRoutes = (options.showDataRoutes ?? true) && (layout.project.overview.showDataRoutes ?? true)
   const showPowerRoutes = (options.showPowerRoutes ?? true) && (layout.project.overview.showPowerRoutes ?? true)
   const showModuleGrid = (options.showModuleGrid ?? true) && (layout.project.overview.showModuleGrid ?? true)
@@ -1576,13 +1862,17 @@ export function drawOverview(ctx: CanvasRenderingContext2D, layout: LayoutData, 
     options.forcePortLabelsBottom ?? layout.project.overview.forcePortLabelsBottom ?? false
   const moduleSize = layout.project.overview.moduleSize
   const moduleOrientation = layout.project.overview.moduleOrientation
-  const baseModule = moduleSize === "160x160" ? { width: 160, height: 160 } : { width: 320, height: 160 }
-  const moduleWidth = moduleOrientation === "portrait" ? baseModule.height : baseModule.width
-  const moduleHeight = moduleOrientation === "portrait" ? baseModule.width : baseModule.height
+  const { moduleWidth, moduleHeight } = getOrientedModuleSize(moduleSize, moduleOrientation)
   const moduleGridBounds = showModuleGrid ? getLayoutBoundsFromCabinets(layout.cabinets, layout.cabinetTypes) : null
   const moduleGridOrigin = moduleGridBounds ? { x: moduleGridBounds.minX, y: moduleGridBounds.minY } : null
   const controllerPlacement = layout.project.controllerPlacement ?? "external"
-  const controllerCabinetId = layout.project.controllerCabinetId
+  const controllerCabinetId = resolveControllerCabinetId(
+    isOutdoorMode ? "outdoor" : "indoor",
+    controllerPlacement,
+    layout.project.controllerCabinetId,
+    layout.cabinets,
+    layout.cabinetTypes,
+  )
   const controllerInCabinet =
     controllerPlacement === "cabinet" &&
     !!controllerCabinetId &&
@@ -1656,11 +1946,12 @@ export function drawOverview(ctx: CanvasRenderingContext2D, layout: LayoutData, 
       receiverCardModel,
       forcePortLabelsBottom,
       readabilityScale,
+      isOutdoorMode ? "outdoor" : "indoor",
     )
   }
 
   if (showPowerRoutes) {
-    drawPowerFeeds(ctx, layout, uiZoom, readabilityScale)
+    drawPowerFeeds(ctx, layout, uiZoom, readabilityScale, isOutdoorMode ? "outdoor" : "indoor")
   }
 
   layout.cabinets.forEach((cabinet) => {
@@ -1680,7 +1971,14 @@ export function drawOverview(ctx: CanvasRenderingContext2D, layout: LayoutData, 
 
     if (controllerPlacement === "cabinet" && controllerCabinetId === cabinet.id) {
       const controllerLabel = layout.project.controllerLabel?.trim() || layout.project.controller
-      drawControllerBadge(ctx, bounds, controllerLabel, uiZoom, readabilityScale)
+      drawControllerBadge(
+        ctx,
+        bounds,
+        controllerLabel,
+        uiZoom,
+        readabilityScale,
+        isOutdoorMode ? "outdoor" : "indoor",
+      )
     }
 
     ctx.fillStyle = palette.labelSecondary
@@ -1699,11 +1997,33 @@ export function drawOverview(ctx: CanvasRenderingContext2D, layout: LayoutData, 
       const receiverLabel = getReceiverCardLabel(layout, cabinet)
       if (!receiverLabel) return
       const cardCount = getCabinetReceiverCardCount(cabinet)
-      const rects = getReceiverCardRects(bounds, uiZoom, cardCount, readabilityScale)
+      const rects = getReceiverCardRects(
+        bounds,
+        uiZoom,
+        cardCount,
+        readabilityScale,
+        isOutdoorMode ? "outdoor" : "indoor",
+      )
       rects.forEach((rect) => {
-        drawReceiverCard(ctx, rect, receiverLabel, uiZoom, palette, readabilityScale)
+        drawReceiverCard(
+          ctx,
+          rect,
+          receiverLabel,
+          uiZoom,
+          palette,
+          readabilityScale,
+          isOutdoorMode ? "outdoor" : "indoor",
+        )
         drawPowerAnchorDot(ctx, rect, bounds, uiZoom, "#f97316", readabilityScale)
       })
+      drawCabinetPowerInOut(
+        ctx,
+        bounds,
+        rects,
+        uiZoom,
+        readabilityScale,
+        isOutdoorMode ? "outdoor" : "indoor",
+      )
     })
   }
 
@@ -1831,7 +2151,15 @@ export function drawOverview(ctx: CanvasRenderingContext2D, layout: LayoutData, 
         (powerLabelBottom ?? -Infinity) + clearance,
       )
       const controllerLabel = layout.project.controllerLabel?.trim() || layout.project.controller
-      drawControllerPorts(ctx, controllerLabel, layout, uiZoom, controllerMinY, readabilityScale)
+      drawControllerPorts(
+        ctx,
+        controllerLabel,
+        layout,
+        uiZoom,
+        controllerMinY,
+        readabilityScale,
+        isOutdoorMode ? "outdoor" : "indoor",
+      )
     }
   }
 

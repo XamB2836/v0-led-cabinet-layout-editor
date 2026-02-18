@@ -3,11 +3,12 @@
 import type React from "react"
 
 import { createContext, useContext, useReducer, useCallback, useEffect, useRef, type ReactNode } from "react"
-import type { Cabinet, CabinetType, LayoutData, EditorState, DataRoute, PowerFeed, RoutingMode } from "./types"
+import type { Cabinet, CabinetType, LayoutData, EditorState, DataRoute, PowerFeed, ProjectMode, RoutingMode } from "./types"
 import { DEFAULT_LAYOUT } from "./types"
 import { normalizeLayout } from "./layout-io"
 import { decodeLayoutFromUrlParam } from "./layout-url"
 import { decryptLayoutFromUrl } from "./layout-crypto"
+import { coerceModeModuleSize, coerceModePitch, getModeCabinetTypes } from "./modes"
 
 type EditorAction =
   | { type: "SET_LAYOUT"; payload: LayoutData }
@@ -23,6 +24,7 @@ type EditorAction =
   | { type: "DUPLICATE_CABINET"; payload: string }
   | { type: "ADD_CABINET_TYPE"; payload: CabinetType }
   | { type: "DELETE_CABINET_TYPE"; payload: string }
+  | { type: "SET_PROJECT_MODE"; payload: ProjectMode }
   | { type: "UPDATE_PROJECT"; payload: Partial<LayoutData["project"]> }
   | { type: "UPDATE_OVERVIEW"; payload: Partial<LayoutData["project"]["overview"]> }
   | { type: "UPDATE_EXPORT_SETTINGS"; payload: Partial<LayoutData["project"]["exportSettings"]> }
@@ -148,16 +150,24 @@ function editorReducer(state: EditorState, action: EditorAction): EditorState {
       }
     }
 
-    case "UPDATE_CABINET":
+    case "UPDATE_CABINET": {
+      const nextCabinets = state.layout.cabinets.map((c) =>
+        c.id === action.payload.id
+          ? {
+              ...c,
+              ...action.payload.updates,
+              ...((state.layout.project.mode ?? "indoor") === "outdoor" ? { rot_deg: 0 as const } : {}),
+            }
+          : c,
+      )
       return {
         ...state,
         layout: {
           ...state.layout,
-          cabinets: state.layout.cabinets.map((c) =>
-            c.id === action.payload.id ? { ...c, ...action.payload.updates } : c,
-          ),
+          cabinets: nextCabinets,
         },
       }
+    }
 
     case "UPDATE_CABINETS": {
       if (action.payload.length === 0) return state
@@ -168,13 +178,19 @@ function editorReducer(state: EditorState, action: EditorAction): EditorState {
           ...state.layout,
           cabinets: state.layout.cabinets.map((c) => {
             const updates = updatesById.get(c.id)
-            return updates ? { ...c, ...updates } : c
+            if (!updates) return c
+            return {
+              ...c,
+              ...updates,
+              ...((state.layout.project.mode ?? "indoor") === "outdoor" ? { rot_deg: 0 as const } : {}),
+            }
           }),
         },
       }
     }
 
     case "ROTATE_CABINETS_AS_BLOCK": {
+      if ((state.layout.project.mode ?? "indoor") === "outdoor") return state
       const selected = Array.from(new Set(action.payload))
         .map((id) => state.layout.cabinets.find((c) => c.id === id))
         .filter((cabinet): cabinet is Cabinet => !!cabinet)
@@ -262,8 +278,14 @@ function editorReducer(state: EditorState, action: EditorAction): EditorState {
       const isControllerCabinet =
         state.layout.project.controllerPlacement === "cabinet" &&
         state.layout.project.controllerCabinetId === action.payload
+      const isOutdoorMode = (state.layout.project.mode ?? "indoor") === "outdoor"
+      const fallbackPlacement: "cabinet" | "external" = isOutdoorMode ? "cabinet" : "external"
       const nextProject = isControllerCabinet
-        ? { ...state.layout.project, controllerPlacement: "external", controllerCabinetId: undefined }
+        ? {
+            ...state.layout.project,
+            controllerPlacement: fallbackPlacement,
+            controllerCabinetId: undefined,
+          }
         : state.layout.project
       return {
         ...state,
@@ -311,6 +333,7 @@ function editorReducer(state: EditorState, action: EditorAction): EditorState {
     }
 
     case "ADD_CABINET_TYPE":
+      if ((state.layout.project.mode ?? "indoor") === "outdoor") return state
       return {
         ...state,
         layout: {
@@ -320,6 +343,7 @@ function editorReducer(state: EditorState, action: EditorAction): EditorState {
       }
 
     case "DELETE_CABINET_TYPE":
+      if ((state.layout.project.mode ?? "indoor") === "outdoor") return state
       return {
         ...state,
         layout: {
@@ -328,26 +352,72 @@ function editorReducer(state: EditorState, action: EditorAction): EditorState {
         },
       }
 
-    case "UPDATE_PROJECT":
+    case "SET_PROJECT_MODE": {
+      const mode = action.payload
+      if ((state.layout.project.mode ?? "indoor") === mode) return state
+
+      const modeTypes = getModeCabinetTypes(mode)
+      const nextControllerPlacement: "cabinet" | "external" = mode === "outdoor" ? "cabinet" : "external"
+      const baseLayout = normalizeLayout({
+        ...DEFAULT_LAYOUT,
+        project: {
+          ...DEFAULT_LAYOUT.project,
+          mode,
+          // Keep project identity fields while resetting the design.
+          name: state.layout.project.name,
+          client: state.layout.project.client,
+          controllerPlacement: nextControllerPlacement,
+          controllerCabinetId: undefined,
+        },
+        cabinetTypes: modeTypes,
+        cabinets: [],
+      })
+
+      return {
+        ...state,
+        layout: baseLayout,
+        selectedCabinetId: null,
+        selectedCabinetIds: [],
+        routingMode: { type: "none" },
+      }
+    }
+
+    case "UPDATE_PROJECT": {
+      const nextProject = { ...state.layout.project, ...action.payload }
+      const mode = nextProject.mode ?? "indoor"
+      const coercedPitch = coerceModePitch(mode, nextProject.pitch_mm, nextProject.pitch_is_gob)
+      const normalizedProject = {
+        ...nextProject,
+        pitch_mm: coercedPitch.pitch_mm,
+        pitch_is_gob: coercedPitch.pitch_is_gob,
+      }
       return {
         ...state,
         layout: {
           ...state.layout,
-          project: { ...state.layout.project, ...action.payload },
+          project: normalizedProject,
         },
       }
+    }
 
-    case "UPDATE_OVERVIEW":
+    case "UPDATE_OVERVIEW": {
+      const mode = state.layout.project.mode ?? "indoor"
+      const nextOverview = { ...state.layout.project.overview, ...action.payload }
+      const normalizedOverview = {
+        ...nextOverview,
+        moduleSize: coerceModeModuleSize(mode, nextOverview.moduleSize),
+      }
       return {
         ...state,
         layout: {
           ...state.layout,
           project: {
             ...state.layout.project,
-            overview: { ...state.layout.project.overview, ...action.payload },
+            overview: normalizedOverview,
           },
         },
       }
+    }
 
     case "UPDATE_EXPORT_SETTINGS":
       return {

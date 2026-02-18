@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react"
 import { useEditor } from "@/lib/editor-context"
-import { DEFAULT_LAYOUT } from "@/lib/types"
+import { DEFAULT_LAYOUT, type ModuleSize } from "@/lib/types"
+import { coerceModeModuleSize, getModeModuleSizeOptions } from "@/lib/modes"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
@@ -20,11 +21,15 @@ export function OverviewSettings() {
   const { state, dispatch } = useEditor()
   const { layout } = state
   const { overview, exportSettings } = layout.project
+  const mode = layout.project.mode ?? "indoor"
   const mappingDefaults = DEFAULT_LAYOUT.project.overview.mappingNumbers
   const mappingNumbers = overview?.mappingNumbers ?? mappingDefaults
   const showMappingNumbers = mappingNumbers?.show ?? false
   const gridLabelAxis = overview?.gridLabelAxis ?? "columns"
   const numberOfDisplays = Math.max(1, overview?.numberOfDisplays ?? 1)
+  const moduleSizeOptions = getModeModuleSizeOptions(mode)
+  const selectedModuleSize = coerceModeModuleSize(mode, overview?.moduleSize)
+  const isModuleOrientationEnabled = selectedModuleSize !== "320x320"
   const labelSequenceValue = mappingNumbers.labels?.join(", ") ?? ""
   const [labelSequenceDraft, setLabelSequenceDraft] = useState(labelSequenceValue)
 
@@ -176,17 +181,20 @@ export function OverviewSettings() {
           <div className="space-y-1.5">
             <Label className="text-xs">Module Size</Label>
             <Select
-              value={overview?.moduleSize || "320x160"}
-              onValueChange={(value: "320x160" | "160x160") =>
+              value={selectedModuleSize}
+              onValueChange={(value: ModuleSize) =>
                 dispatch({ type: "UPDATE_OVERVIEW", payload: { moduleSize: value } })
               }
             >
-              <SelectTrigger className="h-8 bg-input text-sm">
+              <SelectTrigger className="h-8 bg-input text-sm" disabled={moduleSizeOptions.length === 1}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="320x160">320 x 160 mm</SelectItem>
-                <SelectItem value="160x160">160 x 160 mm</SelectItem>
+                {moduleSizeOptions.map((value) => (
+                  <SelectItem key={value} value={value}>
+                    {value.replace("x", " x ")} mm
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
@@ -198,7 +206,7 @@ export function OverviewSettings() {
                 dispatch({ type: "UPDATE_OVERVIEW", payload: { moduleOrientation: value } })
               }
             >
-              <SelectTrigger className="h-8 bg-input text-sm">
+              <SelectTrigger className="h-8 bg-input text-sm" disabled={!isModuleOrientationEnabled}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -209,7 +217,9 @@ export function OverviewSettings() {
           </div>
         </div>
         <p className="text-xs text-muted-foreground">
-          Module grid helps technicians align tile orientation and seams.
+          {mode === "outdoor"
+            ? "Outdoor uses 320 x 320 modules."
+            : "Module grid helps technicians align tile orientation and seams."}
         </p>
       </div>
 

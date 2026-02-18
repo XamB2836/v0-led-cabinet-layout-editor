@@ -19,6 +19,8 @@ import { getEffectivePitchMm } from "@/lib/pitch-utils"
 import { DEFAULT_RECEIVER_CARD_MODEL } from "@/lib/receiver-cards"
 import { findRouteIdForEndpoint, getMappingNumberLabelMap } from "@/lib/mapping-numbers"
 import { getOverviewReadabilityScale } from "@/lib/overview-utils"
+import { getOrientedModuleSize } from "@/lib/module-utils"
+import { resolveControllerCabinetId } from "@/lib/controller-utils"
 import { Button } from "@/components/ui/button"
 import { ZoomIn, ZoomOut, Maximize, Ruler } from "lucide-react"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
@@ -196,19 +198,33 @@ type ReceiverCardRect = {
   connectorY: number
 }
 
+type ReceiverCardVariant = "indoor" | "outdoor"
+
 function getReceiverCardRect(
   bounds: { x: number; y: number; width: number; height: number },
   zoom: number,
   heightFraction = 0.28,
+  variant: ReceiverCardVariant = "indoor",
 ): ReceiverCardRect {
-  const maxWidth = Math.min(84 / zoom, bounds.width * 0.65)
-  const minWidth = Math.min(40 / zoom, maxWidth)
-  const maxHeight = Math.min(18 / zoom, bounds.height * heightFraction)
-  const minHeight = Math.min(12 / zoom, maxHeight)
-  const cardWidth = Math.min(maxWidth, Math.max(minWidth, bounds.width * 0.7))
-  const cardHeight = Math.min(maxHeight, Math.max(minHeight, bounds.height * 0.2))
+  const maxWidth = variant === "outdoor" ? Math.min(68 / zoom, bounds.width * 0.55) : Math.min(84 / zoom, bounds.width * 0.65)
+  const minWidth = variant === "outdoor" ? Math.min(30 / zoom, maxWidth) : Math.min(40 / zoom, maxWidth)
+  const maxHeight =
+    variant === "outdoor"
+      ? Math.min(29 / zoom, bounds.height * (heightFraction + 0.11))
+      : Math.min(18 / zoom, bounds.height * heightFraction)
+  const minHeight = variant === "outdoor" ? Math.min(16.5 / zoom, maxHeight) : Math.min(12 / zoom, maxHeight)
+  const cardWidth = variant === "outdoor"
+    ? Math.min(maxWidth, Math.max(minWidth, bounds.width * 0.42))
+    : Math.min(maxWidth, Math.max(minWidth, bounds.width * 0.7))
+  const cardHeight = variant === "outdoor"
+    ? Math.min(maxHeight, Math.max(minHeight, bounds.height * 0.297))
+    : Math.min(maxHeight, Math.max(minHeight, bounds.height * 0.2))
   const cardX = bounds.x + bounds.width / 2 - cardWidth / 2
-  const cardY = bounds.y + bounds.height / 2 - cardHeight / 2
+  const cardCenterY =
+    variant === "outdoor"
+      ? bounds.y + Math.min(160, bounds.height / 2)
+      : bounds.y + bounds.height / 2
+  const cardY = cardCenterY - cardHeight / 2
   const connectorX = cardX + cardWidth / 2
   const connectorY = cardY + cardHeight + 6 / zoom
 
@@ -228,15 +244,20 @@ function getReceiverCardRects(
   bounds: { x: number; y: number; width: number; height: number } | null,
   zoom: number,
   count: 0 | 1 | 2,
+  variant: ReceiverCardVariant = "indoor",
 ): ReceiverCardRect[] {
   if (!bounds || count <= 0) return []
   const heightFraction = count === 2 ? 0.2 : 0.26
-  const base = getReceiverCardRect(bounds, zoom, heightFraction)
+  const base = getReceiverCardRect(bounds, zoom, heightFraction, variant)
   if (count === 1) return [base]
 
   const gap = Math.min(10 / zoom, base.height)
   const totalHeight = base.height * 2 + gap
-  const startY = bounds.y + bounds.height / 2 - totalHeight / 2
+  const targetCenterY =
+    variant === "outdoor"
+      ? bounds.y + Math.min(160, bounds.height / 2)
+      : bounds.y + bounds.height / 2
+  const startY = targetCenterY - totalHeight / 2
   const cardX = base.x
   const connectorOffset = 6 / zoom
 
@@ -268,9 +289,10 @@ function getReceiverCardIndexAtPoint(
   count: 0 | 1 | 2,
   pointX: number,
   pointY: number,
+  variant: ReceiverCardVariant = "indoor",
 ): number | null {
   if (!bounds) return null
-  const rects = getReceiverCardRects(bounds, zoom, count)
+  const rects = getReceiverCardRects(bounds, zoom, count, variant)
   if (rects.length === 0) return null
   const hitIndex = rects.findIndex(
     (rect) => pointX >= rect.x && pointX <= rect.x + rect.width && pointY >= rect.y && pointY <= rect.y + rect.height,
@@ -342,6 +364,7 @@ function getRouteStepPosition(
   cabinets: Cabinet[],
   cabinetTypes: CabinetType[],
   zoom: number,
+  cardVariant: ReceiverCardVariant = "indoor",
 ): { x: number; y: number } | null {
   if (step.type === "point") return { x: step.x_mm, y: step.y_mm }
   const { cabinetId, cardIndex } = parseRouteCabinetId(step.endpointId)
@@ -349,7 +372,7 @@ function getRouteStepPosition(
   if (!cabinet) return null
   const bounds = getCabinetBounds(cabinet, cabinetTypes)
   if (!bounds) return null
-  const anchor = getCabinetDataAnchorPoint(cabinet, bounds, zoom, cardIndex)
+  const anchor = getCabinetDataAnchorPoint(cabinet, bounds, zoom, cardIndex, cardVariant)
   return { x: anchor.x, y: anchor.y }
 }
 
@@ -358,6 +381,7 @@ function getPowerStepPosition(
   cabinets: Cabinet[],
   cabinetTypes: CabinetType[],
   zoom: number,
+  cardVariant: ReceiverCardVariant = "indoor",
 ): { x: number; y: number } | null {
   if (step.type === "point") return { x: step.x_mm, y: step.y_mm }
   const cabinet = cabinets.find((c) => c.id === step.endpointId)
@@ -367,7 +391,7 @@ function getPowerStepPosition(
   const layoutBounds = getLayoutBoundsFromCabinets(cabinets, cabinetTypes)
   const layoutMidY = layoutBounds ? (layoutBounds.minY + layoutBounds.maxY) / 2 : bounds.y + bounds.height / 2
   const cardCount = getCabinetReceiverCardCount(cabinet)
-  const rects = getReceiverCardRects(bounds, zoom, cardCount)
+  const rects = getReceiverCardRects(bounds, zoom, cardCount, cardVariant)
   if (rects.length === 0) {
     return { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 }
   }
@@ -407,10 +431,11 @@ function getCabinetDataAnchorPoint(
   bounds: { x: number; y: number; width: number; height: number },
   zoom: number,
   cardIndex?: number,
+  cardVariant: ReceiverCardVariant = "indoor",
 ): { x: number; y: number; resolvedIndex?: number; cardCount: 0 | 1 | 2; isVirtual: boolean } {
   const cardCount = getCabinetReceiverCardCount(cabinet)
   if (cardCount > 0) {
-    const rects = getReceiverCardRects(bounds, zoom, cardCount)
+    const rects = getReceiverCardRects(bounds, zoom, cardCount, cardVariant)
     const resolvedIndex = cardIndex === undefined ? 0 : Math.max(0, Math.min(rects.length - 1, cardIndex))
     const anchorRect = rects[resolvedIndex]
     if (anchorRect) {
@@ -473,6 +498,90 @@ function drawPowerAnchorDot(
   ctx.fill()
 }
 
+function getOutdoorCabinetPowerPorts(
+  bounds: { x: number; y: number; width: number; height: number },
+  cardRects: ReceiverCardRect[],
+  zoom: number,
+) {
+  const cardBottom =
+    cardRects.length > 0
+      ? cardRects.reduce((maxBottom, rect) => Math.max(maxBottom, rect.y + rect.height), Number.NEGATIVE_INFINITY)
+      : bounds.y + bounds.height * 0.34
+  const minRequiredHeight = 20 / zoom
+  const maxBarY = bounds.y + bounds.height - minRequiredHeight
+  const minBarY = cardBottom + 6 / zoom
+  if (!Number.isFinite(maxBarY) || maxBarY <= bounds.y + 2 / zoom) return null
+
+  const barY = Math.min(minBarY, maxBarY)
+  const centerX = bounds.x + bounds.width / 2
+  const barWidth = Math.min(bounds.width * 0.56, 84 / zoom)
+  const inX = centerX - barWidth * 0.24
+  const outX = centerX + barWidth * 0.24
+  const stemTopY = barY + 1.2 / zoom
+  const stemBottomY = stemTopY + Math.max(5.5 / zoom, bounds.height * 0.042)
+  const arrowHalfWidth = Math.max(1.6 / zoom, 0.13 * (stemBottomY - stemTopY))
+  const labelY = stemBottomY + Math.max(4.8 / zoom, bounds.height * 0.032)
+  const labelSize = Math.max(5.5 / zoom, 7 / zoom)
+
+  return {
+    barY,
+    barLeftX: centerX - barWidth / 2,
+    barRightX: centerX + barWidth / 2,
+    stemTopY,
+    stemBottomY,
+    arrowHalfWidth,
+    labelY,
+    labelSize,
+    in: { x: inX, y: stemBottomY },
+    out: { x: outX, y: stemBottomY },
+  }
+}
+
+function drawCabinetPowerInOut(
+  ctx: CanvasRenderingContext2D,
+  bounds: { x: number; y: number; width: number; height: number },
+  cardRects: ReceiverCardRect[],
+  zoom: number,
+  variant: ReceiverCardVariant = "indoor",
+) {
+  if (variant !== "outdoor" || cardRects.length === 0) return
+
+  const ports = getOutdoorCabinetPowerPorts(bounds, cardRects, zoom)
+  if (!ports) return
+
+  ctx.save()
+  ctx.strokeStyle = "#111827"
+  ctx.lineWidth = Math.max(1.8 / zoom, 1.2 / zoom)
+  ctx.beginPath()
+  ctx.moveTo(ports.barLeftX, ports.barY)
+  ctx.lineTo(ports.barRightX, ports.barY)
+  ctx.stroke()
+
+  ctx.strokeStyle = "#f97316"
+  ctx.fillStyle = "#f97316"
+  ctx.lineWidth = Math.max(1.5 / zoom, 1 / zoom)
+  ;[ports.in.x, ports.out.x].forEach((x) => {
+    ctx.beginPath()
+    ctx.moveTo(x, ports.stemBottomY)
+    ctx.lineTo(x, ports.stemTopY)
+    ctx.stroke()
+
+    ctx.beginPath()
+    ctx.moveTo(x, ports.stemTopY - 2.2 / zoom)
+    ctx.lineTo(x - ports.arrowHalfWidth, ports.stemTopY + 1 / zoom)
+    ctx.lineTo(x + ports.arrowHalfWidth, ports.stemTopY + 1 / zoom)
+    ctx.closePath()
+    ctx.fill()
+  })
+
+  ctx.font = `700 ${ports.labelSize}px Inter, sans-serif`
+  ctx.textAlign = "center"
+  ctx.textBaseline = "top"
+  ctx.fillText("IN", ports.in.x, ports.labelY)
+  ctx.fillText("OUT", ports.out.x, ports.labelY)
+  ctx.restore()
+}
+
 function fitTextToWidth(
   ctx: CanvasRenderingContext2D,
   text: string,
@@ -492,8 +601,55 @@ function drawReceiverCard(
   rect: ReceiverCardRect,
   model: string,
   zoom: number,
+  options?: {
+    variant?: "indoor" | "outdoor"
+  },
 ) {
   const { x, y, width, height, centerX, centerY, connectorX, connectorY } = rect
+  const variant = options?.variant ?? "indoor"
+
+  if (variant === "outdoor") {
+    const bodyH = Math.max(13 / zoom, height * 0.97)
+    const bodyW = Math.min(width * 0.72, bodyH * 1.45)
+    const bodyX = centerX - bodyW / 2
+    const bodyY = centerY - bodyH / 2
+
+    const stroke = Math.max(0.9 / zoom, 0.7 / zoom)
+    const portW = Math.max(5 / zoom, bodyW * 0.16)
+    const portH = Math.max(3 / zoom, bodyH * 0.16)
+    const portGap = Math.max(3 / zoom, bodyH * 0.3)
+    const portX = bodyX - portW * 0.9
+    const topPortY = centerY - portGap / 2 - portH
+    const bottomPortY = centerY + portGap / 2
+
+    ctx.save()
+    ctx.shadowColor = "rgba(2, 6, 23, 0.55)"
+    ctx.shadowBlur = 4 / zoom
+    ctx.shadowOffsetY = 1 / zoom
+    ctx.fillStyle = "#0b1220"
+    ctx.fillRect(bodyX, bodyY, bodyW, bodyH)
+    ctx.restore()
+
+    ctx.strokeStyle = "#1f2a44"
+    ctx.lineWidth = stroke
+    ctx.strokeRect(bodyX, bodyY, bodyW, bodyH)
+
+    ctx.fillStyle = "#0f172a"
+    ctx.fillRect(bodyX + 1 / zoom, bodyY + 1 / zoom, bodyW - 2 / zoom, Math.max(1.5 / zoom, bodyH * 0.08))
+
+    ctx.fillStyle = "#94a3b8"
+    ctx.fillRect(portX, topPortY, portW, portH)
+    ctx.fillRect(portX, bottomPortY, portW, portH)
+
+    const labelSize = Math.max(6 / zoom, bodyH * 0.28)
+    ctx.fillStyle = "#e2e8f0"
+    ctx.font = `bold ${labelSize}px Inter, sans-serif`
+    ctx.textAlign = "center"
+    ctx.textBaseline = "middle"
+    ctx.fillText("I5", centerX, centerY)
+    return
+  }
+
   const baseFontSize = Math.min(8 / zoom, height * 0.75)
   const minFontSize = 5 / zoom
   const padding = 4 / zoom
@@ -735,7 +891,59 @@ function drawControllerBadge(
   bounds: { x: number; y: number; width: number; height: number },
   label: string,
   zoom: number,
+  mode: "indoor" | "outdoor" = "indoor",
 ) {
+  if (mode === "outdoor") {
+    const inset = 6 / zoom
+    const title = "LV BOX"
+    const items = [label, "PI", "SWITCH", "ANTENNA"]
+    const boxWidth = Math.max(78 / zoom, Math.min(bounds.width - inset * 2, bounds.width * 0.5))
+    const boxHeight = Math.max(40 / zoom, Math.min(bounds.height - inset * 2, bounds.height * 0.33))
+    const boxX = bounds.x + bounds.width - boxWidth - inset
+    const boxY = bounds.y + bounds.height - boxHeight - inset
+    const titleBandHeight = Math.max(8 / zoom, boxHeight * 0.2)
+    const listPadding = Math.max(4 / zoom, boxWidth * 0.08)
+    const listTop = boxY + titleBandHeight + Math.max(2 / zoom, boxHeight * 0.03)
+    const listBottom = boxY + boxHeight - Math.max(3 / zoom, boxHeight * 0.07)
+    const itemStep = (listBottom - listTop) / items.length
+    const titleFontSize = Math.max(6 / zoom, titleBandHeight * 0.45)
+    const itemFontSize = Math.max(5.5 / zoom, itemStep * 0.55)
+
+    ctx.save()
+    ctx.shadowColor = "rgba(2, 6, 23, 0.45)"
+    ctx.shadowBlur = 4 / zoom
+    ctx.shadowOffsetY = 1 / zoom
+    ctx.fillStyle = "#0b1220"
+    ctx.strokeStyle = "#1f2a44"
+    ctx.lineWidth = Math.max(1.1 / zoom, 0.8 / zoom)
+    ctx.fillRect(boxX, boxY, boxWidth, boxHeight)
+    ctx.restore()
+
+    ctx.strokeStyle = "#1f2a44"
+    ctx.lineWidth = Math.max(1.1 / zoom, 0.8 / zoom)
+    ctx.strokeRect(boxX, boxY, boxWidth, boxHeight)
+    ctx.strokeStyle = "#334155"
+    ctx.lineWidth = Math.max(0.8 / zoom, 0.6 / zoom)
+    ctx.beginPath()
+    ctx.moveTo(boxX + listPadding, boxY + titleBandHeight)
+    ctx.lineTo(boxX + boxWidth - listPadding, boxY + titleBandHeight)
+    ctx.stroke()
+
+    ctx.fillStyle = "#38bdf8"
+    ctx.font = `700 ${titleFontSize}px Inter, sans-serif`
+    ctx.textAlign = "left"
+    ctx.textBaseline = "middle"
+    ctx.fillText(title, boxX + listPadding, boxY + titleBandHeight / 2)
+
+    ctx.fillStyle = "#e2e8f0"
+    ctx.font = `600 ${itemFontSize}px Inter, sans-serif`
+    items.forEach((item, index) => {
+      const textY = listTop + itemStep * (index + 0.5)
+      ctx.fillText(`- ${item}`, boxX + listPadding, textY)
+    })
+    return
+  }
+
   const fontSize = Math.max(9, 10 / zoom)
   const paddingX = 6 / zoom
   const paddingY = 3 / zoom
@@ -796,6 +1004,7 @@ function drawDataRoutes(
   forcePortLabelsBottom: boolean,
   pitchMm: number,
   activeRouteId?: string,
+  cardVariant: ReceiverCardVariant = "indoor",
 ) {
   const lineWidth = scaledWorldSize(5, zoom, 3, 9)
   const outlineWidth = lineWidth + scaledWorldSize(3, zoom, 2, 6)
@@ -865,7 +1074,7 @@ function drawDataRoutes(
       if (!cabinet) return
       const bounds = getCabinetBounds(cabinet, cabinetTypes)
       if (!bounds) return
-      const anchor = getCabinetDataAnchorPoint(cabinet, bounds, zoom, cardIndex)
+      const anchor = getCabinetDataAnchorPoint(cabinet, bounds, zoom, cardIndex, cardVariant)
       const hasReceiverCard =
         anchor.cardCount > 0 &&
         showReceiverCards &&
@@ -1084,6 +1293,7 @@ function drawPowerFeeds(
   dataRoutes: DataRoute[] | undefined,
   forcePortLabelsBottom: boolean,
   activeFeedId?: string,
+  cardVariant: ReceiverCardVariant = "indoor",
 ) {
   const lineWidth = scaledWorldSize(5.5, zoom, 3, 9.5)
   const outlineWidth = lineWidth + scaledWorldSize(3, zoom, 2, 6)
@@ -1136,7 +1346,7 @@ function drawPowerFeeds(
       if (!cabinet) return
       const bounds = getCabinetBounds(cabinet, cabinetTypes)
       if (!bounds) return
-      const anchorPoint = getCabinetDataAnchorPoint(cabinet, bounds, zoom, cardIndex)
+      const anchorPoint = getCabinetDataAnchorPoint(cabinet, bounds, zoom, cardIndex, cardVariant)
       const anchor = { connectorX: anchorPoint.x, connectorY: anchorPoint.y }
 
       const labelText = `Port ${route.port}`
@@ -1212,13 +1422,41 @@ function drawPowerFeeds(
   const bottomPlans: { id: string; desiredX: number; width: number }[] = []
   const topPlans: { id: string; desiredX: number; width: number }[] = []
 
-  powerFeeds.forEach((feed) => {
-    if (feed.assignedCabinetIds.length === 0) return
-    const feedSteps = getPowerSteps(feed)
-    const points: { x: number; y: number }[] = []
+  type FeedPoint = {
+    x: number
+    y: number
+    bounds: NonNullable<ReturnType<typeof getCabinetBounds>> | null
+    cardRect?: ReceiverCardRect
+  }
+
+  const buildFeedPoints = (feedSteps: DataRouteStep[], useManualSteps: boolean) => {
+    const points: FeedPoint[] = []
+    const manualPoints: { x: number; y: number }[] = []
+    const useOutdoorChaining = cardVariant === "outdoor" && !useManualSteps
+
+    if (useOutdoorChaining) {
+      const cabinetSteps = feedSteps.filter((step): step is Extract<DataRouteStep, { type: "cabinet" }> => step.type === "cabinet")
+      cabinetSteps.forEach((step) => {
+        const cabinet = cabinets.find((c) => c.id === step.endpointId)
+        if (!cabinet) return
+        const bounds = getCabinetBounds(cabinet, cabinetTypes)
+        if (!bounds) return
+        const cardCount = getCabinetReceiverCardCount(cabinet)
+        const rects = getReceiverCardRects(bounds, zoom, cardCount, cardVariant)
+        const ports = getOutdoorCabinetPowerPorts(bounds, rects, zoom)
+        if (!ports) return
+
+        points.push({ x: ports.in.x, y: ports.in.y, bounds, cardRect: rects[0] })
+        points.push({ x: ports.out.x, y: ports.out.y, bounds, cardRect: rects[0] })
+      })
+
+      return { points, manualPoints, useOutdoorChaining }
+    }
+
     feedSteps.forEach((step) => {
       if (step.type === "point") {
-        points.push({ x: step.x_mm, y: step.y_mm })
+        points.push({ x: step.x_mm, y: step.y_mm, bounds: null })
+        manualPoints.push({ x: step.x_mm, y: step.y_mm })
         return
       }
       const cabinet = cabinets.find((c) => c.id === step.endpointId)
@@ -1226,18 +1464,32 @@ function drawPowerFeeds(
       const bounds = getCabinetBounds(cabinet, cabinetTypes)
       if (!bounds) return
       const cardCount = getCabinetReceiverCardCount(cabinet)
-      const rects = getReceiverCardRects(bounds, zoom, cardCount)
+      const rects = getReceiverCardRects(bounds, zoom, cardCount, cardVariant)
       let anchorX = bounds.x + bounds.width / 2
       let anchorY = bounds.y + bounds.height / 2
+      let anchorRect: ReceiverCardRect | undefined
       if (rects.length > 0) {
-        const anchorRect =
-          rects.length === 1 ? rects[0] : bounds.y + bounds.height / 2 > layoutMidY ? rects[1] : rects[0]
+        anchorRect = rects.length === 1 ? rects[0] : bounds.y + bounds.height / 2 > layoutMidY ? rects[1] : rects[0]
         const anchor = getPowerAnchorPoint(anchorRect, bounds, zoom)
         anchorX = anchor.x
         anchorY = anchor.y
       }
-      points.push({ x: anchorX, y: anchorY })
+      points.push({
+        x: anchorX,
+        y: anchorY,
+        bounds,
+        cardRect: anchorRect,
+      })
     })
+
+    return { points, manualPoints, useOutdoorChaining }
+  }
+
+  powerFeeds.forEach((feed) => {
+    if (feed.assignedCabinetIds.length === 0) return
+    const feedSteps = getPowerSteps(feed)
+    const useManualSteps = !!(feed.manualMode && feed.steps && feed.steps.length > 0)
+    const { points } = buildFeedPoints(feedSteps, useManualSteps)
     if (points.length === 0) return
 
     ctx.font = `bold ${fontSize}px Inter, sans-serif`
@@ -1272,42 +1524,8 @@ function drawPowerFeeds(
     ctx.lineJoin = "round"
 
     const feedSteps = getPowerSteps(feed)
-    const useManualSteps = feed.manualMode && feed.steps && feed.steps.length > 0
-    const points: {
-      x: number
-      y: number
-      bounds: NonNullable<ReturnType<typeof getCabinetBounds>> | null
-      cardRect?: ReceiverCardRect
-    }[] = []
-    const manualPoints: { x: number; y: number }[] = []
-    feedSteps.forEach((step) => {
-      if (step.type === "point") {
-        points.push({ x: step.x_mm, y: step.y_mm, bounds: null })
-        manualPoints.push({ x: step.x_mm, y: step.y_mm })
-        return
-      }
-      const cabinet = cabinets.find((c) => c.id === step.endpointId)
-      if (!cabinet) return
-      const bounds = getCabinetBounds(cabinet, cabinetTypes)
-      if (!bounds) return
-      const cardCount = getCabinetReceiverCardCount(cabinet)
-      const rects = getReceiverCardRects(bounds, zoom, cardCount)
-      let anchorX = bounds.x + bounds.width / 2
-      let anchorY = bounds.y + bounds.height / 2
-      let anchorRect: ReceiverCardRect | undefined
-      if (rects.length > 0) {
-        anchorRect = rects.length === 1 ? rects[0] : bounds.y + bounds.height / 2 > layoutMidY ? rects[1] : rects[0]
-        const anchor = getPowerAnchorPoint(anchorRect, bounds, zoom)
-        anchorX = anchor.x
-        anchorY = anchor.y
-      }
-      points.push({
-        x: anchorX,
-        y: anchorY,
-        bounds,
-        cardRect: anchorRect,
-      })
-    })
+    const useManualSteps = !!(feed.manualMode && feed.steps && feed.steps.length > 0)
+    const { points, manualPoints, useOutdoorChaining } = buildFeedPoints(feedSteps, useManualSteps)
 
     if (points.length === 0) {
       ctx.restore()
@@ -1478,7 +1696,7 @@ function drawPowerFeeds(
       drawFeedConnections(lineColor, lineWidth)
     }
 
-    if (points.length > 0) {
+    if (points.length > 0 && !useOutdoorChaining) {
       const lastPoint = points[points.length - 1]
       const secondLast =
         points.length > 1 ? points[points.length - 2] : { x: labelLineX, y: labelLineY }
@@ -1583,11 +1801,63 @@ function drawControllerPorts(
   cabinetTypes: CabinetType[],
   zoom: number,
   minY?: number,
+  mode: "indoor" | "outdoor" = "indoor",
 ) {
   const layoutBounds = getLayoutBoundsFromCabinets(cabinets, cabinetTypes)
   if (!layoutBounds) return
 
   const { minX, maxX, maxY } = layoutBounds
+
+  if (mode === "outdoor") {
+    const title = "LV BOX"
+    const items = [label, "PI", "SWITCH", "ANTENNA"]
+    const boxWidth = scaledWorldSize(128, zoom, 110, 150)
+    const boxHeight = scaledWorldSize(58, zoom, 46, 74)
+    const boxX = maxX - boxWidth
+    const baseY = maxY + scaledWorldSize(100, zoom, 70, 160)
+    const boxY = Math.max(baseY, minY ?? baseY)
+    const titleBandHeight = Math.max(10 / zoom, boxHeight * 0.24)
+    const listPadding = Math.max(6 / zoom, boxWidth * 0.08)
+    const listTop = boxY + titleBandHeight + Math.max(2 / zoom, boxHeight * 0.03)
+    const listBottom = boxY + boxHeight - Math.max(3 / zoom, boxHeight * 0.07)
+    const itemStep = (listBottom - listTop) / items.length
+    const titleFontSize = Math.max(7 / zoom, titleBandHeight * 0.46)
+    const itemFontSize = Math.max(6 / zoom, itemStep * 0.56)
+
+    ctx.save()
+    ctx.shadowColor = "rgba(2, 6, 23, 0.45)"
+    ctx.shadowBlur = 4 / zoom
+    ctx.shadowOffsetY = 1 / zoom
+    ctx.fillStyle = "#0b1220"
+    ctx.strokeStyle = "#1f2a44"
+    ctx.lineWidth = Math.max(1.1 / zoom, 0.8 / zoom)
+    ctx.fillRect(boxX, boxY, boxWidth, boxHeight)
+    ctx.restore()
+
+    ctx.strokeStyle = "#1f2a44"
+    ctx.lineWidth = Math.max(1.1 / zoom, 0.8 / zoom)
+    ctx.strokeRect(boxX, boxY, boxWidth, boxHeight)
+    ctx.strokeStyle = "#334155"
+    ctx.lineWidth = Math.max(0.9 / zoom, 0.7 / zoom)
+    ctx.beginPath()
+    ctx.moveTo(boxX + listPadding, boxY + titleBandHeight)
+    ctx.lineTo(boxX + boxWidth - listPadding, boxY + titleBandHeight)
+    ctx.stroke()
+
+    ctx.fillStyle = "#38bdf8"
+    ctx.font = `700 ${titleFontSize}px Inter, sans-serif`
+    ctx.textAlign = "left"
+    ctx.textBaseline = "middle"
+    ctx.fillText(title, boxX + listPadding, boxY + titleBandHeight / 2)
+
+    ctx.fillStyle = "#e2e8f0"
+    ctx.font = `600 ${itemFontSize}px Inter, sans-serif`
+    items.forEach((item, index) => {
+      const textY = listTop + itemStep * (index + 0.5)
+      ctx.fillText(`- ${item}`, boxX + listPadding, textY)
+    })
+    return
+  }
 
   const boxWidth = Math.max(100, 120 / zoom)
   const boxHeight = Math.max(35, 40 / zoom)
@@ -1763,8 +2033,15 @@ export function LayoutCanvas() {
 
     const { overview, dataRoutes, powerFeeds, controller } = layout.project
     const controllerLabel = layout.project.controllerLabel?.trim() || controller
+    const isOutdoorMode = (layout.project.mode ?? "indoor") === "outdoor"
     const controllerPlacement = layout.project.controllerPlacement ?? "external"
-    const controllerCabinetId = layout.project.controllerCabinetId
+    const controllerCabinetId = resolveControllerCabinetId(
+      isOutdoorMode ? "outdoor" : "indoor",
+      controllerPlacement,
+      layout.project.controllerCabinetId,
+      layout.cabinets,
+      layout.cabinetTypes,
+    )
     const controllerCabinet =
       controllerPlacement === "cabinet" && controllerCabinetId
         ? layout.cabinets.find((cabinet) => cabinet.id === controllerCabinetId)
@@ -1775,18 +2052,16 @@ export function LayoutCanvas() {
     const showCabinetLabels = overview?.showCabinetLabels ?? true
     const showReceiverCards = overview?.showReceiverCards ?? true
     const receiverCardModel = overview?.receiverCardModel || DEFAULT_RECEIVER_CARD_MODEL
-      const showDataRoutes = overview?.showDataRoutes ?? true
-      const showPowerRoutes = overview?.showPowerRoutes ?? true
-      const showModuleGrid = overview?.showModuleGrid ?? true
-      const forcePortLabelsBottom = overview?.forcePortLabelsBottom ?? false
-      const mappingNumbers = overview?.mappingNumbers ?? DEFAULT_LAYOUT.project.overview.mappingNumbers
-      const showMappingNumbers = mappingNumbers?.show ?? false
-      const mappingLabelMap = showMappingNumbers ? getMappingNumberLabelMap(layout) : new Map<string, string>()
-      const moduleSize = overview?.moduleSize || "320x160"
-    const moduleOrientation = overview?.moduleOrientation || "portrait"
-    const baseModule = moduleSize === "160x160" ? { width: 160, height: 160 } : { width: 320, height: 160 }
-    const moduleWidth = moduleOrientation === "portrait" ? baseModule.height : baseModule.width
-    const moduleHeight = moduleOrientation === "portrait" ? baseModule.width : baseModule.height
+    const showDataRoutes = overview?.showDataRoutes ?? true
+    const showPowerRoutes = overview?.showPowerRoutes ?? true
+    const showModuleGrid = overview?.showModuleGrid ?? true
+    const forcePortLabelsBottom = overview?.forcePortLabelsBottom ?? false
+    const mappingNumbers = overview?.mappingNumbers ?? DEFAULT_LAYOUT.project.overview.mappingNumbers
+    const showMappingNumbers = mappingNumbers?.show ?? false
+    const mappingLabelMap = showMappingNumbers ? getMappingNumberLabelMap(layout) : new Map<string, string>()
+    const moduleSize = overview?.moduleSize ?? "320x160"
+    const moduleOrientation = overview?.moduleOrientation ?? "portrait"
+    const { moduleWidth, moduleHeight } = getOrientedModuleSize(moduleSize, moduleOrientation)
     const moduleGridBounds = showModuleGrid
       ? getLayoutBoundsFromCabinets(layout.cabinets, layout.cabinetTypes)
       : null
@@ -1882,7 +2157,7 @@ export function LayoutCanvas() {
       }
 
       if (controllerPlacement === "cabinet" && controllerCabinetId === cabinet.id) {
-        drawControllerBadge(ctx, bounds, controllerLabel, uiZoom)
+        drawControllerBadge(ctx, bounds, controllerLabel, uiZoom, isOutdoorMode ? "outdoor" : "indoor")
       }
 
       ctx.fillStyle = "#64748b"
@@ -1898,12 +2173,18 @@ export function LayoutCanvas() {
         const route = layout.project.dataRoutes.find((r) => r.id === routingMode.routeId)
         if (route) {
           const cardCount = getCabinetReceiverCardCount(cabinet)
-          const rects = cardCount > 0 ? getReceiverCardRects(bounds, uiZoom, cardCount) : []
+          const rects = cardCount > 0 ? getReceiverCardRects(bounds, uiZoom, cardCount, isOutdoorMode ? "outdoor" : "indoor") : []
           route.cabinetIds.forEach((endpointId, index) => {
             const { cabinetId, cardIndex } = parseRouteCabinetId(endpointId)
             if (cabinetId !== cabinet.id) return
             const badgeSize = 18 / uiZoom
-            const anchor = getCabinetDataAnchorPoint(cabinet, bounds, uiZoom, cardIndex)
+            const anchor = getCabinetDataAnchorPoint(
+              cabinet,
+              bounds,
+              uiZoom,
+              cardIndex,
+              isOutdoorMode ? "outdoor" : "indoor",
+            )
             const resolvedIndex = anchor.resolvedIndex ?? 0
             const anchorRect = rects[resolvedIndex]
             const badgeX = anchorRect
@@ -1961,6 +2242,7 @@ export function LayoutCanvas() {
         forcePortLabelsBottom,
         layout.project.pitch_mm,
         routingMode.type === "data" ? routingMode.routeId : undefined,
+        isOutdoorMode ? "outdoor" : "indoor",
       )
     }
 
@@ -1975,6 +2257,7 @@ export function LayoutCanvas() {
         dataRoutes,
         forcePortLabelsBottom,
         routingMode.type === "power" ? routingMode.feedId : undefined,
+        isOutdoorMode ? "outdoor" : "indoor",
       )
     }
 
@@ -2003,11 +2286,14 @@ export function LayoutCanvas() {
         const cardModel =
           cabinet.receiverCardOverride === null ? null : cabinet.receiverCardOverride || receiverCardModel
         if (!cardModel) return
-        const rects = getReceiverCardRects(bounds, uiZoom, cardCount)
+        const rects = getReceiverCardRects(bounds, uiZoom, cardCount, isOutdoorMode ? "outdoor" : "indoor")
         rects.forEach((rect) => {
-          drawReceiverCard(ctx, rect, cardModel, uiZoom)
-          drawPowerAnchorDot(ctx, rect, bounds, uiZoom)
+          drawReceiverCard(ctx, rect, cardModel, uiZoom, {
+            variant: isOutdoorMode ? "outdoor" : "indoor",
           })
+          drawPowerAnchorDot(ctx, rect, bounds, uiZoom)
+        })
+        drawCabinetPowerInOut(ctx, bounds, rects, uiZoom, isOutdoorMode ? "outdoor" : "indoor")
         })
       }
 
@@ -2139,7 +2425,15 @@ export function LayoutCanvas() {
           (dataPortBottom ?? -Infinity) + clearance,
           (powerLabelBottom ?? -Infinity) + clearance,
         )
-        drawControllerPorts(ctx, controllerLabel, layout.cabinets, layout.cabinetTypes, uiZoom, controllerMinY)
+        drawControllerPorts(
+          ctx,
+          controllerLabel,
+          layout.cabinets,
+          layout.cabinetTypes,
+          uiZoom,
+          controllerMinY,
+          isOutdoorMode ? "outdoor" : "indoor",
+        )
       }
     }
 
@@ -2254,9 +2548,7 @@ export function LayoutCanvas() {
     const showMappingNumbers = mappingNumbers?.show ?? false
     const moduleSize = layout.project.overview.moduleSize ?? "320x160"
     const moduleOrientation = layout.project.overview.moduleOrientation ?? "portrait"
-    const baseModule = moduleSize === "160x160" ? { width: 160, height: 160 } : { width: 320, height: 160 }
-    const moduleWidth = moduleOrientation === "portrait" ? baseModule.height : baseModule.width
-    const moduleHeight = moduleOrientation === "portrait" ? baseModule.width : baseModule.height
+    const { moduleWidth, moduleHeight } = getOrientedModuleSize(moduleSize, moduleOrientation)
     const moduleGridBounds = getLayoutBoundsFromCabinets(layout.cabinets, layout.cabinetTypes)
     const moduleGridOrigin = moduleGridBounds ? { x: moduleGridBounds.minX, y: moduleGridBounds.minY } : null
 
@@ -2421,7 +2713,13 @@ export function LayoutCanvas() {
         const nextSteps = activeFeed.steps ? [...activeFeed.steps] : getPowerSteps(activeFeed)
         const lastStep = nextSteps.length > 0 ? nextSteps[nextSteps.length - 1] : null
         const reference = lastStep
-          ? getPowerStepPosition(lastStep, layout.cabinets, layout.cabinetTypes, uiZoom)
+          ? getPowerStepPosition(
+              lastStep,
+              layout.cabinets,
+              layout.cabinetTypes,
+              uiZoom,
+              (layout.project.mode ?? "indoor") === "outdoor" ? "outdoor" : "indoor",
+            )
           : null
         const snapStep = getRouteSnapStepMm(layout.project.grid.step_mm)
         const snapped = getOrthogonalPoint(world, reference, snapStep)
@@ -2438,7 +2736,15 @@ export function LayoutCanvas() {
 
       const nextSteps = activeFeed.steps ? [...activeFeed.steps] : getPowerSteps(activeFeed)
       const lastStep = nextSteps.length > 0 ? nextSteps[nextSteps.length - 1] : null
-      const reference = lastStep ? getPowerStepPosition(lastStep, layout.cabinets, layout.cabinetTypes, uiZoom) : null
+      const reference = lastStep
+        ? getPowerStepPosition(
+            lastStep,
+            layout.cabinets,
+            layout.cabinetTypes,
+            uiZoom,
+            (layout.project.mode ?? "indoor") === "outdoor" ? "outdoor" : "indoor",
+          )
+        : null
       const snapStep = getRouteSnapStepMm(layout.project.grid.step_mm)
       const snapped = getOrthogonalPoint(world, reference, snapStep)
       nextSteps.push({ type: "point", x_mm: snapped.x, y_mm: snapped.y })
@@ -2486,7 +2792,14 @@ export function LayoutCanvas() {
           })
         }
 
-        const cardIndex = getReceiverCardIndexAtPoint(bounds, uiZoom, cardCount, world.x, world.y)
+        const cardIndex = getReceiverCardIndexAtPoint(
+          bounds,
+          uiZoom,
+          cardCount,
+          world.x,
+          world.y,
+          (layout.project.mode ?? "indoor") === "outdoor" ? "outdoor" : "indoor",
+        )
         const endpointId =
           cardCount === 1
             ? cabinet.id
@@ -2515,7 +2828,13 @@ export function LayoutCanvas() {
         const nextSteps = activeRoute.steps ? [...activeRoute.steps] : getRouteSteps(activeRoute)
         const lastStep = nextSteps.length > 0 ? nextSteps[nextSteps.length - 1] : null
         const reference = lastStep
-          ? getRouteStepPosition(lastStep, layout.cabinets, layout.cabinetTypes, uiZoom)
+          ? getRouteStepPosition(
+              lastStep,
+              layout.cabinets,
+              layout.cabinetTypes,
+              uiZoom,
+              (layout.project.mode ?? "indoor") === "outdoor" ? "outdoor" : "indoor",
+            )
           : null
         const snapStep = getRouteSnapStepMm(layout.project.grid.step_mm)
         const snapped = getOrthogonalPoint(world, reference, snapStep)
@@ -2532,7 +2851,15 @@ export function LayoutCanvas() {
 
       const nextSteps = activeRoute.steps ? [...activeRoute.steps] : getRouteSteps(activeRoute)
       const lastStep = nextSteps.length > 0 ? nextSteps[nextSteps.length - 1] : null
-      const reference = lastStep ? getRouteStepPosition(lastStep, layout.cabinets, layout.cabinetTypes, uiZoom) : null
+      const reference = lastStep
+        ? getRouteStepPosition(
+            lastStep,
+            layout.cabinets,
+            layout.cabinetTypes,
+            uiZoom,
+            (layout.project.mode ?? "indoor") === "outdoor" ? "outdoor" : "indoor",
+          )
+        : null
       const snapStep = getRouteSnapStepMm(layout.project.grid.step_mm)
       const snapped = getOrthogonalPoint(world, reference, snapStep)
       nextSteps.push({ type: "point", x_mm: snapped.x, y_mm: snapped.y })
@@ -2558,7 +2885,13 @@ export function LayoutCanvas() {
             (endpointId) => parseRouteCabinetId(endpointId).cabinetId === cabinet.id,
           )
           if (hasEndpoint) {
-            const anchor = getCabinetDataAnchorPoint(cabinet, bounds, uiZoom)
+            const anchor = getCabinetDataAnchorPoint(
+              cabinet,
+              bounds,
+              uiZoom,
+              undefined,
+              (layout.project.mode ?? "indoor") === "outdoor" ? "outdoor" : "indoor",
+            )
             const hitRadius = 10 / uiZoom
             if (Math.hypot(world.x - anchor.x, world.y - anchor.y) <= hitRadius) {
               dispatch({
@@ -2588,7 +2921,14 @@ export function LayoutCanvas() {
           }
           return
         }
-        const cardIndex = getReceiverCardIndexAtPoint(bounds, uiZoom, cardCount, world.x, world.y)
+        const cardIndex = getReceiverCardIndexAtPoint(
+          bounds,
+          uiZoom,
+          cardCount,
+          world.x,
+          world.y,
+          (layout.project.mode ?? "indoor") === "outdoor" ? "outdoor" : "indoor",
+        )
         const existingEndpoint =
           cardCount === 1 ? route.cabinetIds.find((id) => parseRouteCabinetId(id).cabinetId === cabinet.id) : undefined
         const endpointId =
@@ -2649,9 +2989,7 @@ export function LayoutCanvas() {
       const mappingNumbers = layout.project.overview.mappingNumbers ?? DEFAULT_LAYOUT.project.overview.mappingNumbers
       const moduleSize = layout.project.overview.moduleSize ?? "320x160"
       const moduleOrientation = layout.project.overview.moduleOrientation ?? "portrait"
-      const baseModule = moduleSize === "160x160" ? { width: 160, height: 160 } : { width: 320, height: 160 }
-      const moduleWidth = moduleOrientation === "portrait" ? baseModule.height : baseModule.width
-      const moduleHeight = moduleOrientation === "portrait" ? baseModule.width : baseModule.height
+      const { moduleWidth, moduleHeight } = getOrientedModuleSize(moduleSize, moduleOrientation)
       const moduleGridBounds = getLayoutBoundsFromCabinets(layout.cabinets, layout.cabinetTypes)
       const moduleGridOrigin = moduleGridBounds ? { x: moduleGridBounds.minX, y: moduleGridBounds.minY } : null
       const moduleCells = getModuleCells(bounds, moduleWidth, moduleHeight, moduleGridOrigin)
@@ -2692,8 +3030,22 @@ export function LayoutCanvas() {
       const prevStep = route.steps[stepIndex - 1]
       const nextStep = route.steps[stepIndex + 1]
       const reference =
-        (prevStep && getRouteStepPosition(prevStep, layout.cabinets, layout.cabinetTypes, uiZoom)) ||
-        (nextStep && getRouteStepPosition(nextStep, layout.cabinets, layout.cabinetTypes, uiZoom)) ||
+        (prevStep &&
+          getRouteStepPosition(
+            prevStep,
+            layout.cabinets,
+            layout.cabinetTypes,
+            uiZoom,
+            (layout.project.mode ?? "indoor") === "outdoor" ? "outdoor" : "indoor",
+          )) ||
+        (nextStep &&
+          getRouteStepPosition(
+            nextStep,
+            layout.cabinets,
+            layout.cabinetTypes,
+            uiZoom,
+            (layout.project.mode ?? "indoor") === "outdoor" ? "outdoor" : "indoor",
+          )) ||
         null
       const snapStep = getRouteSnapStepMm(layout.project.grid.step_mm)
       const snapped = getOrthogonalPoint(world, reference, snapStep)
@@ -2718,8 +3070,22 @@ export function LayoutCanvas() {
       const prevStep = feed.steps[stepIndex - 1]
       const nextStep = feed.steps[stepIndex + 1]
       const reference =
-        (prevStep && getPowerStepPosition(prevStep, layout.cabinets, layout.cabinetTypes, uiZoom)) ||
-        (nextStep && getPowerStepPosition(nextStep, layout.cabinets, layout.cabinetTypes, uiZoom)) ||
+        (prevStep &&
+          getPowerStepPosition(
+            prevStep,
+            layout.cabinets,
+            layout.cabinetTypes,
+            uiZoom,
+            (layout.project.mode ?? "indoor") === "outdoor" ? "outdoor" : "indoor",
+          )) ||
+        (nextStep &&
+          getPowerStepPosition(
+            nextStep,
+            layout.cabinets,
+            layout.cabinetTypes,
+            uiZoom,
+            (layout.project.mode ?? "indoor") === "outdoor" ? "outdoor" : "indoor",
+          )) ||
         null
       const snapStep = getRouteSnapStepMm(layout.project.grid.step_mm)
       const snapped = getOrthogonalPoint(world, reference, snapStep)

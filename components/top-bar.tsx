@@ -4,7 +4,8 @@ import type React from "react"
 
 import { useRef } from "react"
 import { useEditor } from "@/lib/editor-context"
-import type { LayoutData } from "@/lib/types"
+import type { LayoutData, ProjectMode } from "@/lib/types"
+import { coerceModePitch, getModeOptions, getModePitchOptions } from "@/lib/modes"
 import { exportOverviewPdf } from "@/lib/export-pdf"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -17,9 +18,12 @@ export function TopBar() {
   const { state, dispatch, resetEditor } = useEditor()
   const { layout } = state
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const pitchOptions = [1.25, 1.56, 1.86, 2.5, 4, 5]
-  const pitchValue = pitchOptions.includes(layout.project.pitch_mm) ? layout.project.pitch_mm : 2.5
-  const pitchMode = layout.project.pitch_is_gob ? "gob" : "std"
+  const modeOptions = getModeOptions()
+  const mode = layout.project.mode ?? "indoor"
+  const pitchOptions = getModePitchOptions(mode)
+  const currentPitch = coerceModePitch(mode, layout.project.pitch_mm, layout.project.pitch_is_gob)
+  const pitchValue = currentPitch.pitch_mm
+  const pitchMode = currentPitch.pitch_is_gob ? "gob" : "std"
   const projectNumber = layout.project.name.replace(/\D/g, "")
 
   const handleExportJSON = () => {
@@ -94,6 +98,41 @@ export function TopBar() {
         />
       </div>
 
+      <div className="flex items-center gap-2">
+        <Label htmlFor="project-mode" className="text-xs text-muted-foreground">
+          Mode
+        </Label>
+        <Select
+          value={mode}
+          onValueChange={(value: ProjectMode) => {
+            if (value === mode) return
+            const hasWorkToReset =
+              layout.cabinets.length > 0 ||
+              layout.project.dataRoutes.length > 0 ||
+              layout.project.powerFeeds.length > 0
+            if (hasWorkToReset) {
+              const confirmed = window.confirm(
+                "Changer de mode va reinitialiser l'overview (cabinets, routes data et power). Continuer ?",
+              )
+              if (!confirmed) return
+            }
+            dispatch({ type: "SET_PROJECT_MODE", payload: value })
+            dispatch({ type: "PUSH_HISTORY" })
+          }}
+        >
+          <SelectTrigger id="project-mode" className="h-8 w-28 bg-secondary text-sm">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {modeOptions.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
       {/* Pitch */}
       <div className="flex items-center gap-2">
         <Label htmlFor="pitch" className="text-xs text-muted-foreground">
@@ -107,7 +146,7 @@ export function TopBar() {
             dispatch({
               type: "UPDATE_PROJECT",
               payload: {
-                pitch_mm: Number.isFinite(pitch) ? pitch : 2.5,
+                pitch_mm: Number.isFinite(pitch) ? pitch : currentPitch.pitch_mm,
                 pitch_is_gob: mode === "gob",
               },
             })
@@ -117,18 +156,11 @@ export function TopBar() {
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="1.25|std">P 1.25</SelectItem>
-            <SelectItem value="1.25|gob">P 1.25 GOB</SelectItem>
-            <SelectItem value="1.56|std">P 1.56</SelectItem>
-            <SelectItem value="1.56|gob">P 1.56 GOB</SelectItem>
-            <SelectItem value="1.86|std">P 1.86</SelectItem>
-            <SelectItem value="1.86|gob">P 1.86 GOB</SelectItem>
-            <SelectItem value="2.5|std">P 2.5</SelectItem>
-            <SelectItem value="2.5|gob">P 2.5 GOB</SelectItem>
-            <SelectItem value="4|std">P 4</SelectItem>
-            <SelectItem value="4|gob">P 4 GOB</SelectItem>
-            <SelectItem value="5|std">P 5</SelectItem>
-            <SelectItem value="5|gob">P 5 GOB</SelectItem>
+            {pitchOptions.map((option) => (
+              <SelectItem key={`${option.pitch_mm}|${option.pitch_is_gob ? "gob" : "std"}`} value={`${option.pitch_mm}|${option.pitch_is_gob ? "gob" : "std"}`}>
+                {option.label}
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
       </div>

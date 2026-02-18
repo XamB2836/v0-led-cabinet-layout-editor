@@ -35,7 +35,7 @@ export function KeyboardHandler() {
 
       // Rotate
       if (key === "r") {
-        if (selection.length > 0) {
+        if (selection.length > 0 && (layout.project.mode ?? "indoor") !== "outdoor") {
           e.preventDefault()
           dispatch({ type: "ROTATE_CABINETS_AS_BLOCK", payload: selection })
           dispatch({ type: "PUSH_HISTORY" })
@@ -181,3 +181,5 @@ export function KeyboardHandler() {
 
   return null
 }
+
+
