@@ -22,7 +22,6 @@ export function KeyboardHandler() {
         : selectedCabinetId
           ? [selectedCabinetId]
           : []
-      const selectedCabinet = layout.cabinets.find((c) => c.id === selectedCabinetId)
 
       // Delete
       if (e.key === "Delete" || e.key === "Backspace") {
@@ -37,15 +36,7 @@ export function KeyboardHandler() {
       if (key === "r") {
         if (selection.length > 0) {
           e.preventDefault()
-          selection.forEach((id) => {
-            const cabinet = layout.cabinets.find((c) => c.id === id)
-            if (!cabinet) return
-            const newRot = ((cabinet.rot_deg + 90) % 360) as 0 | 90 | 180 | 270
-            dispatch({
-              type: "UPDATE_CABINET",
-              payload: { id: cabinet.id, updates: { rot_deg: newRot } },
-            })
-          })
+          dispatch({ type: "ROTATE_CABINETS_AS_BLOCK", payload: selection })
           dispatch({ type: "PUSH_HISTORY" })
         }
       }
@@ -57,10 +48,37 @@ export function KeyboardHandler() {
 
       // Duplicate
       if ((e.ctrlKey || e.metaKey) && key === "d") {
-        if (selectedCabinetId) {
+        if (selection.length > 0) {
           e.preventDefault()
-          dispatch({ type: "DUPLICATE_CABINET", payload: selectedCabinetId })
-          dispatch({ type: "PUSH_HISTORY" })
+          const existingIds = new Set(layout.cabinets.map((c) => c.id))
+          let counter = layout.cabinets.length + 1
+          const nextId = () => {
+            let newId = `C${String(counter).padStart(2, "0")}`
+            while (existingIds.has(newId)) {
+              counter++
+              newId = `C${String(counter).padStart(2, "0")}`
+            }
+            existingIds.add(newId)
+            counter++
+            return newId
+          }
+          const additions = Array.from(new Set(selection))
+            .map((id) => layout.cabinets.find((c) => c.id === id))
+            .filter((cabinet): cabinet is Cabinet => !!cabinet)
+            .map((cabinet) => {
+              const type = layout.cabinetTypes.find((t) => t.typeId === cabinet.typeId)
+              const isRotated = cabinet.rot_deg === 90 || cabinet.rot_deg === 270
+              const width = type ? (isRotated ? type.height_mm : type.width_mm) : 100
+              return {
+                ...cabinet,
+                id: nextId(),
+                x_mm: cabinet.x_mm + width,
+              }
+            })
+          if (additions.length > 0) {
+            dispatch({ type: "ADD_CABINETS", payload: additions })
+            dispatch({ type: "PUSH_HISTORY" })
+          }
         }
       }
 

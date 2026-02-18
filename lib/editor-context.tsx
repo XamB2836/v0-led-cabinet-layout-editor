@@ -17,6 +17,7 @@ type EditorAction =
   | { type: "ADD_CABINET"; payload: Cabinet }
   | { type: "ADD_CABINETS"; payload: Cabinet[] }
   | { type: "UPDATE_CABINET"; payload: { id: string; updates: Partial<Cabinet> } }
+  | { type: "ROTATE_CABINETS_AS_BLOCK"; payload: string[] }
   | { type: "DELETE_CABINET"; payload: string }
   | { type: "DUPLICATE_CABINET"; payload: string }
   | { type: "ADD_CABINET_TYPE"; payload: CabinetType }
@@ -156,6 +157,89 @@ function editorReducer(state: EditorState, action: EditorAction): EditorState {
           ),
         },
       }
+
+    case "ROTATE_CABINETS_AS_BLOCK": {
+      const selected = Array.from(new Set(action.payload))
+        .map((id) => state.layout.cabinets.find((c) => c.id === id))
+        .filter((cabinet): cabinet is Cabinet => !!cabinet)
+      if (selected.length === 0) return state
+
+      if (selected.length === 1) {
+        const cabinet = selected[0]
+        const newRot = ((cabinet.rot_deg + 90) % 360) as 0 | 90 | 180 | 270
+        return {
+          ...state,
+          layout: {
+            ...state.layout,
+            cabinets: state.layout.cabinets.map((c) => (c.id === cabinet.id ? { ...c, rot_deg: newRot } : c)),
+          },
+        }
+      }
+
+      const step = state.layout.project.grid.step_mm
+      const snap = (value: number) => Math.round(value / step) * step
+      const getCabinetSize = (cabinet: Cabinet, rot: 0 | 90 | 180 | 270) => {
+        const type = state.layout.cabinetTypes.find((t) => t.typeId === cabinet.typeId)
+        const isRotated = rot === 90 || rot === 270
+        return {
+          width: type ? (isRotated ? type.height_mm : type.width_mm) : 100,
+          height: type ? (isRotated ? type.width_mm : type.height_mm) : 100,
+        }
+      }
+
+      const bounds = selected.map((cabinet) => {
+        const size = getCabinetSize(cabinet, cabinet.rot_deg)
+        return {
+          cabinet,
+          x: cabinet.x_mm,
+          y: cabinet.y_mm,
+          width: size.width,
+          height: size.height,
+          centerX: cabinet.x_mm + size.width / 2,
+          centerY: cabinet.y_mm + size.height / 2,
+        }
+      })
+      const minX = Math.min(...bounds.map((b) => b.x))
+      const minY = Math.min(...bounds.map((b) => b.y))
+      const maxX = Math.max(...bounds.map((b) => b.x + b.width))
+      const maxY = Math.max(...bounds.map((b) => b.y + b.height))
+      const groupCenterX = (minX + maxX) / 2
+      const groupCenterY = (minY + maxY) / 2
+
+      const updatesById = new Map<
+        string,
+        {
+          rot_deg: 0 | 90 | 180 | 270
+          x_mm: number
+          y_mm: number
+        }
+      >()
+
+      bounds.forEach((entry) => {
+        const newRot = ((entry.cabinet.rot_deg + 90) % 360) as 0 | 90 | 180 | 270
+        const newSize = getCabinetSize(entry.cabinet, newRot)
+        const relX = entry.centerX - groupCenterX
+        const relY = entry.centerY - groupCenterY
+        const rotatedCenterX = groupCenterX - relY
+        const rotatedCenterY = groupCenterY + relX
+        updatesById.set(entry.cabinet.id, {
+          rot_deg: newRot,
+          x_mm: snap(rotatedCenterX - newSize.width / 2),
+          y_mm: snap(rotatedCenterY - newSize.height / 2),
+        })
+      })
+
+      return {
+        ...state,
+        layout: {
+          ...state.layout,
+          cabinets: state.layout.cabinets.map((c) => {
+            const updates = updatesById.get(c.id)
+            return updates ? { ...c, ...updates } : c
+          }),
+        },
+      }
+    }
 
     case "DELETE_CABINET":
       const remainingSelection = state.selectedCabinetIds.filter((id) => id !== action.payload)
