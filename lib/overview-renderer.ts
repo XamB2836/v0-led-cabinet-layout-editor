@@ -254,7 +254,7 @@ function getOutdoorReceiverCardDataPorts(rect: CardRect, zoom: number, readabili
   const bodyX = centerX - bodyW / 2
   const portW = Math.max((5 * readabilityScale) / zoom, bodyW * 0.16)
   const portH = Math.max((3 * readabilityScale) / zoom, bodyH * 0.16)
-  const portGap = Math.max((3 * readabilityScale) / zoom, bodyH * 0.3)
+  const portGap = Math.max((5 * readabilityScale) / zoom, bodyH * 0.58)
   const portX = bodyX - portW * 0.9
   const topPortY = centerY - portGap / 2 - portH
   const bottomPortY = centerY + portGap / 2
@@ -761,7 +761,7 @@ function drawReceiverCard(
     const stroke = Math.max((0.9 * readabilityScale) / zoom, (0.7 * readabilityScale) / zoom)
     const portW = Math.max((5 * readabilityScale) / zoom, bodyW * 0.16)
     const portH = Math.max((3 * readabilityScale) / zoom, bodyH * 0.16)
-    const portGap = Math.max((3 * readabilityScale) / zoom, bodyH * 0.3)
+    const portGap = Math.max((5 * readabilityScale) / zoom, bodyH * 0.58)
     const portX = bodyX - portW * 0.9
     const topPortY = y + height / 2 - portGap / 2 - portH
     const bottomPortY = y + height / 2 + portGap / 2
@@ -1061,13 +1061,30 @@ function drawDataRoutes(
     if (!existingRow) rowCenters.push(centerY)
   })
   rowCenters.sort((a, b) => a - b)
+  const getNearestIndex = (values: number[], target: number) => {
+    if (values.length === 0) return 0
+    let bestIndex = 0
+    let bestDistance = Math.abs(values[0] - target)
+    for (let i = 1; i < values.length; i++) {
+      const distance = Math.abs(values[i] - target)
+      if (distance < bestDistance) {
+        bestDistance = distance
+        bestIndex = i
+      }
+    }
+    return bestIndex
+  }
 
   dataRoutes.forEach((route, routeIndex) => {
     const hasManualSteps = !!route.manualMode && !!route.steps && route.steps.length > 0
     if (route.cabinetIds.length === 0 && !hasManualSteps) return
-    const routeSteps = getRouteSteps(route)
-    const useManualSteps = !!(route.manualMode && route.steps && route.steps.some((step) => step.type === "point"))
-    const useOutdoorChaining = cardVariant === "outdoor" && !useManualSteps
+    const routeSteps =
+      cardVariant === "outdoor"
+        ? route.cabinetIds.map((endpointId) => ({ type: "cabinet" as const, endpointId }))
+        : getRouteSteps(route)
+    const hasManualPointSteps = !!(route.manualMode && route.steps && route.steps.some((step) => step.type === "point"))
+    const useManualSteps = cardVariant !== "outdoor" && hasManualPointSteps
+    const useOutdoorChaining = cardVariant === "outdoor"
 
     const isOverloaded = isDataRouteOverCapacity(route, layout.cabinets, layout.cabinetTypes, pitch_mm)
     const lineColor = isOverloaded ? "#ef4444" : "#3b82f6"
@@ -1092,12 +1109,23 @@ function drawDataRoutes(
 
     if (useOutdoorChaining) {
       const cabinetSteps = routeSteps.filter((step): step is Extract<DataRouteStep, { type: "cabinet" }> => step.type === "cabinet")
-      cabinetSteps.forEach((step, index) => {
+      const getStepRowIndex = (endpointId: string) => {
+        const { cabinetId } = parseRouteCabinetId(endpointId)
+        const cabinetForRow = layout.cabinets.find((entry) => entry.id === cabinetId)
+        if (!cabinetForRow) return null
+        const boundsForRow = getCabinetBounds(cabinetForRow, layout.cabinetTypes)
+        if (!boundsForRow) return null
+        return getNearestIndex(rowCenters, boundsForRow.y + boundsForRow.height / 2)
+      }
+      let previousExitIsTop: boolean | null = null
+      cabinetSteps.forEach((step, stepIndex) => {
         const { cabinetId, cardIndex } = parseRouteCabinetId(step.endpointId)
         const cabinet = layout.cabinets.find((c) => c.id === cabinetId)
         if (!cabinet) return
         const bounds = getCabinetBounds(cabinet, layout.cabinetTypes)
         if (!bounds) return
+        const center = { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 }
+        const rowIndex = getNearestIndex(rowCenters, center.y)
         const cardCount = getCabinetReceiverCardCount(cabinet)
         const resolvedIndex = cardIndex === undefined ? 0 : Math.max(0, Math.min(cardCount - 1, cardIndex))
         const rects = getReceiverCardRects(bounds, zoom, cardCount, readabilityScale, cardVariant)
@@ -1105,8 +1133,30 @@ function drawDataRoutes(
         const anchorRect = rects[resolvedIndex]
         if (anchorRect) {
           const ports = getOutdoorReceiverCardDataPorts(anchorRect, zoom, readabilityScale)
-          const entryPort = index === 0 ? ports.in : ports.out
-          const exitPort = ports.out
+          let entryIsTop: boolean
+          if (previousExitIsTop !== null) {
+            entryIsTop = previousExitIsTop
+          } else {
+            let sameRowSegmentLength = 1
+            for (let lookAhead = stepIndex + 1; lookAhead < cabinetSteps.length; lookAhead++) {
+              const nextRowIndex = getStepRowIndex(cabinetSteps[lookAhead].endpointId)
+              if (nextRowIndex === null || nextRowIndex !== rowIndex) break
+              sameRowSegmentLength += 1
+            }
+            entryIsTop = sameRowSegmentLength % 2 === 0
+          }
+          let exitIsTop = !entryIsTop
+          if (stepIndex + 1 < cabinetSteps.length) {
+            const nextRowIndex = getStepRowIndex(cabinetSteps[stepIndex + 1].endpointId)
+            const isRowTransition = nextRowIndex !== null && nextRowIndex !== rowIndex
+            if (isRowTransition) {
+              // At row transitions, route must leave and enter via top ports (schema behavior).
+              exitIsTop = true
+            }
+          }
+
+          const entryPort = entryIsTop ? ports.in : ports.out
+          const exitPort = exitIsTop ? ports.in : ports.out
           points.push({
             x: entryPort.x,
             y: entryPort.y,
@@ -1125,6 +1175,7 @@ function drawDataRoutes(
             outdoorCabinetId: cabinet.id,
             outdoorPortRole: "out",
           })
+          previousExitIsTop = exitIsTop
           return
         }
         const anchor = getCabinetDataAnchorPoint(cabinet, bounds, zoom, cardIndex, readabilityScale, cardVariant)
@@ -1138,6 +1189,7 @@ function drawDataRoutes(
         if (anchor.isVirtual) {
           virtualAnchors.push({ x: anchor.x, y: anchor.y })
         }
+        previousExitIsTop = previousExitIsTop ?? true
       })
     } else {
       routeSteps.forEach((step) => {
@@ -1190,12 +1242,34 @@ function drawDataRoutes(
             const sourceInset = scaledReadableWorldSize(4.2, zoom, 2.8, 8, readabilityScale)
             const laneStep = scaledReadableWorldSize(4, zoom, 2, 7, readabilityScale)
             const laneOffset = routeIndex * laneStep
+            const sourceLeftBias = scaledReadableWorldSize(18, zoom, 12, 30, readabilityScale)
             const minX = lvBoxRect.x + sourceInset
             const maxX = lvBoxRect.x + lvBoxRect.width - sourceInset
-            const sourceX = Math.max(minX, Math.min(maxX, lvBoxRect.x + lvBoxRect.width - sourceInset - laneOffset))
+            const sourceX = Math.max(
+              minX,
+              Math.min(
+                maxX,
+                lvBoxRect.x + lvBoxRect.width - sourceInset - laneOffset - sourceLeftBias,
+              ),
+            )
             return {
               x: sourceX,
-              y: lvBoxRect.y + sourceInset,
+              y: lvBoxRect.y,
+            }
+          })()
+        : null
+    const lvBoxDataReturnTarget =
+      isOutdoorDataRouting && outdoorLvBoxCabinetId
+        ? (() => {
+            const controllerCabinet = layout.cabinets.find((cabinet) => cabinet.id === outdoorLvBoxCabinetId)
+            if (!controllerCabinet) return null
+            const controllerBounds = getCabinetBounds(controllerCabinet, layout.cabinetTypes)
+            if (!controllerBounds) return null
+            const lvBoxRect = getOutdoorLvBoxRect(controllerBounds, zoom, readabilityScale)
+            const targetInset = scaledReadableWorldSize(4.2, zoom, 2.8, 8, readabilityScale)
+            return {
+              x: lvBoxRect.x + targetInset,
+              y: lvBoxRect.y + targetInset,
             }
           })()
         : null
@@ -1283,10 +1357,10 @@ function drawDataRoutes(
         ctx.beginPath()
         ctx.moveTo(lineStartX, lineStartY)
         if (isOutdoorDataRouting) {
-          if (Math.abs(firstPoint.x - lineStartX) > 0.01) {
-            ctx.lineTo(firstPoint.x, lineStartY)
-          }
           if (Math.abs(firstPoint.y - lineStartY) > 0.01) {
+            ctx.lineTo(lineStartX, firstPoint.y)
+          }
+          if (Math.abs(firstPoint.x - lineStartX) > 0.01) {
             ctx.lineTo(firstPoint.x, firstPoint.y)
           }
         } else {
@@ -1302,6 +1376,7 @@ function drawDataRoutes(
     if (points.length > 1) {
       const routeMinY = Math.min(...points.map((point) => point.y))
       const routeMaxY = Math.max(...points.map((point) => point.y))
+      const layoutCenterX = (layoutBounds.minX + layoutBounds.maxX) / 2
       const drawRouteConnections = (strokeStyle: string, width: number) => {
         ctx.strokeStyle = strokeStyle
         ctx.lineWidth = width
@@ -1319,7 +1394,7 @@ function drawDataRoutes(
             prev.outdoorPortRole === "in" &&
             curr.outdoorPortRole === "out"
           ) {
-            // IN and OUT are separate physical ports; do not draw a short jumper inside the card.
+            // Outdoor data does not draw an internal in->out bridge on the same card.
             ctx.moveTo(curr.x, curr.y)
             continue
           }
@@ -1328,13 +1403,35 @@ function drawDataRoutes(
           const absDx = Math.abs(dx)
           const absDy = Math.abs(dy)
           const dirY = Math.sign(dy) || 0
+          const axisSnapTolerance = useOutdoorChaining ? 0.75 : 10
+          const isOutdoorCabinetTransition =
+            useOutdoorChaining &&
+            prev.outdoorCabinetId &&
+            curr.outdoorCabinetId &&
+            prev.outdoorCabinetId !== curr.outdoorCabinetId
 
-          if (absDx < 10 && absDy < 10) {
+          if (absDx < axisSnapTolerance && absDy < axisSnapTolerance) {
             ctx.lineTo(curr.x, curr.y)
             continue
           }
 
-          if (absDx < 10) {
+          if (
+            isOutdoorCabinetTransition &&
+            absDy >= axisSnapTolerance &&
+            absDx < scaledReadableWorldSize(8, zoom, 5, 14, readabilityScale)
+          ) {
+            const laneOffset = scaledReadableWorldSize(40, zoom, 28, 62, readabilityScale)
+            const laneDir = prev.x < layoutCenterX ? -1 : 1
+            const laneX =
+              laneDir < 0 ? Math.min(prev.x, curr.x) - laneOffset : Math.max(prev.x, curr.x) + laneOffset
+            ctx.lineTo(laneX, prev.y)
+            ctx.lineTo(laneX, curr.y)
+            ctx.lineTo(curr.x, curr.y)
+            if (dirY !== 0) lastVerticalDir = dirY
+            continue
+          }
+
+          if (absDx < axisSnapTolerance) {
             if (!useManualSteps && lastVerticalDir !== null && dirY !== 0 && dirY !== lastVerticalDir) {
               const turnY = dirY > 0 ? routeMinY : routeMaxY
               ctx.lineTo(prev.x, turnY)
@@ -1347,7 +1444,7 @@ function drawDataRoutes(
             continue
           }
 
-          if (absDy < 10) {
+          if (absDy < axisSnapTolerance) {
             ctx.lineTo(curr.x, curr.y)
             continue
           }
@@ -1369,6 +1466,98 @@ function drawDataRoutes(
 
       drawRouteConnections(outlineColor, outlineWidth)
       drawRouteConnections(lineColor, lineWidth)
+
+      if (useOutdoorChaining && lvBoxDataReturnTarget) {
+        const lastPoint = points[points.length - 1]
+        const returnLaneY = Math.max(
+          lastPoint.y + scaledReadableWorldSize(18, zoom, 10, 30, readabilityScale),
+          layoutBounds.maxY - scaledReadableWorldSize(16, zoom, 10, 28, readabilityScale),
+        )
+        const drawReturnToLvBox = (strokeStyle: string, width: number) => {
+          ctx.strokeStyle = strokeStyle
+          ctx.lineWidth = width
+          ctx.beginPath()
+          ctx.moveTo(lastPoint.x, lastPoint.y)
+          if (Math.abs(returnLaneY - lastPoint.y) > 0.01) {
+            ctx.lineTo(lastPoint.x, returnLaneY)
+          }
+          if (Math.abs(lvBoxDataReturnTarget.x - lastPoint.x) > 0.01) {
+            ctx.lineTo(lvBoxDataReturnTarget.x, returnLaneY)
+          }
+          if (Math.abs(lvBoxDataReturnTarget.y - returnLaneY) > 0.01) {
+            ctx.lineTo(lvBoxDataReturnTarget.x, lvBoxDataReturnTarget.y)
+          }
+          ctx.stroke()
+        }
+
+        drawReturnToLvBox(outlineColor, outlineWidth)
+        drawReturnToLvBox("#ef4444", lineWidth)
+      }
+
+      if (useOutdoorChaining) {
+        ctx.save()
+        ctx.strokeStyle = lineColor
+        ctx.fillStyle = lineColor
+        ctx.lineWidth = Math.max(
+          scaledReadableWorldSize(1.4, zoom, 1, 2.2, readabilityScale),
+          lineWidth * 0.24,
+        )
+
+        for (let i = 1; i < points.length; i++) {
+          const prev = points[i - 1]
+          const curr = points[i]
+          if (
+            !prev.outdoorCabinetId ||
+            prev.outdoorCabinetId !== curr.outdoorCabinetId ||
+            prev.outdoorPortRole !== "in" ||
+            curr.outdoorPortRole !== "out"
+          ) {
+            continue
+          }
+
+          const dy = curr.y - prev.y
+          if (Math.abs(dy) < 0.01) continue
+
+          const dirY = Math.sign(dy) || 1
+          const laneDir = prev.x < layoutCenterX ? -1 : 1
+          const midY = (prev.y + curr.y) / 2
+          const iconOffset = scaledReadableWorldSize(10, zoom, 7, 16, readabilityScale)
+          const markerX = prev.x + laneDir * iconOffset
+          const markerRadius = Math.max(
+            scaledReadableWorldSize(4.8, zoom, 3.6, 8.2, readabilityScale),
+            Math.min(Math.abs(dy) * 0.26, scaledReadableWorldSize(8.2, zoom, 5.6, 13.2, readabilityScale)),
+          )
+          const startY = midY - dirY * markerRadius
+          const endY = midY + dirY * markerRadius
+          const controlX = markerX + laneDir * markerRadius * 1.15
+
+          ctx.beginPath()
+          ctx.moveTo(markerX, startY)
+          ctx.quadraticCurveTo(controlX, midY, markerX, endY)
+          ctx.stroke()
+
+          const tangentX = markerX - controlX
+          const tangentY = endY - midY
+          const tangentLength = Math.hypot(tangentX, tangentY) || 1
+          const ux = tangentX / tangentLength
+          const uy = tangentY / tangentLength
+          const arrowLen = scaledReadableWorldSize(6.8, zoom, 4.6, 10.8, readabilityScale)
+          const arrowHalf = arrowLen * 0.5
+          const baseX = markerX - ux * arrowLen
+          const baseY = endY - uy * arrowLen
+          const px = -uy
+          const py = ux
+
+          ctx.beginPath()
+          ctx.moveTo(markerX, endY)
+          ctx.lineTo(baseX + px * arrowHalf, baseY + py * arrowHalf)
+          ctx.lineTo(baseX - px * arrowHalf, baseY - py * arrowHalf)
+          ctx.closePath()
+          ctx.fill()
+        }
+
+        ctx.restore()
+      }
 
       const lastPoint = points[points.length - 1]
       if (!lastPoint.hasReceiverCard) {
