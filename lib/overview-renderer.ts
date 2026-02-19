@@ -178,6 +178,7 @@ function drawDimensionLines(
 
 type CardRect = { x: number; y: number; width: number; height: number }
 type ReceiverCardVariant = "indoor" | "outdoor"
+type OutdoorPowerFlowDirection = "ltr" | "rtl"
 
 function getReceiverCardRects(
   bounds: { x: number; y: number; width: number; height: number },
@@ -245,6 +246,25 @@ function getReceiverCardRect(
   return getReceiverCardRects(bounds, zoom, 1, readabilityScale, variant)[0]
 }
 
+function getOutdoorReceiverCardDataPorts(rect: CardRect, zoom: number, readabilityScale = 1) {
+  const centerX = rect.x + rect.width / 2
+  const centerY = rect.y + rect.height / 2
+  const bodyH = Math.max((13 * readabilityScale) / zoom, rect.height * 0.97)
+  const bodyW = Math.min(rect.width * 0.72, bodyH * 1.45)
+  const bodyX = centerX - bodyW / 2
+  const portW = Math.max((5 * readabilityScale) / zoom, bodyW * 0.16)
+  const portH = Math.max((3 * readabilityScale) / zoom, bodyH * 0.16)
+  const portGap = Math.max((3 * readabilityScale) / zoom, bodyH * 0.3)
+  const portX = bodyX - portW * 0.9
+  const topPortY = centerY - portGap / 2 - portH
+  const bottomPortY = centerY + portGap / 2
+  const anchorX = portX + portW * 0.5
+  return {
+    in: { x: anchorX, y: topPortY + portH * 0.5 },
+    out: { x: anchorX, y: bottomPortY + portH * 0.5 },
+  }
+}
+
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value))
 }
@@ -252,6 +272,53 @@ function clamp(value: number, min: number, max: number) {
 function getRouteSteps(route: LayoutData["project"]["dataRoutes"][number]): DataRouteStep[] {
   if (route.manualMode && route.steps && route.steps.length > 0) return route.steps
   return route.cabinetIds.map((endpointId) => ({ type: "cabinet", endpointId }))
+}
+
+function getPowerSteps(feed: LayoutData["project"]["powerFeeds"][number]): DataRouteStep[] {
+  if (feed.manualMode && feed.steps && feed.steps.length > 0) return feed.steps
+  return feed.assignedCabinetIds.map((cabinetId) => ({ type: "cabinet", endpointId: cabinetId }))
+}
+
+function getOutdoorPowerFlowDirectionByCabinet(layout: LayoutData): Map<string, OutdoorPowerFlowDirection> {
+  const byId = new Map(layout.cabinets.map((cabinet) => [cabinet.id, cabinet]))
+  const flowByCabinet = new Map<string, OutdoorPowerFlowDirection>()
+
+  layout.project.powerFeeds.forEach((feed) => {
+    const cabinetSteps = getPowerSteps(feed).filter(
+      (step): step is Extract<DataRouteStep, { type: "cabinet" }> => step.type === "cabinet",
+    )
+    const cabinetIds = cabinetSteps.map((step) => step.endpointId).filter((id) => byId.has(id))
+
+    cabinetIds.forEach((cabinetId, index) => {
+      if (flowByCabinet.has(cabinetId)) return
+      const current = byId.get(cabinetId)
+      if (!current) return
+
+      let dir = 0
+      const nextId = cabinetIds[index + 1]
+      if (nextId) {
+        const next = byId.get(nextId)
+        if (next) {
+          const dx = next.x_mm - current.x_mm
+          if (Math.abs(dx) > 1) dir = Math.sign(dx)
+        }
+      }
+      if (dir === 0) {
+        const prevId = cabinetIds[index - 1]
+        if (prevId) {
+          const prev = byId.get(prevId)
+          if (prev) {
+            const dx = current.x_mm - prev.x_mm
+            if (Math.abs(dx) > 1) dir = Math.sign(dx)
+          }
+        }
+      }
+
+      flowByCabinet.set(cabinetId, dir < 0 ? "rtl" : "ltr")
+    })
+  })
+
+  return flowByCabinet
 }
 
 function getCabinetDataAnchorPoint(
@@ -268,6 +335,16 @@ function getCabinetDataAnchorPoint(
     const resolvedIndex = cardIndex === undefined ? 0 : Math.max(0, Math.min(rects.length - 1, cardIndex))
     const anchorRect = rects[resolvedIndex]
     if (anchorRect) {
+      if (cardVariant === "outdoor") {
+        const ports = getOutdoorReceiverCardDataPorts(anchorRect, zoom, readabilityScale)
+        return {
+          x: ports.in.x,
+          y: ports.in.y,
+          resolvedIndex,
+          cardCount,
+          isVirtual: false,
+        }
+      }
       return {
         x: anchorRect.x + anchorRect.width / 2,
         y: anchorRect.y + anchorRect.height + (6 * readabilityScale) / zoom,
@@ -425,6 +502,28 @@ function drawRoundedRect(
   ctx.closePath()
 }
 
+function getOutdoorLvBoxRect(
+  bounds: { x: number; y: number; width: number; height: number },
+  zoom: number,
+  readabilityScale = 1,
+) {
+  const inset = (6 * readabilityScale) / zoom
+  const width = Math.max(
+    (78 * readabilityScale) / zoom,
+    Math.min(bounds.width - inset * 2, bounds.width * 0.5),
+  )
+  const height = Math.max(
+    (40 * readabilityScale) / zoom,
+    Math.min(bounds.height - inset * 2, bounds.height * 0.33),
+  )
+  return {
+    x: bounds.x + bounds.width - width - inset,
+    y: bounds.y + bounds.height - height - inset,
+    width,
+    height,
+  }
+}
+
 function drawControllerBadge(
   ctx: CanvasRenderingContext2D,
   bounds: { x: number; y: number; width: number; height: number },
@@ -434,19 +533,13 @@ function drawControllerBadge(
   mode: "indoor" | "outdoor" = "indoor",
 ) {
   if (mode === "outdoor") {
-    const inset = (6 * readabilityScale) / zoom
     const title = "LV BOX"
     const items = [label, "PI", "SWITCH", "ANTENNA"]
-    const boxWidth = Math.max(
-      (78 * readabilityScale) / zoom,
-      Math.min(bounds.width - inset * 2, bounds.width * 0.5),
-    )
-    const boxHeight = Math.max(
-      (40 * readabilityScale) / zoom,
-      Math.min(bounds.height - inset * 2, bounds.height * 0.33),
-    )
-    const boxX = bounds.x + bounds.width - boxWidth - inset
-    const boxY = bounds.y + bounds.height - boxHeight - inset
+    const box = getOutdoorLvBoxRect(bounds, zoom, readabilityScale)
+    const boxWidth = box.width
+    const boxHeight = box.height
+    const boxX = box.x
+    const boxY = box.y
     const titleBandHeight = Math.max((8 * readabilityScale) / zoom, boxHeight * 0.2)
     const listPadding = Math.max((4 * readabilityScale) / zoom, boxWidth * 0.08)
     const listTop = boxY + titleBandHeight + Math.max((2 * readabilityScale) / zoom, boxHeight * 0.03)
@@ -555,21 +648,21 @@ function getOutdoorCabinetPowerPorts(
     cardRects.length > 0
       ? cardRects.reduce((maxBottom, rect) => Math.max(maxBottom, rect.y + rect.height), Number.NEGATIVE_INFINITY)
       : bounds.y + bounds.height * 0.34
-  const minRequiredHeight = (20 * readabilityScale) / zoom
+  const minRequiredHeight = Math.max(bounds.height * 0.12, (18 * readabilityScale) / zoom)
   const maxBarY = bounds.y + bounds.height - minRequiredHeight
   const minBarY = cardBottom + (6 * readabilityScale) / zoom
   if (!Number.isFinite(maxBarY) || maxBarY <= bounds.y + (2 * readabilityScale) / zoom) return null
 
   const barY = Math.min(minBarY, maxBarY)
   const centerX = bounds.x + bounds.width / 2
-  const barWidth = Math.min(bounds.width * 0.56, (84 * readabilityScale) / zoom)
+  const barWidth = Math.min(bounds.width * 0.34, 220 * readabilityScale)
   const inX = centerX - barWidth * 0.24
   const outX = centerX + barWidth * 0.24
   const stemTopY = barY + (1.2 * readabilityScale) / zoom
-  const stemBottomY = stemTopY + Math.max((5.5 * readabilityScale) / zoom, bounds.height * 0.042)
-  const arrowHalfWidth = Math.max((1.6 * readabilityScale) / zoom, 0.13 * (stemBottomY - stemTopY))
-  const labelY = stemBottomY + Math.max((4.8 * readabilityScale) / zoom, bounds.height * 0.032)
-  const labelSize = Math.max((5.5 * readabilityScale) / zoom, (7 * readabilityScale) / zoom)
+  const stemBottomY = stemTopY + Math.max((6.8 * readabilityScale) / zoom, bounds.height * 0.05)
+  const arrowHalfWidth = Math.max((3.2 * readabilityScale) / zoom, 0.24 * (stemBottomY - stemTopY))
+  const labelY = stemBottomY + Math.max((5.8 * readabilityScale) / zoom, bounds.height * 0.038)
+  const labelSize = Math.max((7.8 * readabilityScale) / zoom, (9 * readabilityScale) / zoom)
 
   return {
     barY,
@@ -580,6 +673,8 @@ function getOutdoorCabinetPowerPorts(
     arrowHalfWidth,
     labelY,
     labelSize,
+    left: { x: inX, y: stemBottomY },
+    right: { x: outX, y: stemBottomY },
     in: { x: inX, y: stemBottomY },
     out: { x: outX, y: stemBottomY },
   }
@@ -592,11 +687,19 @@ function drawCabinetPowerInOut(
   zoom: number,
   readabilityScale = 1,
   variant: ReceiverCardVariant = "indoor",
+  flowDirection: OutdoorPowerFlowDirection = "ltr",
 ) {
   if (variant !== "outdoor" || cardRects.length === 0) return
 
   const ports = getOutdoorCabinetPowerPorts(bounds, cardRects, zoom, readabilityScale)
   if (!ports) return
+  const inPort = flowDirection === "rtl" ? ports.right : ports.left
+  const outPort = flowDirection === "rtl" ? ports.left : ports.right
+  const labelOffsetX = Math.max((4.8 * readabilityScale) / zoom, bounds.width * 0.02)
+  const labelOffsetY = Math.max((3.2 * readabilityScale) / zoom, bounds.height * 0.018)
+  const inLabelX = inPort.x <= outPort.x ? inPort.x - labelOffsetX : inPort.x + labelOffsetX
+  const outLabelX = outPort.x >= inPort.x ? outPort.x + labelOffsetX : outPort.x - labelOffsetX
+  const labelY = ports.labelY + labelOffsetY
 
   ctx.save()
   ctx.strokeStyle = "#111827"
@@ -608,17 +711,20 @@ function drawCabinetPowerInOut(
 
   ctx.strokeStyle = "#f97316"
   ctx.fillStyle = "#f97316"
-  ctx.lineWidth = Math.max((1.5 * readabilityScale) / zoom, (1 * readabilityScale) / zoom)
-  ;[ports.in.x, ports.out.x].forEach((x) => {
+  const powerLineWidth = scaledReadableWorldSize(5.5, zoom, 3, 9.5, readabilityScale)
+  ctx.lineWidth = powerLineWidth
+  const arrowTipLift = Math.max((4.2 * readabilityScale) / zoom, bounds.height * 0.02)
+  const arrowBaseDrop = Math.max((1.8 * readabilityScale) / zoom, bounds.height * 0.009)
+  ;[inPort.x, outPort.x].forEach((x) => {
     ctx.beginPath()
     ctx.moveTo(x, ports.stemBottomY)
     ctx.lineTo(x, ports.stemTopY)
     ctx.stroke()
 
     ctx.beginPath()
-    ctx.moveTo(x, ports.stemTopY - (2.2 * readabilityScale) / zoom)
-    ctx.lineTo(x - ports.arrowHalfWidth, ports.stemTopY + (1 * readabilityScale) / zoom)
-    ctx.lineTo(x + ports.arrowHalfWidth, ports.stemTopY + (1 * readabilityScale) / zoom)
+    ctx.moveTo(x, ports.stemTopY - arrowTipLift)
+    ctx.lineTo(x - ports.arrowHalfWidth, ports.stemTopY + arrowBaseDrop)
+    ctx.lineTo(x + ports.arrowHalfWidth, ports.stemTopY + arrowBaseDrop)
     ctx.closePath()
     ctx.fill()
   })
@@ -626,8 +732,13 @@ function drawCabinetPowerInOut(
   ctx.font = `700 ${ports.labelSize}px ${FONT_FAMILY}`
   ctx.textAlign = "center"
   ctx.textBaseline = "top"
-  ctx.fillText("IN", ports.in.x, ports.labelY)
-  ctx.fillText("OUT", ports.out.x, ports.labelY)
+  ctx.lineJoin = "round"
+  ctx.lineWidth = Math.max((2.6 * readabilityScale) / zoom, (1.6 * readabilityScale) / zoom)
+  ctx.strokeStyle = "#0f172a"
+  ctx.strokeText("IN", inLabelX, labelY)
+  ctx.strokeText("OUT", outLabelX, labelY)
+  ctx.fillText("IN", inLabelX, labelY)
+  ctx.fillText("OUT", outLabelX, labelY)
   ctx.restore()
 }
 
@@ -929,6 +1040,17 @@ function drawDataRoutes(
   if (!layoutBounds) return
 
   const { maxY } = layoutBounds
+  const mode = layout.project.mode ?? "indoor"
+  const controllerPlacement = layout.project.controllerPlacement ?? "external"
+  const controllerCabinetId = resolveControllerCabinetId(
+    mode,
+    controllerPlacement,
+    layout.project.controllerCabinetId,
+    layout.cabinets,
+    layout.cabinetTypes,
+  )
+  const outdoorLvBoxCabinetId =
+    cardVariant === "outdoor" && controllerPlacement === "cabinet" ? controllerCabinetId : undefined
   const rowCenters: number[] = []
   const rowTolerance = 50
   layout.cabinets.forEach((cabinet) => {
@@ -940,11 +1062,12 @@ function drawDataRoutes(
   })
   rowCenters.sort((a, b) => a - b)
 
-  dataRoutes.forEach((route) => {
+  dataRoutes.forEach((route, routeIndex) => {
     const hasManualSteps = !!route.manualMode && !!route.steps && route.steps.length > 0
     if (route.cabinetIds.length === 0 && !hasManualSteps) return
     const routeSteps = getRouteSteps(route)
-    const useManualSteps = route.manualMode && route.steps && route.steps.length > 0
+    const useManualSteps = !!(route.manualMode && route.steps && route.steps.some((step) => step.type === "point"))
+    const useOutdoorChaining = cardVariant === "outdoor" && !useManualSteps
 
     const isOverloaded = isDataRouteOverCapacity(route, layout.cabinets, layout.cabinetTypes, pitch_mm)
     const lineColor = isOverloaded ? "#ef4444" : "#3b82f6"
@@ -962,38 +1085,91 @@ function drawDataRoutes(
       bounds: NonNullable<ReturnType<typeof getCabinetBounds>> | null
       hasReceiverCard: boolean
       isVirtualAnchor: boolean
+      outdoorCabinetId?: string
+      outdoorPortRole?: "in" | "out"
     }[] = []
     const virtualAnchors: { x: number; y: number }[] = []
 
-    routeSteps.forEach((step) => {
-      if (step.type === "point") {
+    if (useOutdoorChaining) {
+      const cabinetSteps = routeSteps.filter((step): step is Extract<DataRouteStep, { type: "cabinet" }> => step.type === "cabinet")
+      cabinetSteps.forEach((step, index) => {
+        const { cabinetId, cardIndex } = parseRouteCabinetId(step.endpointId)
+        const cabinet = layout.cabinets.find((c) => c.id === cabinetId)
+        if (!cabinet) return
+        const bounds = getCabinetBounds(cabinet, layout.cabinetTypes)
+        if (!bounds) return
+        const cardCount = getCabinetReceiverCardCount(cabinet)
+        const resolvedIndex = cardIndex === undefined ? 0 : Math.max(0, Math.min(cardCount - 1, cardIndex))
+        const rects = getReceiverCardRects(bounds, zoom, cardCount, readabilityScale, cardVariant)
+        const hasReceiverCard = cardCount > 0 && showReceiverCards && !!getReceiverCardLabel(layout, cabinet)
+        const anchorRect = rects[resolvedIndex]
+        if (anchorRect) {
+          const ports = getOutdoorReceiverCardDataPorts(anchorRect, zoom, readabilityScale)
+          const entryPort = index === 0 ? ports.in : ports.out
+          const exitPort = ports.out
+          points.push({
+            x: entryPort.x,
+            y: entryPort.y,
+            bounds,
+            hasReceiverCard,
+            isVirtualAnchor: false,
+            outdoorCabinetId: cabinet.id,
+            outdoorPortRole: "in",
+          })
+          points.push({
+            x: exitPort.x,
+            y: exitPort.y,
+            bounds,
+            hasReceiverCard,
+            isVirtualAnchor: false,
+            outdoorCabinetId: cabinet.id,
+            outdoorPortRole: "out",
+          })
+          return
+        }
+        const anchor = getCabinetDataAnchorPoint(cabinet, bounds, zoom, cardIndex, readabilityScale, cardVariant)
         points.push({
-          x: step.x_mm,
-          y: step.y_mm,
-          bounds: null,
-          hasReceiverCard: false,
-          isVirtualAnchor: false,
+          x: anchor.x,
+          y: anchor.y,
+          bounds,
+          hasReceiverCard,
+          isVirtualAnchor: anchor.isVirtual,
         })
-        return
-      }
-      const { cabinetId, cardIndex } = parseRouteCabinetId(step.endpointId)
-      const cabinet = layout.cabinets.find((c) => c.id === cabinetId)
-      if (!cabinet) return
-      const bounds = getCabinetBounds(cabinet, layout.cabinetTypes)
-      if (!bounds) return
-      const anchor = getCabinetDataAnchorPoint(cabinet, bounds, zoom, cardIndex, readabilityScale, cardVariant)
-      const hasReceiverCard = anchor.cardCount > 0 && showReceiverCards && !!getReceiverCardLabel(layout, cabinet)
-      points.push({
-        x: anchor.x,
-        y: anchor.y,
-        bounds,
-        hasReceiverCard,
-        isVirtualAnchor: anchor.isVirtual,
+        if (anchor.isVirtual) {
+          virtualAnchors.push({ x: anchor.x, y: anchor.y })
+        }
       })
-      if (anchor.isVirtual) {
-        virtualAnchors.push({ x: anchor.x, y: anchor.y })
-      }
-    })
+    } else {
+      routeSteps.forEach((step) => {
+        if (step.type === "point") {
+          points.push({
+            x: step.x_mm,
+            y: step.y_mm,
+            bounds: null,
+            hasReceiverCard: false,
+            isVirtualAnchor: false,
+          })
+          return
+        }
+        const { cabinetId, cardIndex } = parseRouteCabinetId(step.endpointId)
+        const cabinet = layout.cabinets.find((c) => c.id === cabinetId)
+        if (!cabinet) return
+        const bounds = getCabinetBounds(cabinet, layout.cabinetTypes)
+        if (!bounds) return
+        const anchor = getCabinetDataAnchorPoint(cabinet, bounds, zoom, cardIndex, readabilityScale, cardVariant)
+        const hasReceiverCard = anchor.cardCount > 0 && showReceiverCards && !!getReceiverCardLabel(layout, cabinet)
+        points.push({
+          x: anchor.x,
+          y: anchor.y,
+          bounds,
+          hasReceiverCard,
+          isVirtualAnchor: anchor.isVirtual,
+        })
+        if (anchor.isVirtual) {
+          virtualAnchors.push({ x: anchor.x, y: anchor.y })
+        }
+      })
+    }
 
     if (points.length === 0) {
       ctx.restore()
@@ -1002,86 +1178,126 @@ function drawDataRoutes(
 
     const firstPoint = points[0]
     const firstBounds = firstPoint.bounds
-    const portLabel = `Port ${route.port}`
-    ctx.font = `bold ${fontSize}px ${FONT_FAMILY}`
-    const labelWidth = ctx.measureText(portLabel).width + labelPadding * 2
-    const labelHeight = fontSize + labelPadding * 1.6
-    const labelOffset = getPortLabelOffset(baseLabelOffset, labelHeight)
-    const portLabelCenterY = firstPoint.y
-    const forceBottom = route.forcePortLabelBottom ?? forcePortLabelsBottom
+    const isOutdoorDataRouting = cardVariant === "outdoor"
+    const lvBoxDataSource =
+      isOutdoorDataRouting && outdoorLvBoxCabinetId
+        ? (() => {
+            const controllerCabinet = layout.cabinets.find((cabinet) => cabinet.id === outdoorLvBoxCabinetId)
+            if (!controllerCabinet) return null
+            const controllerBounds = getCabinetBounds(controllerCabinet, layout.cabinetTypes)
+            if (!controllerBounds) return null
+            const lvBoxRect = getOutdoorLvBoxRect(controllerBounds, zoom, readabilityScale)
+            const sourceInset = scaledReadableWorldSize(4.2, zoom, 2.8, 8, readabilityScale)
+            const laneStep = scaledReadableWorldSize(4, zoom, 2, 7, readabilityScale)
+            const laneOffset = routeIndex * laneStep
+            const minX = lvBoxRect.x + sourceInset
+            const maxX = lvBoxRect.x + lvBoxRect.width - sourceInset
+            const sourceX = Math.max(minX, Math.min(maxX, lvBoxRect.x + lvBoxRect.width - sourceInset - laneOffset))
+            return {
+              x: sourceX,
+              y: lvBoxRect.y + sourceInset,
+            }
+          })()
+        : null
 
-    const resolvedPosition = (() => {
-      if (route.labelPosition && route.labelPosition !== "auto") return route.labelPosition
-      if (forceBottom) return "bottom"
-      let placeSide = false
-      if (firstBounds && rowCenters.length > 1) {
-        const centerY = firstBounds.y + firstBounds.height / 2
-        let rowIndex = rowCenters.findIndex((rowY) => Math.abs(rowY - centerY) < rowTolerance)
-        if (rowIndex === -1) {
-          rowIndex = rowCenters.reduce((bestIndex, rowY, index) => {
-            const bestDistance = Math.abs(rowCenters[bestIndex] - centerY)
-            const distance = Math.abs(rowY - centerY)
-            return distance < bestDistance ? index : bestIndex
-          }, 0)
+    let lineStartX = firstPoint.x
+    let lineStartY = firstPoint.y
+
+    if (!isOutdoorDataRouting) {
+      const portLabel = `Port ${route.port}`
+      ctx.font = `bold ${fontSize}px ${FONT_FAMILY}`
+      const labelWidth = ctx.measureText(portLabel).width + labelPadding * 2
+      const labelHeight = fontSize + labelPadding * 1.6
+      const labelOffset = getPortLabelOffset(baseLabelOffset, labelHeight)
+      const portLabelCenterY = firstPoint.y
+      const forceBottom = route.forcePortLabelBottom ?? forcePortLabelsBottom
+
+      const resolvedPosition = (() => {
+        if (route.labelPosition && route.labelPosition !== "auto") return route.labelPosition
+        if (forceBottom) return "bottom"
+        let placeSide = false
+        if (firstBounds && rowCenters.length > 1) {
+          const centerY = firstBounds.y + firstBounds.height / 2
+          let rowIndex = rowCenters.findIndex((rowY) => Math.abs(rowY - centerY) < rowTolerance)
+          if (rowIndex === -1) {
+            rowIndex = rowCenters.reduce((bestIndex, rowY, index) => {
+              const bestDistance = Math.abs(rowCenters[bestIndex] - centerY)
+              const distance = Math.abs(rowY - centerY)
+              return distance < bestDistance ? index : bestIndex
+            }, 0)
+          }
+          placeSide = rowIndex < rowCenters.length - 1
         }
-        placeSide = rowIndex < rowCenters.length - 1
+        if (!placeSide) return "bottom"
+        const layoutCenterX = (layoutBounds.minX + layoutBounds.maxX) / 2
+        const firstCenterX = firstBounds ? firstBounds.x + firstBounds.width / 2 : firstPoint.x
+        return firstCenterX >= layoutCenterX ? "right" : "left"
+      })()
+
+      const portLabelX =
+        resolvedPosition === "left"
+          ? layoutBounds.minX - labelSideGap - labelWidth / 2
+          : resolvedPosition === "right"
+            ? layoutBounds.maxX + labelSideGap + labelWidth / 2
+            : firstPoint.x
+      const portLabelY =
+        resolvedPosition === "top"
+          ? layoutBounds.minY - labelOffset
+          : resolvedPosition === "bottom"
+            ? maxY + labelOffset
+            : portLabelCenterY
+      const labelBoxY = portLabelY - labelHeight / 2
+
+      ctx.fillStyle = "rgba(15, 23, 42, 0.95)"
+      ctx.strokeStyle = lineColor
+      ctx.lineWidth = scaledReadableWorldSize(2, zoom, 1.5, 3, readabilityScale)
+      drawRoundedRect(ctx, portLabelX - labelWidth / 2, labelBoxY, labelWidth, labelHeight, labelRadius)
+      ctx.fill()
+      ctx.stroke()
+
+      ctx.fillStyle = "#f8fafc"
+      ctx.textAlign = "center"
+      ctx.textBaseline = "middle"
+      ctx.fillText(portLabel, portLabelX, portLabelY)
+
+      lineStartX = portLabelX
+      lineStartY = portLabelY
+      if (resolvedPosition === "left") {
+        lineStartX = portLabelX + labelWidth / 2
+      } else if (resolvedPosition === "right") {
+        lineStartX = portLabelX - labelWidth / 2
+      } else if (resolvedPosition === "top") {
+        lineStartY = portLabelY + labelHeight / 2
+      } else if (resolvedPosition === "bottom") {
+        lineStartY = portLabelY - labelHeight / 2
       }
-      if (!placeSide) return "bottom"
-      const layoutCenterX = (layoutBounds.minX + layoutBounds.maxX) / 2
-      const firstCenterX = firstBounds ? firstBounds.x + firstBounds.width / 2 : firstPoint.x
-      return firstCenterX >= layoutCenterX ? "right" : "left"
-    })()
-
-    const portLabelX =
-      resolvedPosition === "left"
-        ? layoutBounds.minX - labelSideGap - labelWidth / 2
-        : resolvedPosition === "right"
-          ? layoutBounds.maxX + labelSideGap + labelWidth / 2
-          : firstPoint.x
-    const portLabelY =
-      resolvedPosition === "top"
-        ? layoutBounds.minY - labelOffset
-        : resolvedPosition === "bottom"
-          ? maxY + labelOffset
-          : portLabelCenterY
-    const labelBoxY = portLabelY - labelHeight / 2
-
-    ctx.fillStyle = "rgba(15, 23, 42, 0.95)"
-    ctx.strokeStyle = lineColor
-    ctx.lineWidth = scaledReadableWorldSize(2, zoom, 1.5, 3, readabilityScale)
-    drawRoundedRect(ctx, portLabelX - labelWidth / 2, labelBoxY, labelWidth, labelHeight, labelRadius)
-    ctx.fill()
-    ctx.stroke()
-
-    ctx.fillStyle = "#f8fafc"
-    ctx.textAlign = "center"
-    ctx.textBaseline = "middle"
-    ctx.fillText(portLabel, portLabelX, portLabelY)
-
-    let lineStartX = portLabelX
-    let lineStartY = portLabelY
-    if (resolvedPosition === "left") {
-      lineStartX = portLabelX + labelWidth / 2
-    } else if (resolvedPosition === "right") {
-      lineStartX = portLabelX - labelWidth / 2
-    } else if (resolvedPosition === "top") {
-      lineStartY = portLabelY + labelHeight / 2
-    } else if (resolvedPosition === "bottom") {
-      lineStartY = portLabelY - labelHeight / 2
+    } else if (lvBoxDataSource) {
+      lineStartX = lvBoxDataSource.x
+      lineStartY = lvBoxDataSource.y
     }
-    ctx.strokeStyle = outlineColor
-    ctx.lineWidth = outlineWidth
-    ctx.beginPath()
-    ctx.moveTo(lineStartX, lineStartY)
-    ctx.lineTo(firstPoint.x, firstPoint.y)
-    ctx.stroke()
 
-    ctx.strokeStyle = lineColor
-    ctx.lineWidth = lineWidth
-    ctx.beginPath()
-    ctx.moveTo(lineStartX, lineStartY)
-    ctx.lineTo(firstPoint.x, firstPoint.y)
-    ctx.stroke()
+    if (Math.abs(lineStartX - firstPoint.x) > 0.01 || Math.abs(lineStartY - firstPoint.y) > 0.01) {
+      const drawSourceToFirstConnection = (strokeStyle: string, width: number) => {
+        ctx.strokeStyle = strokeStyle
+        ctx.lineWidth = width
+        ctx.beginPath()
+        ctx.moveTo(lineStartX, lineStartY)
+        if (isOutdoorDataRouting) {
+          if (Math.abs(firstPoint.x - lineStartX) > 0.01) {
+            ctx.lineTo(firstPoint.x, lineStartY)
+          }
+          if (Math.abs(firstPoint.y - lineStartY) > 0.01) {
+            ctx.lineTo(firstPoint.x, firstPoint.y)
+          }
+        } else {
+          ctx.lineTo(firstPoint.x, firstPoint.y)
+        }
+        ctx.stroke()
+      }
+
+      drawSourceToFirstConnection(outlineColor, outlineWidth)
+      drawSourceToFirstConnection(lineColor, lineWidth)
+    }
 
     if (points.length > 1) {
       const routeMinY = Math.min(...points.map((point) => point.y))
@@ -1096,6 +1312,17 @@ function drawDataRoutes(
         for (let i = 1; i < points.length; i++) {
           const prev = points[i - 1]
           const curr = points[i]
+          if (
+            useOutdoorChaining &&
+            prev.outdoorCabinetId &&
+            prev.outdoorCabinetId === curr.outdoorCabinetId &&
+            prev.outdoorPortRole === "in" &&
+            curr.outdoorPortRole === "out"
+          ) {
+            // IN and OUT are separate physical ports; do not draw a short jumper inside the card.
+            ctx.moveTo(curr.x, curr.y)
+            continue
+          }
           const dx = curr.x - prev.x
           const dy = curr.y - prev.y
           const absDx = Math.abs(dx)
@@ -1177,10 +1404,6 @@ function drawPowerFeeds(
 ) {
   const { powerFeeds } = layout.project
   if (!powerFeeds || powerFeeds.length === 0) return
-  const getPowerSteps = (feed: LayoutData["project"]["powerFeeds"][number]): DataRouteStep[] => {
-    if (feed.manualMode && feed.steps && feed.steps.length > 0) return feed.steps
-    return feed.assignedCabinetIds.map((cabinetId) => ({ type: "cabinet", endpointId: cabinetId }))
-  }
 
   const lineWidth = scaledReadableWorldSize(5.5, zoom, 3, 9.5, readabilityScale)
   const outlineWidth = lineWidth + scaledReadableWorldSize(0.9, zoom, 0.6, 1.6, readabilityScale)
@@ -1199,13 +1422,24 @@ function drawPowerFeeds(
 
   const layoutBounds = getLayoutBoundsFromCabinets(layout.cabinets, layout.cabinetTypes)
   if (!layoutBounds) return
+  const mode = layout.project.mode ?? "indoor"
+  const controllerPlacement = layout.project.controllerPlacement ?? "external"
+  const controllerCabinetId = resolveControllerCabinetId(
+    mode,
+    controllerPlacement,
+    layout.project.controllerCabinetId,
+    layout.cabinets,
+    layout.cabinetTypes,
+  )
+  const outdoorLvBoxCabinetId =
+    mode === "outdoor" && controllerPlacement === "cabinet" ? controllerCabinetId : undefined
   const dataRoutes = layout.project.dataRoutes ?? []
   const forcePortLabelsBottom = layout.project.overview.forcePortLabelsBottom ?? false
   let maxPortLabelWidthLeft = 0
   let maxPortLabelWidthRight = 0
   let maxPortLabelBottom: number | null = null
 
-  if (dataRoutes.length > 0) {
+  if (dataRoutes.length > 0 && cardVariant !== "outdoor") {
     const rowCenters: number[] = []
     const rowTolerance = 50
     layout.cabinets.forEach((cabinet) => {
@@ -1271,7 +1505,7 @@ function drawPowerFeeds(
     }
   }
 
-  if (dataRoutes.length > 0) {
+  if (dataRoutes.length > 0 && cardVariant !== "outdoor") {
     const rowCenters: number[] = []
     const rowTolerance = 50
     layout.cabinets.forEach((cabinet) => {
@@ -1374,15 +1608,17 @@ function drawPowerFeeds(
     y: number
     bounds: NonNullable<ReturnType<typeof getCabinetBounds>> | null
     cardRect?: CardRect
+    outdoorCabinetId?: string
+    outdoorPortRole?: "in" | "out" | "lvbox"
   }
 
-  const buildFeedPoints = (feedSteps: DataRouteStep[], useManualSteps: boolean) => {
+  const buildFeedPoints = (feedSteps: DataRouteStep[], useManualSteps: boolean, includeLvBoxLink: boolean) => {
     const points: FeedPoint[] = []
     const useOutdoorChaining = cardVariant === "outdoor" && !useManualSteps
 
     if (useOutdoorChaining) {
       const cabinetSteps = feedSteps.filter((step): step is Extract<DataRouteStep, { type: "cabinet" }> => step.type === "cabinet")
-      cabinetSteps.forEach((step) => {
+      cabinetSteps.forEach((step, index) => {
         const cabinet = layout.cabinets.find((c) => c.id === step.endpointId)
         if (!cabinet) return
         const bounds = getCabinetBounds(cabinet, layout.cabinetTypes)
@@ -1391,8 +1627,65 @@ function drawPowerFeeds(
         const rects = getReceiverCardRects(bounds, zoom, cardCount, readabilityScale, cardVariant)
         const ports = getOutdoorCabinetPowerPorts(bounds, rects, zoom, readabilityScale)
         if (!ports) return
-        points.push({ x: ports.in.x, y: ports.in.y, bounds, cardRect: rects[0] })
-        points.push({ x: ports.out.x, y: ports.out.y, bounds, cardRect: rects[0] })
+        let direction = 0
+        const nextStep = cabinetSteps[index + 1]
+        if (nextStep) {
+          const nextCabinet = layout.cabinets.find((c) => c.id === nextStep.endpointId)
+          if (nextCabinet) {
+            const dx = nextCabinet.x_mm - cabinet.x_mm
+            if (Math.abs(dx) > 1) direction = Math.sign(dx)
+          }
+        }
+        if (direction === 0) {
+          const prevStep = cabinetSteps[index - 1]
+          if (prevStep) {
+            const prevCabinet = layout.cabinets.find((c) => c.id === prevStep.endpointId)
+            if (prevCabinet) {
+              const dx = cabinet.x_mm - prevCabinet.x_mm
+              if (Math.abs(dx) > 1) direction = Math.sign(dx)
+            }
+          }
+        }
+        const entryPort = direction < 0 ? ports.right : ports.left
+        const exitPort = direction < 0 ? ports.left : ports.right
+        points.push({
+          x: entryPort.x,
+          y: entryPort.y,
+          bounds,
+          cardRect: rects[0],
+          outdoorCabinetId: cabinet.id,
+          outdoorPortRole: "in",
+        })
+        points.push({
+          x: exitPort.x,
+          y: exitPort.y,
+          bounds,
+          cardRect: rects[0],
+          outdoorCabinetId: cabinet.id,
+          outdoorPortRole: "out",
+        })
+        if (
+          includeLvBoxLink &&
+          outdoorLvBoxCabinetId &&
+          cabinet.id === outdoorLvBoxCabinetId &&
+          index === cabinetSteps.length - 1
+        ) {
+          const lvBoxRect = getOutdoorLvBoxRect(bounds, zoom, readabilityScale)
+          const anchorInset = Math.max((5 * readabilityScale) / zoom, lvBoxRect.width * 0.08)
+          const lvAnchorX = clamp(
+            exitPort.x,
+            lvBoxRect.x + anchorInset,
+            lvBoxRect.x + lvBoxRect.width - anchorInset,
+          )
+          points.push({
+            x: lvAnchorX,
+            y: lvBoxRect.y,
+            bounds,
+            cardRect: rects[0],
+            outdoorCabinetId: cabinet.id,
+            outdoorPortRole: "lvbox",
+          })
+        }
       })
       return { points, useOutdoorChaining }
     }
@@ -1426,8 +1719,8 @@ function drawPowerFeeds(
   powerFeeds.forEach((feed) => {
     if (feed.assignedCabinetIds.length === 0) return
     const feedSteps = getPowerSteps(feed)
-    const useManualSteps = !!(feed.manualMode && feed.steps && feed.steps.length > 0)
-    const { points } = buildFeedPoints(feedSteps, useManualSteps)
+    const useManualSteps = !!(feed.manualMode && feed.steps && feed.steps.some((step) => step.type === "point"))
+    const { points } = buildFeedPoints(feedSteps, useManualSteps, !!feed.connectLvBox)
     if (points.length === 0) return
 
     ctx.font = `bold ${fontSize}px ${FONT_FAMILY}`
@@ -1462,8 +1755,8 @@ function drawPowerFeeds(
     ctx.lineJoin = "round"
 
     const feedSteps = getPowerSteps(feed)
-    const useManualSteps = !!(feed.manualMode && feed.steps && feed.steps.length > 0)
-    const { points, useOutdoorChaining } = buildFeedPoints(feedSteps, useManualSteps)
+    const useManualSteps = !!(feed.manualMode && feed.steps && feed.steps.some((step) => step.type === "point"))
+    const { points, useOutdoorChaining } = buildFeedPoints(feedSteps, useManualSteps, !!feed.connectLvBox)
 
     if (points.length === 0) {
       ctx.restore()
@@ -1576,10 +1869,22 @@ function drawPowerFeeds(
         for (let i = 1; i < points.length; i++) {
           const prev = points[i - 1]
           const curr = points[i]
+          if (
+            useOutdoorChaining &&
+            prev.outdoorCabinetId &&
+            prev.outdoorCabinetId === curr.outdoorCabinetId &&
+            prev.outdoorPortRole === "in" &&
+            curr.outdoorPortRole === "out"
+          ) {
+            // Keep a visual separation between IN and OUT inside the same cabinet.
+            ctx.moveTo(curr.x, curr.y)
+            continue
+          }
           const dx = curr.x - prev.x
           const dy = curr.y - prev.y
           const absDx = Math.abs(dx)
           const absDy = Math.abs(dy)
+          const axisSnapTolerance = useOutdoorChaining ? 0.75 : 10
 
           if (useManualSteps) {
             if (absDx < 10 || absDy < 10) {
@@ -1612,12 +1917,63 @@ function drawPowerFeeds(
             continue
           }
 
-          if (absDx < 10 || absDy < 10) {
+          const isOutdoorCabinetTransition =
+            useOutdoorChaining &&
+            prev.outdoorCabinetId &&
+            curr.outdoorCabinetId &&
+            prev.outdoorCabinetId !== curr.outdoorCabinetId
+          const prevCenterX = prev.bounds ? prev.bounds.x + prev.bounds.width / 2 : prev.x
+          const currCenterX = curr.bounds ? curr.bounds.x + curr.bounds.width / 2 : curr.x
+          const referenceWidth = Math.min(
+            prev.bounds?.width ?? Number.POSITIVE_INFINITY,
+            curr.bounds?.width ?? Number.POSITIVE_INFINITY,
+          )
+          const sameColumn = Number.isFinite(referenceWidth)
+            ? Math.abs(prevCenterX - currCenterX) <= referenceWidth * 0.28
+            : absDx <= (120 * readabilityScale) / zoom
+
+          if (isOutdoorCabinetTransition && absDy >= axisSnapTolerance && sameColumn) {
+            // Deterministic outdoor same-column path:
+            // OUT -> side lane -> vertical lane -> approach level -> IN.
+            const laneSign = prev.x >= prevCenterX ? 1 : -1
+            const laneOffset = Number.isFinite(referenceWidth)
+              ? Math.max((28 * readabilityScale) / zoom, referenceWidth * 0.09)
+              : (58 * readabilityScale) / zoom
+            const laneBaseX = laneSign > 0 ? Math.max(prev.x, curr.x) : Math.min(prev.x, curr.x)
+            const laneX = laneBaseX + laneSign * laneOffset
+            const verticalDir = Math.sign(curr.y - prev.y) || 1
+            const baseHeight = Math.min(
+              prev.bounds?.height ?? Number.POSITIVE_INFINITY,
+              curr.bounds?.height ?? Number.POSITIVE_INFINITY,
+            )
+            const minClearanceByCabinet = Number.isFinite(baseHeight)
+              ? Math.max((36 * readabilityScale) / zoom, baseHeight * 0.24)
+              : (48 * readabilityScale) / zoom
+            const approachClearance = Math.min(
+              Math.max(minClearanceByCabinet, absDy * 0.42),
+              absDy * 0.5,
+            )
+            const approachY = curr.y - verticalDir * approachClearance
+            ctx.lineTo(laneX, prev.y)
+            ctx.lineTo(laneX, approachY)
+            ctx.lineTo(curr.x, approachY)
             ctx.lineTo(curr.x, curr.y)
             continue
           }
 
-          // Turn at the destination cabinet to keep routing tight to the path.
+          if (absDx < axisSnapTolerance || absDy < axisSnapTolerance) {
+            ctx.lineTo(curr.x, curr.y)
+            continue
+          }
+
+          if (isOutdoorCabinetTransition && absDy > absDx) {
+            // For bottom<->top transitions, draw a clear L from source to destination.
+            ctx.lineTo(curr.x, prev.y)
+            ctx.lineTo(curr.x, curr.y)
+            continue
+          }
+
+          // Default turn at destination for mixed horizontal routing.
           ctx.lineTo(prev.x, curr.y)
           ctx.lineTo(curr.x, curr.y)
         }
@@ -1853,6 +2209,9 @@ export function drawOverview(ctx: CanvasRenderingContext2D, layout: LayoutData, 
   const receiverCardModel = layout.project.overview.receiverCardModel
   const showReceiverCards = (options.showReceiverCards ?? true) && (layout.project.overview.showReceiverCards ?? true)
   const isOutdoorMode = (layout.project.mode ?? "indoor") === "outdoor"
+  const outdoorFlowByCabinet = isOutdoorMode
+    ? getOutdoorPowerFlowDirectionByCabinet(layout)
+    : new Map<string, OutdoorPowerFlowDirection>()
   const showDataRoutes = (options.showDataRoutes ?? true) && (layout.project.overview.showDataRoutes ?? true)
   const showPowerRoutes = (options.showPowerRoutes ?? true) && (layout.project.overview.showPowerRoutes ?? true)
   const showModuleGrid = (options.showModuleGrid ?? true) && (layout.project.overview.showModuleGrid ?? true)
@@ -2014,7 +2373,9 @@ export function drawOverview(ctx: CanvasRenderingContext2D, layout: LayoutData, 
           readabilityScale,
           isOutdoorMode ? "outdoor" : "indoor",
         )
-        drawPowerAnchorDot(ctx, rect, bounds, uiZoom, "#f97316", readabilityScale)
+        if (!isOutdoorMode) {
+          drawPowerAnchorDot(ctx, rect, bounds, uiZoom, "#f97316", readabilityScale)
+        }
       })
       drawCabinetPowerInOut(
         ctx,
@@ -2023,6 +2384,7 @@ export function drawOverview(ctx: CanvasRenderingContext2D, layout: LayoutData, 
         uiZoom,
         readabilityScale,
         isOutdoorMode ? "outdoor" : "indoor",
+        outdoorFlowByCabinet.get(cabinet.id) ?? "ltr",
       )
     })
   }

@@ -103,6 +103,7 @@ export interface PowerFeed {
   assignedCabinetIds: string[]
   manualMode?: boolean
   steps?: DataRouteStep[]
+  connectLvBox?: boolean // outdoor: draw OUT -> LV BOX only when explicitly enabled
   positionX?: number // X position for the power line (auto-calculated or manual)
   labelPosition?: "auto" | "top" | "bottom" | "left" | "right"
 }

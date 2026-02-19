@@ -345,6 +345,7 @@ export function DataRoutesPanel() {
       connector: "NAC3FX-W",
       consumptionW: 0,
       assignedCabinetIds: [],
+      connectLvBox: false,
     }
     dispatch({ type: "ADD_POWER_FEED", payload: newFeed })
     dispatch({ type: "PUSH_HISTORY" })
@@ -369,7 +370,7 @@ export function DataRoutesPanel() {
   const handleClearPowerFeed = (feedId: string) => {
     dispatch({
       type: "UPDATE_POWER_FEED",
-      payload: { id: feedId, updates: { assignedCabinetIds: [], steps: [] } },
+      payload: { id: feedId, updates: { assignedCabinetIds: [], steps: [], connectLvBox: false } },
     })
     dispatch({ type: "PUSH_HISTORY" })
   }
@@ -422,6 +423,7 @@ export function DataRoutesPanel() {
       connector: defaultTemplate?.connector || "NAC3FX-W",
       consumptionW: 0,
       assignedCabinetIds: [],
+      connectLvBox: false,
     })
 
     const workingFeeds: PowerFeed[] =
@@ -491,6 +493,7 @@ export function DataRoutesPanel() {
           id: feed.id,
           updates: {
             assignedCabinetIds,
+            connectLvBox: false,
             steps: isManual
               ? assignedCabinetIds.map((cabinetId) => ({ type: "cabinet", endpointId: cabinetId }))
               : existingSteps,

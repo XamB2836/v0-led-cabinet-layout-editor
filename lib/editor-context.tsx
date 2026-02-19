@@ -583,7 +583,7 @@ function editorReducer(state: EditorState, action: EditorAction): EditorState {
           project: {
             ...state.layout.project,
             powerFeeds: state.layout.project.powerFeeds.map((f) =>
-              f.id === action.payload.feedId ? { ...f, assignedCabinetIds: newCabinetIds } : f,
+              f.id === action.payload.feedId ? { ...f, assignedCabinetIds: newCabinetIds, connectLvBox: false } : f,
             ),
           },
         },
@@ -602,7 +602,11 @@ function editorReducer(state: EditorState, action: EditorAction): EditorState {
             ...state.layout.project,
             powerFeeds: state.layout.project.powerFeeds.map((f) =>
               f.id === action.payload.feedId
-                ? { ...f, assignedCabinetIds: f.assignedCabinetIds.filter((id) => id !== action.payload.cabinetId) }
+                ? {
+                    ...f,
+                    assignedCabinetIds: f.assignedCabinetIds.filter((id) => id !== action.payload.cabinetId),
+                    connectLvBox: false,
+                  }
                 : f,
             ),
           },

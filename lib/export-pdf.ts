@@ -573,6 +573,7 @@ function computeLabelBounds(
   let maxY = layoutBounds.maxY
 
   const dataRoutes = layout.project.dataRoutes ?? []
+  const isOutdoorMode = (layout.project.mode ?? "indoor") === "outdoor"
   const forcePortLabelsBottom = layout.project.overview.forcePortLabelsBottom ?? false
   const rowCenters: number[] = []
   const rowTolerance = 50
@@ -595,7 +596,7 @@ function computeLabelBounds(
   let maxPortLabelWidthRight = 0
   let hasBottomPortLabel = false
 
-  if (dataRoutes.length > 0) {
+  if (dataRoutes.length > 0 && !isOutdoorMode) {
     ctx.font = `bold ${dataFontPx}px ${FONT_FAMILY}`
     dataRoutes.forEach((route) => {
       if (route.cabinetIds.length === 0) return
