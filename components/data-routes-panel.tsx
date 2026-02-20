@@ -194,6 +194,14 @@ export function DataRoutesPanel() {
         : undefined
       let anchorX = anchorSourceItem?.centerX ?? Number.POSITIVE_INFINITY
       let anchorY = anchorSourceItem?.centerY ?? Number.POSITIVE_INFINITY
+      const layoutCenterX =
+        cabinetsWithBounds.length > 0
+          ? (Math.min(...cabinetsWithBounds.map((item) => item.centerX)) +
+              Math.max(...cabinetsWithBounds.map((item) => item.centerX))) /
+            2
+          : 0
+      const lvSide: "left" | "right" =
+        anchorSourceItem && anchorSourceItem.centerX < layoutCenterX ? "left" : "right"
       const primaryGroupIndex = groups.findIndex((group) =>
         group.some((item) => item.cabinet.id === controllerCabinetId),
       )
@@ -236,7 +244,7 @@ export function DataRoutesPanel() {
         orderedGroups.push(nextGroup)
       }
 
-      orderedGroups.forEach((group) => {
+      orderedGroups.forEach((group, groupIndex) => {
         const rows: RoutedCabinet[][] = []
         group.forEach((item) => {
           const existing = rows.find((row) => row.length > 0 && Math.abs(row[0].centerY - item.centerY) < rowTolerance)
@@ -278,18 +286,46 @@ export function DataRoutesPanel() {
           !Number.isFinite(anchorX) ||
           Math.abs(anchorX - firstRowLeftX) <= Math.abs(anchorX - firstRowRightX)
 
-        let lastVisitedItem: RoutedCabinet | null = null
-        for (let rowIndex = 0; rowIndex < orderedRows.length; rowIndex++) {
-          const row = orderedRows[rowIndex]
-          const rowLtr = rowIndex % 2 === 0 ? startLtr : !startLtr
-          const isReversed = !rowLtr
-          const orderedRowItems = isReversed ? [...row].reverse() : [...row]
-          for (const item of orderedRowItems) {
-            appendCardEndpoints(orderedEndpointIds, item, isReversed)
-            lastVisitedItem = item
+        const buildTraversal = (candidateStartLtr: boolean) => {
+          const visited: Array<{ item: RoutedCabinet; reversed: boolean }> = []
+          let lastItem: RoutedCabinet | null = null
+          for (let rowIndex = 0; rowIndex < orderedRows.length; rowIndex++) {
+            const row = orderedRows[rowIndex]
+            const rowLtr = rowIndex % 2 === 0 ? candidateStartLtr : !candidateStartLtr
+            const isReversed = !rowLtr
+            const orderedRowItems = isReversed ? [...row].reverse() : [...row]
+            for (const item of orderedRowItems) {
+              visited.push({ item, reversed: isReversed })
+              lastItem = item
+            }
           }
+          return { visited, lastItem }
         }
 
+        let chosenStartLtr = startLtr
+        const hasNextGroup = groupIndex < orderedGroups.length - 1
+        if (hasNextGroup) {
+          const groupMinX = Math.min(...group.map((item) => item.centerX))
+          const groupMaxX = Math.max(...group.map((item) => item.centerX))
+          const preferredExitX = lvSide === "right" ? groupMinX : groupMaxX
+
+          const optionLtr = buildTraversal(true)
+          const optionRtl = buildTraversal(false)
+          const ltrDistance = optionLtr.lastItem
+            ? Math.abs(optionLtr.lastItem.centerX - preferredExitX)
+            : Number.POSITIVE_INFINITY
+          const rtlDistance = optionRtl.lastItem
+            ? Math.abs(optionRtl.lastItem.centerX - preferredExitX)
+            : Number.POSITIVE_INFINITY
+          chosenStartLtr = ltrDistance <= rtlDistance
+        }
+
+        const chosenTraversal = buildTraversal(chosenStartLtr)
+        for (const step of chosenTraversal.visited) {
+          appendCardEndpoints(orderedEndpointIds, step.item, step.reversed)
+        }
+
+        const lastVisitedItem = chosenTraversal.lastItem
         if (lastVisitedItem) {
           anchorX = lastVisitedItem.centerX
           anchorY = lastVisitedItem.centerY

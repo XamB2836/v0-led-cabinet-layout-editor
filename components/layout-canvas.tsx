@@ -1255,11 +1255,41 @@ function drawDataRoutes(
     const manualPoints: { x: number; y: number }[] = []
     if (useOutdoorChaining) {
       const cabinetSteps = routeSteps.filter((step): step is Extract<DataRouteStep, { type: "cabinet" }> => step.type === "cabinet")
+      const boundsByCabinetId = new Map<string, NonNullable<ReturnType<typeof getCabinetBounds>>>()
+      cabinetSteps.forEach((step) => {
+        const { cabinetId } = parseRouteCabinetId(step.endpointId)
+        if (boundsByCabinetId.has(cabinetId)) return
+        const cabinet = cabinets.find((entry) => entry.id === cabinetId)
+        if (!cabinet) return
+        const bounds = getCabinetBounds(cabinet, cabinetTypes)
+        if (!bounds) return
+        boundsByCabinetId.set(cabinetId, bounds)
+      })
+      const areCabinetsConnected = (
+        a: NonNullable<ReturnType<typeof getCabinetBounds>>,
+        b: NonNullable<ReturnType<typeof getCabinetBounds>>,
+      ) => {
+        const tolerance = 1
+        const overlapX = a.x < b.x2 && a.x2 > b.x
+        const overlapY = a.y < b.y2 && a.y2 > b.y
+        if (overlapX && overlapY) return true
+        const horizontalTouch =
+          (Math.abs(a.x2 - b.x) <= tolerance || Math.abs(b.x2 - a.x) <= tolerance) && !(a.y2 <= b.y || b.y2 <= a.y)
+        const verticalTouch =
+          (Math.abs(a.y2 - b.y) <= tolerance || Math.abs(b.y2 - a.y) <= tolerance) && !(a.x2 <= b.x || b.x2 <= a.x)
+        return horizontalTouch || verticalTouch
+      }
+      const isScreenTransitionBetweenSteps = (fromEndpointId: string, toEndpointId: string) => {
+        const fromCabinetId = parseRouteCabinetId(fromEndpointId).cabinetId
+        const toCabinetId = parseRouteCabinetId(toEndpointId).cabinetId
+        const fromBounds = boundsByCabinetId.get(fromCabinetId)
+        const toBounds = boundsByCabinetId.get(toCabinetId)
+        if (!fromBounds || !toBounds) return false
+        return !areCabinetsConnected(fromBounds, toBounds)
+      }
       const getStepRowIndex = (endpointId: string) => {
         const { cabinetId } = parseRouteCabinetId(endpointId)
-        const cabinetForRow = cabinets.find((entry) => entry.id === cabinetId)
-        if (!cabinetForRow) return null
-        const boundsForRow = getCabinetBounds(cabinetForRow, cabinetTypes)
+        const boundsForRow = boundsByCabinetId.get(cabinetId)
         if (!boundsForRow) return null
         return getNearestIndex(rowCenters, boundsForRow.y + boundsForRow.height / 2)
       }
@@ -1295,12 +1325,26 @@ function drawDataRoutes(
             }
             entryIsTop = sameRowSegmentLength % 2 === 0
           }
+          if (stepIndex > 0) {
+            const isScreenTransitionFromPrevious = isScreenTransitionBetweenSteps(
+              cabinetSteps[stepIndex - 1].endpointId,
+              step.endpointId,
+            )
+            if (isScreenTransitionFromPrevious) {
+              // On screen-to-screen jump, enter the next cabinet from the bottom port.
+              entryIsTop = false
+            }
+          }
           let exitIsTop = !entryIsTop
           if (stepIndex >= 0 && stepIndex + 1 < cabinetSteps.length) {
             const nextRowIndex = getStepRowIndex(cabinetSteps[stepIndex + 1].endpointId)
             const isRowTransition = nextRowIndex !== null && nextRowIndex !== rowIndex
-            if (isRowTransition) {
-              // At row transitions, route must leave and enter via top ports (schema behavior).
+            const isScreenTransitionToNext = isScreenTransitionBetweenSteps(
+              step.endpointId,
+              cabinetSteps[stepIndex + 1].endpointId,
+            )
+            if (isRowTransition && !isScreenTransitionToNext) {
+              // Within one screen, row transitions leave from top ports.
               exitIsTop = true
             }
           }
@@ -1535,6 +1579,20 @@ function drawDataRoutes(
       const routeMinY = Math.min(...points.map((point) => point.y))
       const routeMaxY = Math.max(...points.map((point) => point.y))
       const layoutCenterX = (layoutBounds.minX + layoutBounds.maxX) / 2
+      const areCabinetBoundsConnected = (
+        a: NonNullable<(typeof points)[number]["bounds"]>,
+        b: NonNullable<(typeof points)[number]["bounds"]>,
+      ) => {
+        const tolerance = 1
+        const overlapX = a.x < b.x2 && a.x2 > b.x
+        const overlapY = a.y < b.y2 && a.y2 > b.y
+        if (overlapX && overlapY) return true
+        const horizontalTouch =
+          (Math.abs(a.x2 - b.x) <= tolerance || Math.abs(b.x2 - a.x) <= tolerance) && !(a.y2 <= b.y || b.y2 <= a.y)
+        const verticalTouch =
+          (Math.abs(a.y2 - b.y) <= tolerance || Math.abs(b.y2 - a.y) <= tolerance) && !(a.x2 <= b.x || b.x2 <= a.x)
+        return horizontalTouch || verticalTouch
+      }
       const drawRouteConnections = (strokeStyle: string, width: number) => {
         ctx.strokeStyle = strokeStyle
         ctx.lineWidth = width
@@ -1574,10 +1632,23 @@ function drawDataRoutes(
           }
 
           if (isOutdoorCabinetTransition && absDy >= axisSnapTolerance && absDx < scaledWorldSize(8, zoom, 5, 14)) {
-            const laneOffset = scaledWorldSize(40, zoom, 28, 62)
+            const isInterScreenJump =
+              !!prev.bounds && !!curr.bounds && !areCabinetBoundsConnected(prev.bounds, curr.bounds)
             const laneDir = prev.x < layoutCenterX ? -1 : 1
-            const laneX =
-              laneDir < 0 ? Math.min(prev.x, curr.x) - laneOffset : Math.max(prev.x, curr.x) + laneOffset
+            const laneOffset = scaledWorldSize(isInterScreenJump ? 66 : 44, zoom, 34, 88)
+            const rightEdge = Math.max(
+              prev.bounds?.x2 ?? Number.NEGATIVE_INFINITY,
+              curr.bounds?.x2 ?? Number.NEGATIVE_INFINITY,
+            )
+            const leftEdge = Math.min(
+              prev.bounds?.x ?? Number.POSITIVE_INFINITY,
+              curr.bounds?.x ?? Number.POSITIVE_INFINITY,
+            )
+            const laneBaseX =
+              laneDir < 0
+                ? Math.min(prev.x, curr.x, Number.isFinite(leftEdge) ? leftEdge : Number.POSITIVE_INFINITY)
+                : Math.max(prev.x, curr.x, Number.isFinite(rightEdge) ? rightEdge : Number.NEGATIVE_INFINITY)
+            const laneX = laneDir < 0 ? laneBaseX - laneOffset : laneBaseX + laneOffset
             ctx.lineTo(laneX, prev.y)
             ctx.lineTo(laneX, curr.y)
             ctx.lineTo(curr.x, curr.y)
