@@ -1551,7 +1551,7 @@ function drawDataRoutes(
             const isInterScreenJump =
               !!prev.bounds && !!curr.bounds && !areCabinetBoundsConnected(prev.bounds, curr.bounds)
             const laneDir = prev.x < layoutCenterX ? -1 : 1
-            const laneOffset = scaledReadableWorldSize(isInterScreenJump ? 66 : 44, zoom, 34, 88, readabilityScale)
+            const laneOffset = scaledReadableWorldSize(isInterScreenJump ? 28 : 40, zoom, 18, 68, readabilityScale)
             const rightEdge = Math.max(
               prev.bounds?.x2 ?? Number.NEGATIVE_INFINITY,
               curr.bounds?.x2 ?? Number.NEGATIVE_INFINITY,
@@ -1562,9 +1562,18 @@ function drawDataRoutes(
             )
             const laneBaseX =
               laneDir < 0
-                ? Math.min(prev.x, curr.x, Number.isFinite(leftEdge) ? leftEdge : Number.POSITIVE_INFINITY)
-                : Math.max(prev.x, curr.x, Number.isFinite(rightEdge) ? rightEdge : Number.NEGATIVE_INFINITY)
-            const laneX = laneDir < 0 ? laneBaseX - laneOffset : laneBaseX + laneOffset
+                ? isInterScreenJump
+                  ? Math.min(prev.x, curr.x)
+                  : Math.min(prev.x, curr.x, Number.isFinite(leftEdge) ? leftEdge : Number.POSITIVE_INFINITY)
+                : isInterScreenJump
+                  ? Math.max(prev.x, curr.x)
+                  : Math.max(prev.x, curr.x, Number.isFinite(rightEdge) ? rightEdge : Number.NEGATIVE_INFINITY)
+            const unclampedLaneX = laneDir < 0 ? laneBaseX - laneOffset : laneBaseX + laneOffset
+            const edgeInset = scaledReadableWorldSize(20, zoom, 14, 34, readabilityScale)
+            const laneX = Math.max(
+              layoutBounds.minX + edgeInset,
+              Math.min(layoutBounds.maxX - edgeInset, unclampedLaneX),
+            )
             ctx.lineTo(laneX, prev.y)
             ctx.lineTo(laneX, curr.y)
             ctx.lineTo(curr.x, curr.y)

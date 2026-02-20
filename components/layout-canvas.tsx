@@ -1635,20 +1635,20 @@ function drawDataRoutes(
             const isInterScreenJump =
               !!prev.bounds && !!curr.bounds && !areCabinetBoundsConnected(prev.bounds, curr.bounds)
             const laneDir = prev.x < layoutCenterX ? -1 : 1
-            const laneOffset = scaledWorldSize(isInterScreenJump ? 66 : 44, zoom, 34, 88)
-            const rightEdge = Math.max(
-              prev.bounds?.x2 ?? Number.NEGATIVE_INFINITY,
-              curr.bounds?.x2 ?? Number.NEGATIVE_INFINITY,
+            const laneOffset = scaledWorldSize(isInterScreenJump ? 30 : 14, zoom, 10, 46)
+            const laneBaseX = laneDir < 0 ? Math.min(prev.x, curr.x) : Math.max(prev.x, curr.x)
+            const unclampedLaneX = laneDir < 0 ? laneBaseX - laneOffset : laneBaseX + laneOffset
+            const edgeInset = scaledWorldSize(isInterScreenJump ? 8 : 12, zoom, 6, 20)
+            let laneX = Math.max(
+              layoutBounds.minX + edgeInset,
+              Math.min(layoutBounds.maxX - edgeInset, unclampedLaneX),
             )
-            const leftEdge = Math.min(
-              prev.bounds?.x ?? Number.POSITIVE_INFINITY,
-              curr.bounds?.x ?? Number.POSITIVE_INFINITY,
-            )
-            const laneBaseX =
-              laneDir < 0
-                ? Math.min(prev.x, curr.x, Number.isFinite(leftEdge) ? leftEdge : Number.POSITIVE_INFINITY)
-                : Math.max(prev.x, curr.x, Number.isFinite(rightEdge) ? rightEdge : Number.NEGATIVE_INFINITY)
-            const laneX = laneDir < 0 ? laneBaseX - laneOffset : laneBaseX + laneOffset
+            const minVisibleGap = scaledWorldSize(isInterScreenJump ? 16 : 9, zoom, 6, 24)
+            if (Math.abs(laneX - prev.x) < minVisibleGap || Math.abs(laneX - curr.x) < minVisibleGap) {
+              const fallbackX =
+                laneDir < 0 ? Math.min(prev.x, curr.x) - minVisibleGap : Math.max(prev.x, curr.x) + minVisibleGap
+              laneX = Math.max(layoutBounds.minX + edgeInset, Math.min(layoutBounds.maxX - edgeInset, fallbackX))
+            }
             ctx.lineTo(laneX, prev.y)
             ctx.lineTo(laneX, curr.y)
             ctx.lineTo(curr.x, curr.y)
