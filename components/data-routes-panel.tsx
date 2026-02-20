@@ -279,15 +279,16 @@ export function DataRoutesPanel() {
           Math.abs(anchorX - firstRowLeftX) <= Math.abs(anchorX - firstRowRightX)
 
         let lastVisitedItem: RoutedCabinet | null = null
-        orderedRows.forEach((row, rowIndex) => {
+        for (let rowIndex = 0; rowIndex < orderedRows.length; rowIndex++) {
+          const row = orderedRows[rowIndex]
           const rowLtr = rowIndex % 2 === 0 ? startLtr : !startLtr
           const isReversed = !rowLtr
           const orderedRowItems = isReversed ? [...row].reverse() : [...row]
-          orderedRowItems.forEach((item) => {
+          for (const item of orderedRowItems) {
             appendCardEndpoints(orderedEndpointIds, item, isReversed)
             lastVisitedItem = item
-          })
-        })
+          }
+        }
 
         if (lastVisitedItem) {
           anchorX = lastVisitedItem.centerX
