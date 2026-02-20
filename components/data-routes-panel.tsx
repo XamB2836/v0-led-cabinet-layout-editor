@@ -25,6 +25,7 @@ import {
   isLayoutOverControllerLimits,
 } from "@/lib/data-utils"
 import { getEffectivePitchMm } from "@/lib/pitch-utils"
+import { resolveControllerCabinetId } from "@/lib/controller-utils"
 
 export function DataRoutesPanel() {
   const { state, dispatch } = useEditor()
@@ -114,8 +115,175 @@ export function DataRoutesPanel() {
       cardCount: 0 | 1 | 2
       centerX: number
       centerY: number
-      bounds: ReturnType<typeof getCabinetBounds>
+      bounds: NonNullable<ReturnType<typeof getCabinetBounds>>
     }[]
+
+    if (powerMode === "outdoor") {
+      const areConnected = (
+        a: { x: number; y: number; width: number; height: number },
+        b: { x: number; y: number; width: number; height: number },
+      ) => {
+        const tolerance = 1
+        const ax2 = a.x + a.width
+        const ay2 = a.y + a.height
+        const bx2 = b.x + b.width
+        const by2 = b.y + b.height
+        const overlapX = a.x < bx2 && ax2 > b.x
+        const overlapY = a.y < by2 && ay2 > b.y
+        if (overlapX && overlapY) return true
+        const horizontalTouch =
+          (Math.abs(ax2 - b.x) <= tolerance || Math.abs(bx2 - a.x) <= tolerance) && !(ay2 <= b.y || by2 <= a.y)
+        const verticalTouch =
+          (Math.abs(ay2 - b.y) <= tolerance || Math.abs(by2 - a.y) <= tolerance) && !(ax2 <= b.x || bx2 <= a.x)
+        return horizontalTouch || verticalTouch
+      }
+
+      const groups: (typeof cabinetsWithBounds)[] = []
+      const visited = new Array(cabinetsWithBounds.length).fill(false)
+      for (let i = 0; i < cabinetsWithBounds.length; i++) {
+        if (visited[i]) continue
+        visited[i] = true
+        const queue = [i]
+        const group: (typeof cabinetsWithBounds)[number][] = []
+        while (queue.length > 0) {
+          const current = queue.shift()
+          if (current === undefined) continue
+          const currentItem = cabinetsWithBounds[current]
+          group.push(currentItem)
+          for (let j = 0; j < cabinetsWithBounds.length; j++) {
+            if (visited[j]) continue
+            if (!areConnected(currentItem.bounds, cabinetsWithBounds[j].bounds)) {
+              continue
+            }
+            visited[j] = true
+            queue.push(j)
+          }
+        }
+        if (group.length > 0) groups.push(group)
+      }
+
+      const controllerCabinetId = resolveControllerCabinetId(
+        "outdoor",
+        layout.project.controllerPlacement ?? "external",
+        layout.project.controllerCabinetId,
+        layout.cabinets,
+        layout.cabinetTypes,
+      )
+      const primaryGroupIndex = groups.findIndex((group) =>
+        group.some((item) => item.cabinet.id === controllerCabinetId),
+      )
+
+      const orderedGroups = [...groups]
+      if (primaryGroupIndex > 0) {
+        const [primary] = orderedGroups.splice(primaryGroupIndex, 1)
+        orderedGroups.unshift(primary)
+      } else if (primaryGroupIndex === -1) {
+        orderedGroups.sort((a, b) => {
+          const aMaxY = Math.max(...a.map((item) => item.centerY))
+          const bMaxY = Math.max(...b.map((item) => item.centerY))
+          return bMaxY - aMaxY
+        })
+      }
+
+      const appendCardEndpoints = (
+        target: string[],
+        item: (typeof cabinetsWithBounds)[number],
+        reversed: boolean,
+      ) => {
+        if (item.cardCount === 1) {
+          target.push(item.cabinet.id)
+          return
+        }
+        const cardOrder = reversed ? [0, 1] : [1, 0]
+        cardOrder.forEach((index) => {
+          if (index >= item.cardCount) return
+          target.push(formatRouteCabinetId(item.cabinet.id, index))
+        })
+      }
+
+      const rowTolerance = 100
+      const orderedEndpointIds: string[] = []
+      const anchorSourceItem = controllerCabinetId
+        ? cabinetsWithBounds.find((item) => item.cabinet.id === controllerCabinetId)
+        : undefined
+      let anchorX = anchorSourceItem?.centerX ?? Number.POSITIVE_INFINITY
+      let anchorY = anchorSourceItem?.centerY ?? Number.POSITIVE_INFINITY
+
+      orderedGroups.forEach((group) => {
+        const rows: (typeof group)[] = []
+        group.forEach((item) => {
+          const existing = rows.find((row) => row.length > 0 && Math.abs(row[0].centerY - item.centerY) < rowTolerance)
+          if (existing) {
+            existing.push(item)
+          } else {
+            rows.push([item])
+          }
+        })
+        rows.forEach((row) => row.sort((a, b) => a.centerX - b.centerX))
+
+        const orderedRows: (typeof group)[] = []
+        const remainingRows = [...rows]
+        let currentY = Number.isFinite(anchorY)
+          ? anchorY
+          : Math.max(...group.map((item) => item.centerY))
+        while (remainingRows.length > 0) {
+          let bestIndex = 0
+          let bestDistance = Math.abs(remainingRows[0][0].centerY - currentY)
+          for (let i = 1; i < remainingRows.length; i++) {
+            const distance = Math.abs(remainingRows[i][0].centerY - currentY)
+            if (distance < bestDistance) {
+              bestDistance = distance
+              bestIndex = i
+            }
+          }
+          const [nextRow] = remainingRows.splice(bestIndex, 1)
+          orderedRows.push(nextRow)
+          currentY = nextRow[0].centerY
+        }
+
+        let firstRowLeftX = Number.POSITIVE_INFINITY
+        let firstRowRightX = Number.NEGATIVE_INFINITY
+        orderedRows[0].forEach((item) => {
+          firstRowLeftX = Math.min(firstRowLeftX, item.centerX)
+          firstRowRightX = Math.max(firstRowRightX, item.centerX)
+        })
+        const startLtr =
+          !Number.isFinite(anchorX) ||
+          Math.abs(anchorX - firstRowLeftX) <= Math.abs(anchorX - firstRowRightX)
+
+        orderedRows.forEach((row, rowIndex) => {
+          const isReversed = rowIndex % 2 === 0 ? !startLtr : startLtr
+          const orderedRowItems = isReversed ? [...row].reverse() : [...row]
+          orderedRowItems.forEach((item) => appendCardEndpoints(orderedEndpointIds, item, isReversed))
+        })
+
+        const lastItem = orderedRows[orderedRows.length - 1]?.[orderedRows[orderedRows.length - 1].length - 1]
+        if (lastItem) {
+          anchorX = lastItem.centerX
+          anchorY = lastItem.centerY
+        }
+      })
+
+      const newRoutes: DataRoute[] =
+        orderedEndpointIds.length > 0
+          ? [
+              {
+                id: "route-1",
+                port: 1,
+                cabinetIds: orderedEndpointIds,
+              },
+            ]
+          : []
+
+      layout.project.dataRoutes.forEach((r) => {
+        dispatch({ type: "DELETE_DATA_ROUTE", payload: r.id })
+      })
+      newRoutes.forEach((route) => {
+        dispatch({ type: "ADD_DATA_ROUTE", payload: route })
+      })
+      dispatch({ type: "PUSH_HISTORY" })
+      return
+    }
 
     // Group by columns (X position with tolerance)
     const tolerance = 100
