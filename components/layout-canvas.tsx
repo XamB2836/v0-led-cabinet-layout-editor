@@ -1622,32 +1622,69 @@ function drawDataRoutes(
           const axisSnapTolerance = useOutdoorChaining ? 0.75 : 10
           const isOutdoorCabinetTransition =
             useOutdoorChaining &&
-            prev.outdoorCabinetId &&
-            curr.outdoorCabinetId &&
-            prev.outdoorCabinetId !== curr.outdoorCabinetId
+            !!prev.bounds &&
+            !!curr.bounds &&
+            prev.bounds !== curr.bounds
 
           if (absDx < axisSnapTolerance && absDy < axisSnapTolerance) {
             ctx.lineTo(curr.x, curr.y)
             continue
           }
 
-          if (isOutdoorCabinetTransition && absDy >= axisSnapTolerance && absDx < scaledWorldSize(8, zoom, 5, 14)) {
+          if (useOutdoorChaining && absDy >= axisSnapTolerance && absDy > absDx) {
             const isInterScreenJump =
               !!prev.bounds && !!curr.bounds && !areCabinetBoundsConnected(prev.bounds, curr.bounds)
-            const laneDir = prev.x < layoutCenterX ? -1 : 1
-            const laneOffset = scaledWorldSize(isInterScreenJump ? 30 : 14, zoom, 10, 46)
-            const laneBaseX = laneDir < 0 ? Math.min(prev.x, curr.x) : Math.max(prev.x, curr.x)
-            const unclampedLaneX = laneDir < 0 ? laneBaseX - laneOffset : laneBaseX + laneOffset
-            const edgeInset = scaledWorldSize(isInterScreenJump ? 8 : 12, zoom, 6, 20)
-            let laneX = Math.max(
-              layoutBounds.minX + edgeInset,
-              Math.min(layoutBounds.maxX - edgeInset, unclampedLaneX),
-            )
-            const minVisibleGap = scaledWorldSize(isInterScreenJump ? 16 : 9, zoom, 6, 24)
-            if (Math.abs(laneX - prev.x) < minVisibleGap || Math.abs(laneX - curr.x) < minVisibleGap) {
-              const fallbackX =
-                laneDir < 0 ? Math.min(prev.x, curr.x) - minVisibleGap : Math.max(prev.x, curr.x) + minVisibleGap
-              laneX = Math.max(layoutBounds.minX + edgeInset, Math.min(layoutBounds.maxX - edgeInset, fallbackX))
+            const preferredDir = prev.x < layoutCenterX ? -1 : 1
+            const gapPx = isInterScreenJump ? 32 : 16
+            const gap = gapPx / Math.max(zoom, 0.001)
+            const edgeInsetPx = isInterScreenJump ? 4 : 10
+            const edgeInset = edgeInsetPx / Math.max(zoom, 0.001)
+            const outsideAllowancePx = isInterScreenJump ? 8 : 0
+            const outsideAllowance = outsideAllowancePx / Math.max(zoom, 0.001)
+            const minLaneX = layoutBounds.minX + edgeInset - outsideAllowance
+            const maxLaneX = layoutBounds.maxX - edgeInset + outsideAllowance
+            const rightCandidate = Math.max(prev.x, curr.x) + gap
+            const leftCandidate = Math.min(prev.x, curr.x) - gap
+
+            let laneX: number
+            if (isInterScreenJump) {
+              const interScreenGapPx = 10 + routeIndex * 0.5
+              const interScreenGap = interScreenGapPx / Math.max(zoom, 0.001)
+              laneX =
+                preferredDir > 0
+                  ? Math.max(prev.x, curr.x) + interScreenGap
+                  : Math.min(prev.x, curr.x) - interScreenGap
+              if (preferredDir > 0 && lvBoxDataReturnTarget) {
+                const redSeparation = scaledWorldSize(5, zoom, 3, 8)
+                laneX = Math.min(laneX, lvBoxDataReturnTarget.x - redSeparation)
+              }
+              laneX = Math.max(minLaneX, Math.min(maxLaneX, laneX))
+            } else if (preferredDir > 0) {
+              laneX = Math.min(maxLaneX, rightCandidate)
+            } else {
+              laneX = Math.max(minLaneX, leftCandidate)
+            }
+
+            const minVisibleGap = (isInterScreenJump ? 10 : 12) / Math.max(zoom, 0.001)
+            const tooClose = Math.abs(laneX - prev.x) < minVisibleGap || Math.abs(laneX - curr.x) < minVisibleGap
+            if (tooClose) {
+              if (isInterScreenJump) {
+                const forcedGapPx = 12 + routeIndex * 0.5
+                const forcedGap = forcedGapPx / Math.max(zoom, 0.001)
+                laneX =
+                  preferredDir > 0
+                    ? Math.max(prev.x, curr.x) + forcedGap
+                    : Math.min(prev.x, curr.x) - forcedGap
+                if (preferredDir > 0 && lvBoxDataReturnTarget) {
+                  const redSeparation = scaledWorldSize(5, zoom, 3, 8)
+                  laneX = Math.min(laneX, lvBoxDataReturnTarget.x - redSeparation)
+                }
+                laneX = Math.max(minLaneX, Math.min(maxLaneX, laneX))
+              } else {
+                const altX = preferredDir > 0 ? Math.max(minLaneX, leftCandidate) : Math.min(maxLaneX, rightCandidate)
+                const altGapOk = Math.abs(altX - prev.x) >= minVisibleGap && Math.abs(altX - curr.x) >= minVisibleGap
+                if (altGapOk) laneX = altX
+              }
             }
             ctx.lineTo(laneX, prev.y)
             ctx.lineTo(laneX, curr.y)

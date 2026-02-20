@@ -1534,46 +1534,70 @@ function drawDataRoutes(
           const axisSnapTolerance = useOutdoorChaining ? 0.75 : 10
           const isOutdoorCabinetTransition =
             useOutdoorChaining &&
-            prev.outdoorCabinetId &&
-            curr.outdoorCabinetId &&
-            prev.outdoorCabinetId !== curr.outdoorCabinetId
+            !!prev.bounds &&
+            !!curr.bounds &&
+            prev.bounds !== curr.bounds
 
           if (absDx < axisSnapTolerance && absDy < axisSnapTolerance) {
             ctx.lineTo(curr.x, curr.y)
             continue
           }
 
-          if (
-            isOutdoorCabinetTransition &&
-            absDy >= axisSnapTolerance &&
-            absDx < scaledReadableWorldSize(8, zoom, 5, 14, readabilityScale)
-          ) {
+          if (useOutdoorChaining && absDy >= axisSnapTolerance && absDy > absDx) {
             const isInterScreenJump =
               !!prev.bounds && !!curr.bounds && !areCabinetBoundsConnected(prev.bounds, curr.bounds)
-            const laneDir = prev.x < layoutCenterX ? -1 : 1
-            const laneOffset = scaledReadableWorldSize(isInterScreenJump ? 28 : 40, zoom, 18, 68, readabilityScale)
-            const rightEdge = Math.max(
-              prev.bounds?.x2 ?? Number.NEGATIVE_INFINITY,
-              curr.bounds?.x2 ?? Number.NEGATIVE_INFINITY,
-            )
-            const leftEdge = Math.min(
-              prev.bounds?.x ?? Number.POSITIVE_INFINITY,
-              curr.bounds?.x ?? Number.POSITIVE_INFINITY,
-            )
-            const laneBaseX =
-              laneDir < 0
-                ? isInterScreenJump
-                  ? Math.min(prev.x, curr.x)
-                  : Math.min(prev.x, curr.x, Number.isFinite(leftEdge) ? leftEdge : Number.POSITIVE_INFINITY)
-                : isInterScreenJump
-                  ? Math.max(prev.x, curr.x)
-                  : Math.max(prev.x, curr.x, Number.isFinite(rightEdge) ? rightEdge : Number.NEGATIVE_INFINITY)
-            const unclampedLaneX = laneDir < 0 ? laneBaseX - laneOffset : laneBaseX + laneOffset
-            const edgeInset = scaledReadableWorldSize(20, zoom, 14, 34, readabilityScale)
-            const laneX = Math.max(
-              layoutBounds.minX + edgeInset,
-              Math.min(layoutBounds.maxX - edgeInset, unclampedLaneX),
-            )
+            const preferredDir = prev.x < layoutCenterX ? -1 : 1
+            const gapPx = (isInterScreenJump ? 32 : 16) * readabilityScale
+            const gap = gapPx / Math.max(zoom, 0.001)
+            const edgeInsetPx = (isInterScreenJump ? 4 : 10) * readabilityScale
+            const edgeInset = edgeInsetPx / Math.max(zoom, 0.001)
+            const outsideAllowancePx = (isInterScreenJump ? 8 : 0) * readabilityScale
+            const outsideAllowance = outsideAllowancePx / Math.max(zoom, 0.001)
+            const minLaneX = layoutBounds.minX + edgeInset - outsideAllowance
+            const maxLaneX = layoutBounds.maxX - edgeInset + outsideAllowance
+            const rightCandidate = Math.max(prev.x, curr.x) + gap
+            const leftCandidate = Math.min(prev.x, curr.x) - gap
+
+            let laneX: number
+            if (isInterScreenJump) {
+              const interScreenGapPx = (10 + routeIndex * 0.5) * readabilityScale
+              const interScreenGap = interScreenGapPx / Math.max(zoom, 0.001)
+              laneX =
+                preferredDir > 0
+                  ? Math.max(prev.x, curr.x) + interScreenGap
+                  : Math.min(prev.x, curr.x) - interScreenGap
+              if (preferredDir > 0 && lvBoxDataReturnTarget) {
+                const redSeparation = scaledReadableWorldSize(5, zoom, 3, 8, readabilityScale)
+                laneX = Math.min(laneX, lvBoxDataReturnTarget.x - redSeparation)
+              }
+              laneX = Math.max(minLaneX, Math.min(maxLaneX, laneX))
+            } else if (preferredDir > 0) {
+              laneX = Math.min(maxLaneX, rightCandidate)
+            } else {
+              laneX = Math.max(minLaneX, leftCandidate)
+            }
+
+            const minVisibleGap = ((isInterScreenJump ? 10 : 12) * readabilityScale) / Math.max(zoom, 0.001)
+            const tooClose = Math.abs(laneX - prev.x) < minVisibleGap || Math.abs(laneX - curr.x) < minVisibleGap
+            if (tooClose) {
+              if (isInterScreenJump) {
+                const forcedGapPx = (12 + routeIndex * 0.5) * readabilityScale
+                const forcedGap = forcedGapPx / Math.max(zoom, 0.001)
+                laneX =
+                  preferredDir > 0
+                    ? Math.max(prev.x, curr.x) + forcedGap
+                    : Math.min(prev.x, curr.x) - forcedGap
+                if (preferredDir > 0 && lvBoxDataReturnTarget) {
+                  const redSeparation = scaledReadableWorldSize(5, zoom, 3, 8, readabilityScale)
+                  laneX = Math.min(laneX, lvBoxDataReturnTarget.x - redSeparation)
+                }
+                laneX = Math.max(minLaneX, Math.min(maxLaneX, laneX))
+              } else {
+                const altX = preferredDir > 0 ? Math.max(minLaneX, leftCandidate) : Math.min(maxLaneX, rightCandidate)
+                const altGapOk = Math.abs(altX - prev.x) >= minVisibleGap && Math.abs(altX - curr.x) >= minVisibleGap
+                if (altGapOk) laneX = altX
+              }
+            }
             ctx.lineTo(laneX, prev.y)
             ctx.lineTo(laneX, curr.y)
             ctx.lineTo(curr.x, curr.y)
