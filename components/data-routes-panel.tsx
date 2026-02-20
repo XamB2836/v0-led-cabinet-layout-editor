@@ -95,6 +95,14 @@ export function DataRoutesPanel() {
   const handleAutoRoute = () => {
     if (layout.cabinets.length === 0) return
 
+    type RoutedCabinet = {
+      cabinet: (typeof layout.cabinets)[0]
+      cardCount: 0 | 1 | 2
+      centerX: number
+      centerY: number
+      bounds: NonNullable<ReturnType<typeof getCabinetBounds>>
+    }
+
     // Get cabinet positions and group by columns
     const cabinetsWithBounds = layout.cabinets
       .map((c) => {
@@ -110,13 +118,7 @@ export function DataRoutesPanel() {
           bounds,
         }
       })
-      .filter(Boolean) as {
-      cabinet: (typeof layout.cabinets)[0]
-      cardCount: 0 | 1 | 2
-      centerX: number
-      centerY: number
-      bounds: NonNullable<ReturnType<typeof getCabinetBounds>>
-    }[]
+      .filter(Boolean) as RoutedCabinet[]
 
     if (powerMode === "outdoor") {
       const areConnected = (
@@ -138,13 +140,13 @@ export function DataRoutesPanel() {
         return horizontalTouch || verticalTouch
       }
 
-      const groups: (typeof cabinetsWithBounds)[] = []
+      const groups: RoutedCabinet[][] = []
       const visited = new Array(cabinetsWithBounds.length).fill(false)
       for (let i = 0; i < cabinetsWithBounds.length; i++) {
         if (visited[i]) continue
         visited[i] = true
         const queue = [i]
-        const group: (typeof cabinetsWithBounds)[number][] = []
+        const group: RoutedCabinet[] = []
         while (queue.length > 0) {
           const current = queue.shift()
           if (current === undefined) continue
@@ -169,25 +171,9 @@ export function DataRoutesPanel() {
         layout.cabinets,
         layout.cabinetTypes,
       )
-      const primaryGroupIndex = groups.findIndex((group) =>
-        group.some((item) => item.cabinet.id === controllerCabinetId),
-      )
-
-      const orderedGroups = [...groups]
-      if (primaryGroupIndex > 0) {
-        const [primary] = orderedGroups.splice(primaryGroupIndex, 1)
-        orderedGroups.unshift(primary)
-      } else if (primaryGroupIndex === -1) {
-        orderedGroups.sort((a, b) => {
-          const aMaxY = Math.max(...a.map((item) => item.centerY))
-          const bMaxY = Math.max(...b.map((item) => item.centerY))
-          return bMaxY - aMaxY
-        })
-      }
-
       const appendCardEndpoints = (
         target: string[],
-        item: (typeof cabinetsWithBounds)[number],
+        item: RoutedCabinet,
         reversed: boolean,
       ) => {
         if (item.cardCount === 1) {
@@ -208,9 +194,50 @@ export function DataRoutesPanel() {
         : undefined
       let anchorX = anchorSourceItem?.centerX ?? Number.POSITIVE_INFINITY
       let anchorY = anchorSourceItem?.centerY ?? Number.POSITIVE_INFINITY
+      const primaryGroupIndex = groups.findIndex((group) =>
+        group.some((item) => item.cabinet.id === controllerCabinetId),
+      )
+      const remainingGroups = [...groups]
+      const orderedGroups: RoutedCabinet[][] = []
+      if (primaryGroupIndex >= 0) {
+        const [primary] = remainingGroups.splice(primaryGroupIndex, 1)
+        orderedGroups.push(primary)
+      }
+
+      while (remainingGroups.length > 0) {
+        let bestIndex = 0
+        if (Number.isFinite(anchorX) && Number.isFinite(anchorY)) {
+          let bestDistance = Number.POSITIVE_INFINITY
+          for (let i = 0; i < remainingGroups.length; i++) {
+            const group = remainingGroups[i]
+            const distance = group.reduce((best, item) => {
+              const dx = item.centerX - anchorX
+              const dy = item.centerY - anchorY
+              const d = dx * dx + dy * dy
+              return d < best ? d : best
+            }, Number.POSITIVE_INFINITY)
+            if (distance < bestDistance) {
+              bestDistance = distance
+              bestIndex = i
+            }
+          }
+        } else {
+          for (let i = 1; i < remainingGroups.length; i++) {
+            const current = remainingGroups[i]
+            const best = remainingGroups[bestIndex]
+            const currentMaxY = Math.max(...current.map((item) => item.centerY))
+            const bestMaxY = Math.max(...best.map((item) => item.centerY))
+            if (currentMaxY > bestMaxY) {
+              bestIndex = i
+            }
+          }
+        }
+        const [nextGroup] = remainingGroups.splice(bestIndex, 1)
+        orderedGroups.push(nextGroup)
+      }
 
       orderedGroups.forEach((group) => {
-        const rows: (typeof group)[] = []
+        const rows: RoutedCabinet[][] = []
         group.forEach((item) => {
           const existing = rows.find((row) => row.length > 0 && Math.abs(row[0].centerY - item.centerY) < rowTolerance)
           if (existing) {
@@ -221,7 +248,7 @@ export function DataRoutesPanel() {
         })
         rows.forEach((row) => row.sort((a, b) => a.centerX - b.centerX))
 
-        const orderedRows: (typeof group)[] = []
+        const orderedRows: RoutedCabinet[][] = []
         const remainingRows = [...rows]
         let currentY = Number.isFinite(anchorY)
           ? anchorY
@@ -251,16 +278,20 @@ export function DataRoutesPanel() {
           !Number.isFinite(anchorX) ||
           Math.abs(anchorX - firstRowLeftX) <= Math.abs(anchorX - firstRowRightX)
 
+        let lastVisitedItem: RoutedCabinet | null = null
         orderedRows.forEach((row, rowIndex) => {
-          const isReversed = rowIndex % 2 === 0 ? !startLtr : startLtr
+          const rowLtr = rowIndex % 2 === 0 ? startLtr : !startLtr
+          const isReversed = !rowLtr
           const orderedRowItems = isReversed ? [...row].reverse() : [...row]
-          orderedRowItems.forEach((item) => appendCardEndpoints(orderedEndpointIds, item, isReversed))
+          orderedRowItems.forEach((item) => {
+            appendCardEndpoints(orderedEndpointIds, item, isReversed)
+            lastVisitedItem = item
+          })
         })
 
-        const lastItem = orderedRows[orderedRows.length - 1]?.[orderedRows[orderedRows.length - 1].length - 1]
-        if (lastItem) {
-          anchorX = lastItem.centerX
-          anchorY = lastItem.centerY
+        if (lastVisitedItem) {
+          anchorX = lastVisitedItem.centerX
+          anchorY = lastVisitedItem.centerY
         }
       })
 
