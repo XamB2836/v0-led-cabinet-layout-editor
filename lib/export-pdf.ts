@@ -18,6 +18,11 @@ const FONT_FAMILY = "Geist, sans-serif"
 const WEIGHT_REF_AREA_MM2 = 1120 * 640
 const WEIGHT_REF_KG = 19
 const LB_PER_KG = 2.20462
+const INDOOR_WEIGHT_DENSITY_LB_M2 = (WEIGHT_REF_KG * LB_PER_KG) / (WEIGHT_REF_AREA_MM2 / 1_000_000)
+const WEIGHT_DENSITY_LB_M2_BY_MODE: Record<LayoutData["project"]["mode"], number> = {
+  indoor: INDOOR_WEIGHT_DENSITY_LB_M2,
+  outdoor: 131,
+}
 const NUMMAX_LOGO_SRC = "/nummax-logo-lockup.png"
 const NUMMAX_LOGO_ASPECT = 3 // 600x200 lockup
 const NUMMAX_LEGEND_LOGO_HEIGHT_RATIO = 0.72
@@ -82,13 +87,17 @@ function getTotalLayoutLoadW(layout: LayoutData) {
     },
     layout.cabinets,
     layout.cabinetTypes,
+    layout.project.mode ?? "indoor",
   )
 }
 
 function getTotalLayoutWeight(layout: LayoutData) {
   const totalArea = layout.cabinets.reduce((sum, cabinet) => sum + getCabinetAreaMm2(cabinet, layout.cabinetTypes), 0)
-  const totalKg = totalArea * (WEIGHT_REF_KG / WEIGHT_REF_AREA_MM2)
-  const totalLb = totalKg * LB_PER_KG
+  const totalAreaM2 = totalArea / 1_000_000
+  const mode = layout.project.mode ?? "indoor"
+  const densityLbM2 = WEIGHT_DENSITY_LB_M2_BY_MODE[mode] ?? WEIGHT_DENSITY_LB_M2_BY_MODE.indoor
+  const totalLb = totalAreaM2 * densityLbM2
+  const totalKg = totalLb / LB_PER_KG
   return { totalKg, totalLb }
 }
 
@@ -783,7 +792,7 @@ function computeLabelBounds(
 
       if (anchorX === null || anchorY === null) return
 
-      const loadW = getPowerFeedLoadW(feed, layout.cabinets, layout.cabinetTypes)
+      const loadW = getPowerFeedLoadW(feed, layout.cabinets, layout.cabinetTypes, layout.project.mode ?? "indoor")
       const breakerText = feed.breaker || feed.label
       const labelText = `${breakerText} | ${loadW}W`
       const connectorText = feed.customLabel?.trim() || feed.connector
@@ -817,7 +826,7 @@ function computeLabelBounds(
       const anchorX = firstBounds ? firstBounds.x + firstBounds.width / 2 : feedBounds.minX
       const anchorY = firstBounds ? firstBounds.y + firstBounds.height / 2 : feedBounds.minY
 
-      const loadW = getPowerFeedLoadW(feed, layout.cabinets, layout.cabinetTypes)
+      const loadW = getPowerFeedLoadW(feed, layout.cabinets, layout.cabinetTypes, layout.project.mode ?? "indoor")
       const breakerText = feed.breaker || feed.label
       const labelText = `${breakerText} | ${loadW}W`
       const connectorText = feed.customLabel?.trim() || feed.connector

@@ -1357,8 +1357,8 @@ function drawDataRoutes(
             const lvBoxRect = getOutdoorLvBoxRect(controllerBounds, zoom)
             const targetInset = scaledWorldSize(4.2, zoom, 2.8, 8)
             return {
-              x: lvBoxRect.x + targetInset,
-              y: lvBoxRect.y + targetInset,
+              x: lvBoxRect.x + lvBoxRect.width - targetInset,
+              y: lvBoxRect.y,
             }
           })()
         : null
@@ -1554,22 +1554,23 @@ function drawDataRoutes(
 
       if (useOutdoorChaining && lvBoxDataReturnTarget) {
         const lastPoint = points[points.length - 1]
-        const returnLaneY = Math.max(
-          lastPoint.y + scaledWorldSize(18, zoom, 10, 30),
-          layoutBounds.maxY - scaledWorldSize(16, zoom, 10, 28),
+        const laneGap = scaledWorldSize(8, zoom, 5, 14)
+        const laneX = Math.max(
+          lvBoxDataReturnTarget.x,
+          (lvBoxDataSource?.x ?? lvBoxDataReturnTarget.x) + laneGap,
         )
         const drawReturnToLvBox = (strokeStyle: string, width: number) => {
           ctx.strokeStyle = strokeStyle
           ctx.lineWidth = width
           ctx.beginPath()
           ctx.moveTo(lastPoint.x, lastPoint.y)
-          if (Math.abs(returnLaneY - lastPoint.y) > 0.01) {
-            ctx.lineTo(lastPoint.x, returnLaneY)
+          if (Math.abs(laneX - lastPoint.x) > 0.01) {
+            ctx.lineTo(laneX, lastPoint.y)
           }
-          if (Math.abs(lvBoxDataReturnTarget.x - lastPoint.x) > 0.01) {
-            ctx.lineTo(lvBoxDataReturnTarget.x, returnLaneY)
+          if (Math.abs(lvBoxDataReturnTarget.y - lastPoint.y) > 0.01) {
+            ctx.lineTo(laneX, lvBoxDataReturnTarget.y)
           }
-          if (Math.abs(lvBoxDataReturnTarget.y - returnLaneY) > 0.01) {
+          if (Math.abs(lvBoxDataReturnTarget.x - laneX) > 0.01) {
             ctx.lineTo(lvBoxDataReturnTarget.x, lvBoxDataReturnTarget.y)
           }
           ctx.stroke()
@@ -1950,7 +1951,7 @@ function drawPowerFeeds(
     if (points.length === 0) return
 
     ctx.font = `bold ${fontSize}px Inter, sans-serif`
-    const loadW = getPowerFeedLoadW(feed, cabinets, cabinetTypes)
+    const loadW = getPowerFeedLoadW(feed, cabinets, cabinetTypes, cardVariant === "outdoor" ? "outdoor" : "indoor")
     const breakerText = feed.breaker || feed.label
     const labelText = `${breakerText} | ${loadW}W`
     const connectorText = feed.customLabel?.trim() || feed.connector
@@ -1970,7 +1971,12 @@ function drawPowerFeeds(
   powerFeeds.forEach((feed) => {
     if (feed.assignedCabinetIds.length === 0) return
 
-    const isOverloaded = isPowerFeedOverloaded(feed, cabinets, cabinetTypes)
+    const isOverloaded = isPowerFeedOverloaded(
+      feed,
+      cabinets,
+      cabinetTypes,
+      cardVariant === "outdoor" ? "outdoor" : "indoor",
+    )
     const lineColor = isOverloaded ? "#ef4444" : "#f97316"
 
     ctx.save()
@@ -1999,7 +2005,7 @@ function drawPowerFeeds(
     }
 
     ctx.font = `bold ${fontSize}px Inter, sans-serif`
-    const loadW = getPowerFeedLoadW(feed, cabinets, cabinetTypes)
+    const loadW = getPowerFeedLoadW(feed, cabinets, cabinetTypes, cardVariant === "outdoor" ? "outdoor" : "indoor")
     const breakerText = feed.breaker || feed.label
     const labelText = `${breakerText} | ${loadW}W`
     const connectorText = feed.customLabel?.trim() || feed.connector

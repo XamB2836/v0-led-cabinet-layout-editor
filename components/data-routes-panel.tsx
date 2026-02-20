@@ -30,6 +30,7 @@ export function DataRoutesPanel() {
   const { state, dispatch } = useEditor()
   const { layout, routingMode } = state
   const { dataRoutes, powerFeeds, controller } = layout.project
+  const powerMode = layout.project.mode ?? "indoor"
   const gridLabelAxis = layout.project.overview.gridLabelAxis ?? "columns"
   const activeRoute = routingMode.type === "data" ? dataRoutes.find((r) => r.id === routingMode.routeId) : null
 
@@ -445,6 +446,7 @@ export function DataRoutesPanel() {
           },
           layout.cabinets,
           layout.cabinetTypes,
+          powerMode,
         ),
       ]),
     )
@@ -1010,6 +1012,7 @@ export function DataRoutesPanel() {
                             { ...feed, loadOverrideW: undefined },
                             layout.cabinets,
                             layout.cabinetTypes,
+                            powerMode,
                           )
                           return `${autoLoadW} W`
                         })()}
@@ -1025,7 +1028,7 @@ export function DataRoutesPanel() {
                   <span className="text-orange-400 font-medium">Total Consumption:</span>
                   <span className="font-mono font-bold text-orange-400">
                     {powerFeeds.reduce(
-                      (sum, f) => sum + getPowerFeedLoadW(f, layout.cabinets, layout.cabinetTypes),
+                      (sum, f) => sum + getPowerFeedLoadW(f, layout.cabinets, layout.cabinetTypes, powerMode),
                       0,
                     )}{" "}
                     W

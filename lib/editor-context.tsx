@@ -7,7 +7,6 @@ import type { Cabinet, CabinetType, LayoutData, EditorState, DataRoute, PowerFee
 import { DEFAULT_LAYOUT } from "./types"
 import { normalizeLayout } from "./layout-io"
 import { decodeLayoutFromUrlParam } from "./layout-url"
-import { decryptLayoutFromUrl } from "./layout-crypto"
 import { coerceModeModuleSize, coerceModePitch, getModeCabinetTypes } from "./modes"
 
 type EditorAction =
@@ -731,23 +730,6 @@ export function EditorProvider({ children }: { children: ReactNode }) {
     const layoutParam = searchParams.get("layout")
     if (layoutParam) {
       const loadFromParam = async () => {
-        if (layoutParam.startsWith("enc:")) {
-          if (!window.crypto?.subtle) return false
-          const passphrase = window.prompt("Enter passphrase to unlock this layout") || ""
-          if (!passphrase) return false
-          const decoded = await decryptLayoutFromUrl(layoutParam.slice(4), passphrase)
-          if (!decoded) {
-            window.alert("Unable to unlock layout. Check the passphrase.")
-            return false
-          }
-          dispatch({ type: "SET_LAYOUT", payload: decoded })
-          searchParams.delete("layout")
-          const nextQuery = searchParams.toString()
-          const nextUrl = `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ""}${window.location.hash}`
-          window.history.replaceState({}, "", nextUrl)
-          return true
-        }
-
         const decoded = decodeLayoutFromUrlParam(layoutParam)
         if (!decoded) return false
         dispatch({ type: "SET_LAYOUT", payload: decoded })
