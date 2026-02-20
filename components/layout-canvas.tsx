@@ -50,6 +50,76 @@ function getLayoutBoundsFromCabinets(
   return { minX, minY, maxX, maxY }
 }
 
+function getConnectedScreenBoundsFromCabinets(
+  cabinets: Cabinet[],
+  cabinetTypes: CabinetType[],
+): Array<{ minX: number; minY: number; maxX: number; maxY: number }> {
+  const entries = cabinets
+    .map((cabinet) => {
+      const bounds = getCabinetBounds(cabinet, cabinetTypes)
+      if (!bounds) return null
+      return { bounds }
+    })
+    .filter((entry): entry is { bounds: NonNullable<ReturnType<typeof getCabinetBounds>> } => entry !== null)
+
+  if (entries.length === 0) return []
+
+  const areConnected = (
+    a: NonNullable<ReturnType<typeof getCabinetBounds>>,
+    b: NonNullable<ReturnType<typeof getCabinetBounds>>,
+  ) => {
+    const tolerance = 1
+    const overlapX = a.x < b.x2 && a.x2 > b.x
+    const overlapY = a.y < b.y2 && a.y2 > b.y
+    if (overlapX && overlapY) return true
+    const horizontalTouch =
+      (Math.abs(a.x2 - b.x) <= tolerance || Math.abs(b.x2 - a.x) <= tolerance) && !(a.y2 <= b.y || b.y2 <= a.y)
+    const verticalTouch =
+      (Math.abs(a.y2 - b.y) <= tolerance || Math.abs(b.y2 - a.y) <= tolerance) && !(a.x2 <= b.x || b.x2 <= a.x)
+    return horizontalTouch || verticalTouch
+  }
+
+  const visited = new Array(entries.length).fill(false)
+  const groups: Array<{ minX: number; minY: number; maxX: number; maxY: number }> = []
+
+  for (let i = 0; i < entries.length; i++) {
+    if (visited[i]) continue
+    visited[i] = true
+    const queue = [i]
+    let minX = entries[i].bounds.x
+    let minY = entries[i].bounds.y
+    let maxX = entries[i].bounds.x2
+    let maxY = entries[i].bounds.y2
+
+    while (queue.length > 0) {
+      const current = queue.shift()
+      if (current === undefined) continue
+      const currentBounds = entries[current].bounds
+      minX = Math.min(minX, currentBounds.x)
+      minY = Math.min(minY, currentBounds.y)
+      maxX = Math.max(maxX, currentBounds.x2)
+      maxY = Math.max(maxY, currentBounds.y2)
+
+      for (let j = 0; j < entries.length; j++) {
+        if (visited[j]) continue
+        if (!areConnected(currentBounds, entries[j].bounds)) continue
+        visited[j] = true
+        queue.push(j)
+      }
+    }
+
+    groups.push({ minX, minY, maxX, maxY })
+  }
+
+  groups.sort((a, b) => {
+    const yDiff = a.minY - b.minY
+    if (Math.abs(yDiff) > 1) return yDiff
+    return a.minX - b.minX
+  })
+
+  return groups
+}
+
 function drawDimension(
   ctx: CanvasRenderingContext2D,
   x1: number,
@@ -172,19 +242,18 @@ function drawOverallDimensions(
   pitch_mm: number,
   showPixels: boolean,
 ) {
-  const layoutBounds = getLayoutBoundsFromCabinets(cabinets, cabinetTypes)
-  if (!layoutBounds) return
-  const { minX, minY, maxX, maxY } = layoutBounds
-
-  const totalWidth = Math.round(maxX - minX)
-  const totalHeight = Math.round(maxY - minY)
-
+  const screenBounds = getConnectedScreenBoundsFromCabinets(cabinets, cabinetTypes)
+  if (screenBounds.length === 0) return
   const effectivePitch = getEffectivePitchMm(pitch_mm)
-  const widthPx = showPixels ? Math.round(totalWidth / effectivePitch) : undefined
-  const heightPx = showPixels ? Math.round(totalHeight / effectivePitch) : undefined
 
-  drawDimension(ctx, minX, minY, maxX, minY, totalWidth, zoom, "horizontal", 80, "#f59e0b", widthPx)
-  drawDimension(ctx, maxX, minY, maxX, maxY, totalHeight, zoom, "vertical", 80, "#f59e0b", heightPx)
+  screenBounds.forEach(({ minX, minY, maxX, maxY }) => {
+    const totalWidth = Math.round(maxX - minX)
+    const totalHeight = Math.round(maxY - minY)
+    const widthPx = showPixels ? Math.round(totalWidth / effectivePitch) : undefined
+    const heightPx = showPixels ? Math.round(totalHeight / effectivePitch) : undefined
+    drawDimension(ctx, minX, minY, maxX, minY, totalWidth, zoom, "horizontal", 80, "#f59e0b", widthPx)
+    drawDimension(ctx, maxX, minY, maxX, maxY, totalHeight, zoom, "vertical", 80, "#f59e0b", heightPx)
+  })
 }
 
 type ReceiverCardRect = {

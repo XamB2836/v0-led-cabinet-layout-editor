@@ -3,10 +3,11 @@ import { computeGridLabel, formatRouteCabinetId, getCabinetReceiverCardCount, pa
 import { isDataRouteOverCapacity } from "./data-utils"
 import { getPowerFeedLoadW, isPowerFeedOverloaded } from "./power-utils"
 import { getCabinetBounds, getLayoutBounds, validateLayout } from "./validation"
-import { getLayoutPixelDimensions, getOverviewReadabilityScale, getReceiverCardLabel, shouldShowGridLabels } from "./overview-utils"
+import { getOverviewReadabilityScale, getReceiverCardLabel, shouldShowGridLabels } from "./overview-utils"
 import { getMappingNumberLabelMap } from "./mapping-numbers"
 import { getOrientedModuleSize } from "./module-utils"
 import { resolveControllerCabinetId } from "./controller-utils"
+import { getEffectivePitchMm } from "./pitch-utils"
 
 export interface OverviewPalette {
   background: string
@@ -98,6 +99,76 @@ function getLayoutBoundsFromCabinets(
   return { minX, minY, maxX, maxY }
 }
 
+function getConnectedScreenBoundsFromCabinets(
+  cabinets: Cabinet[],
+  cabinetTypes: CabinetType[],
+): Array<{ minX: number; minY: number; maxX: number; maxY: number }> {
+  const entries = cabinets
+    .map((cabinet) => {
+      const bounds = getCabinetBounds(cabinet, cabinetTypes)
+      if (!bounds) return null
+      return { bounds }
+    })
+    .filter((entry): entry is { bounds: NonNullable<ReturnType<typeof getCabinetBounds>> } => entry !== null)
+
+  if (entries.length === 0) return []
+
+  const areConnected = (
+    a: NonNullable<ReturnType<typeof getCabinetBounds>>,
+    b: NonNullable<ReturnType<typeof getCabinetBounds>>,
+  ) => {
+    const tolerance = 1
+    const overlapX = a.x < b.x2 && a.x2 > b.x
+    const overlapY = a.y < b.y2 && a.y2 > b.y
+    if (overlapX && overlapY) return true
+    const horizontalTouch =
+      (Math.abs(a.x2 - b.x) <= tolerance || Math.abs(b.x2 - a.x) <= tolerance) && !(a.y2 <= b.y || b.y2 <= a.y)
+    const verticalTouch =
+      (Math.abs(a.y2 - b.y) <= tolerance || Math.abs(b.y2 - a.y) <= tolerance) && !(a.x2 <= b.x || b.x2 <= a.x)
+    return horizontalTouch || verticalTouch
+  }
+
+  const visited = new Array(entries.length).fill(false)
+  const groups: Array<{ minX: number; minY: number; maxX: number; maxY: number }> = []
+
+  for (let i = 0; i < entries.length; i++) {
+    if (visited[i]) continue
+    visited[i] = true
+    const queue = [i]
+    let minX = entries[i].bounds.x
+    let minY = entries[i].bounds.y
+    let maxX = entries[i].bounds.x2
+    let maxY = entries[i].bounds.y2
+
+    while (queue.length > 0) {
+      const current = queue.shift()
+      if (current === undefined) continue
+      const currentBounds = entries[current].bounds
+      minX = Math.min(minX, currentBounds.x)
+      minY = Math.min(minY, currentBounds.y)
+      maxX = Math.max(maxX, currentBounds.x2)
+      maxY = Math.max(maxY, currentBounds.y2)
+
+      for (let j = 0; j < entries.length; j++) {
+        if (visited[j]) continue
+        if (!areConnected(currentBounds, entries[j].bounds)) continue
+        visited[j] = true
+        queue.push(j)
+      }
+    }
+
+    groups.push({ minX, minY, maxX, maxY })
+  }
+
+  groups.sort((a, b) => {
+    const yDiff = a.minY - b.minY
+    if (Math.abs(yDiff) > 1) return yDiff
+    return a.minX - b.minX
+  })
+
+  return groups
+}
+
 function drawArrow(ctx: CanvasRenderingContext2D, x: number, y: number, angle: number, size: number) {
   ctx.save()
   ctx.translate(x, y)
@@ -122,8 +193,9 @@ function drawDimensionLines(
   side: "left" | "right" = "left",
   readabilityScale = 1,
 ) {
-  const bounds = getLayoutBounds(layout)
-  if (bounds.width === 0 || bounds.height === 0) return
+  const screenBounds = getConnectedScreenBoundsFromCabinets(layout.cabinets, layout.cabinetTypes)
+  if (screenBounds.length === 0) return
+  const effectivePitch = getEffectivePitchMm(layout.project.pitch_mm)
 
   const fontSize = Math.max(11 * readabilityScale, (14 * readabilityScale) / zoom)
   ctx.strokeStyle = palette.dimensionLine
@@ -133,47 +205,45 @@ function drawDimensionLines(
   ctx.textAlign = "center"
   ctx.textBaseline = "middle"
 
-  const topY = bounds.minY - offsetTopMm
-  const leftX = bounds.minX - offsetSideMm
-  const rightX = bounds.maxX + offsetSideMm
+  screenBounds.forEach((bounds) => {
+    const widthWorld = bounds.maxX - bounds.minX
+    const heightWorld = bounds.maxY - bounds.minY
+    const widthMm = Math.round(widthWorld)
+    const heightMm = Math.round(heightWorld)
+    const widthPx = showPixels ? Math.round(widthMm / effectivePitch) : undefined
+    const heightPx = showPixels ? Math.round(heightMm / effectivePitch) : undefined
 
-  // Horizontal dimension
-  ctx.beginPath()
-  ctx.moveTo(bounds.minX, topY)
-  ctx.lineTo(bounds.maxX, topY)
-  ctx.stroke()
-  ctx.beginPath()
-  ctx.stroke()
-  drawArrow(ctx, bounds.minX, topY, Math.PI, (7 * readabilityScale) / zoom)
-  drawArrow(ctx, bounds.maxX, topY, 0, (7 * readabilityScale) / zoom)
+    const topY = bounds.minY - offsetTopMm
+    const leftX = bounds.minX - offsetSideMm
+    const rightX = bounds.maxX + offsetSideMm
 
-  // Vertical dimension
-  const dimX = side === "right" ? rightX : leftX
-  ctx.beginPath()
-  ctx.moveTo(dimX, bounds.minY)
-  ctx.lineTo(dimX, bounds.maxY)
-  ctx.stroke()
-  ctx.beginPath()
-  ctx.stroke()
-  drawArrow(ctx, dimX, bounds.minY, -Math.PI / 2, (7 * readabilityScale) / zoom)
-  drawArrow(ctx, dimX, bounds.maxY, Math.PI / 2, (7 * readabilityScale) / zoom)
+    ctx.beginPath()
+    ctx.moveTo(bounds.minX, topY)
+    ctx.lineTo(bounds.maxX, topY)
+    ctx.stroke()
+    drawArrow(ctx, bounds.minX, topY, Math.PI, (7 * readabilityScale) / zoom)
+    drawArrow(ctx, bounds.maxX, topY, 0, (7 * readabilityScale) / zoom)
 
-  const pixels = getLayoutPixelDimensions(layout)
-  const widthLabel = showPixels && pixels.width_px
-    ? `${bounds.width} mm / ${pixels.width_px} px`
-    : `${bounds.width} mm`
-  const heightLabel = showPixels && pixels.height_px
-    ? `${bounds.height} mm / ${pixels.height_px} px`
-    : `${bounds.height} mm`
+    const dimX = side === "right" ? rightX : leftX
+    ctx.beginPath()
+    ctx.moveTo(dimX, bounds.minY)
+    ctx.lineTo(dimX, bounds.maxY)
+    ctx.stroke()
+    drawArrow(ctx, dimX, bounds.minY, -Math.PI / 2, (7 * readabilityScale) / zoom)
+    drawArrow(ctx, dimX, bounds.maxY, Math.PI / 2, (7 * readabilityScale) / zoom)
 
-  ctx.fillText(widthLabel, bounds.minX + bounds.width / 2, topY - (10 * readabilityScale) / zoom)
+    const widthLabel = widthPx !== undefined ? `${widthMm} mm / ${widthPx} px` : `${widthMm} mm`
+    const heightLabel = heightPx !== undefined ? `${heightMm} mm / ${heightPx} px` : `${heightMm} mm`
 
-  ctx.save()
-  const textOffset = side === "right" ? (10 * readabilityScale) / zoom : (-10 * readabilityScale) / zoom
-  ctx.translate(dimX + textOffset, bounds.minY + bounds.height / 2)
-  ctx.rotate(-Math.PI / 2)
-  ctx.fillText(heightLabel, 0, 0)
-  ctx.restore()
+    ctx.fillText(widthLabel, bounds.minX + widthWorld / 2, topY - (10 * readabilityScale) / zoom)
+
+    ctx.save()
+    const textOffset = side === "right" ? (10 * readabilityScale) / zoom : (-10 * readabilityScale) / zoom
+    ctx.translate(dimX + textOffset, bounds.minY + heightWorld / 2)
+    ctx.rotate(-Math.PI / 2)
+    ctx.fillText(heightLabel, 0, 0)
+    ctx.restore()
+  })
 }
 
 type CardRect = { x: number; y: number; width: number; height: number }
