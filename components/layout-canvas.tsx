@@ -1648,28 +1648,26 @@ function drawDataRoutes(
 
             let laneX: number
             if (isInterScreenJump) {
-              const interScreenOutsidePx = 4 + routeIndex
-              const interScreenOutside = interScreenOutsidePx / Math.max(zoom, 0.001)
-              laneX =
+              const alignedLaneX =
                 preferredDir > 0
-                  ? layoutBounds.maxX + interScreenOutside
-                  : layoutBounds.minX - interScreenOutside
+                  ? (lvBoxDataSource?.x ?? layoutBounds.maxX - edgeInset)
+                  : layoutBounds.minX + edgeInset
+              laneX = Math.max(minLaneX, Math.min(maxLaneX, alignedLaneX))
             } else if (preferredDir > 0) {
               laneX = Math.min(maxLaneX, rightCandidate)
             } else {
               laneX = Math.max(minLaneX, leftCandidate)
             }
 
-            const minVisibleGap = (isInterScreenJump ? 10 : 12) / Math.max(zoom, 0.001)
+            const minVisibleGap = (isInterScreenJump ? 4 : 12) / Math.max(zoom, 0.001)
             const tooClose = Math.abs(laneX - prev.x) < minVisibleGap || Math.abs(laneX - curr.x) < minVisibleGap
             if (tooClose) {
               if (isInterScreenJump) {
-                const forcedOutsidePx = 5 + routeIndex
-                const forcedOutside = forcedOutsidePx / Math.max(zoom, 0.001)
+                const nudge = 3 / Math.max(zoom, 0.001)
                 laneX =
                   preferredDir > 0
-                    ? layoutBounds.maxX + forcedOutside
-                    : layoutBounds.minX - forcedOutside
+                    ? Math.min(maxLaneX, Math.max(laneX, Math.max(prev.x, curr.x) + nudge))
+                    : Math.max(minLaneX, Math.min(laneX, Math.min(prev.x, curr.x) - nudge))
               } else {
                 const altX = preferredDir > 0 ? Math.max(minLaneX, leftCandidate) : Math.min(maxLaneX, rightCandidate)
                 const altGapOk = Math.abs(altX - prev.x) >= minVisibleGap && Math.abs(altX - curr.x) >= minVisibleGap
