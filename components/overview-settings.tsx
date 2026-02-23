@@ -472,6 +472,18 @@ export function OverviewSettings() {
           PDF Export
         </div>
         <div className="space-y-1.5">
+          <Label htmlFor="overview-custom-title" className="text-xs">
+            Custom Overview Title
+          </Label>
+          <Input
+            id="overview-custom-title"
+            value={exportSettings?.title || ""}
+            onChange={(e) => dispatch({ type: "UPDATE_EXPORT_SETTINGS", payload: { title: e.target.value } })}
+            placeholder="Leave empty to use auto title"
+            className="h-8 bg-input text-sm"
+          />
+        </div>
+        <div className="space-y-1.5">
           <Label className="text-xs">View</Label>
           <Select
             value={exportSettings?.viewSide || "front"}

@@ -963,9 +963,9 @@ export async function exportOverviewPdf(layout: LayoutData) {
   const layoutWidthMm = Math.max(1, bounds.width)
   const layoutHeightMm = Math.max(1, bounds.height)
   let dimensionOffsetMm = clamp(Math.round(layoutHeightMm * 0.25), 100, 180)
-  const extraSideMm = clamp(Math.round(layoutWidthMm * 0.12), 120, 280)
-  const extraTopMm = dimensionOffsetMm + clamp(Math.round(layoutHeightMm * 0.09), 55, 120)
-  const extraBottomMm = clamp(Math.round(layoutHeightMm * 0.42), 170, 330)
+  const extraSideMm = clamp(Math.round(layoutWidthMm * 0.08), 80, 180)
+  const extraTopMm = dimensionOffsetMm + clamp(Math.round(layoutHeightMm * 0.07), 35, 90)
+  const extraBottomMm = clamp(Math.round(layoutHeightMm * 0.30), 110, 220)
 
   const baseBounds = {
     minX: bounds.minX - extraSideMm,
@@ -979,12 +979,14 @@ export async function exportOverviewPdf(layout: LayoutData) {
   let contentAvailableHeight = availableHeight
   let legendPosition: { rightX: number; topY: number } | null = null
 
+  // Keep legend fixed in bottom-left corner while preserving more overview size than before.
   if (legendLayout) {
-    const reserveBottom = availableHeight - legendLayout.boxHeight - legendGapPx
+    const reservedLegendHeight = Math.round(legendLayout.boxHeight * 0.62) + legendGapPx
+    const reserveBottom = availableHeight - reservedLegendHeight
     contentAvailableHeight = reserveBottom > 0 ? reserveBottom : availableHeight
     legendPosition = {
       rightX: marginPx + legendLayout.boxWidth,
-      topY: headerPx + marginPx + contentAvailableHeight + legendGapPx,
+      topY: canvas.height - marginPx - legendLayout.boxHeight,
     }
   }
   const uiScale = clamp(renderDpi / outputDpi, 1, 2)
@@ -1029,6 +1031,8 @@ export async function exportOverviewPdf(layout: LayoutData) {
     const adjustedOffset = bounds.minY - (minTopY - panY) / zoom
     dimensionOffsetMm = Math.max(140, Math.min(dimensionOffsetMm, adjustedOffset))
   }
+
+  // Legend position is fixed when enabled.
 
   drawOverview(ctx, layout, {
     zoom,
@@ -1078,7 +1082,8 @@ export async function exportOverviewPdf(layout: LayoutData) {
   const headerLogoY = Math.round((headerPx - headerLogoHeight) / 2)
   drawNummaxLogo(ctx, headerLogoX, headerLogoY, headerLogoWidth, headerLogoHeight, nummaxLogoImage)
 
-  const title = getTitleParts(layout).join(" - ")
+  const customTitle = layout.project.exportSettings.title?.trim()
+  const title = customTitle && customTitle.length > 0 ? customTitle : getTitleParts(layout).join(" - ")
   const titleLeftBound = marginPx + Math.round(1.6 * pxPerMm)
   const titleRightBound = headerLogoX - Math.round(2.0 * pxPerMm)
   const titleCenterX = canvas.width / 2
