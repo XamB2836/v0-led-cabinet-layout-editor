@@ -1575,7 +1575,7 @@ function drawDataRoutes(
             const tooClose = Math.abs(laneX - prev.x) < minVisibleGap || Math.abs(laneX - curr.x) < minVisibleGap
             if (tooClose) {
               if (isInterScreenJump) {
-                const nudge = (3 * readabilityScale) / Math.max(zoom, 0.001)
+                const nudge = (2 * readabilityScale) / Math.max(zoom, 0.001)
                 laneX =
                   preferredDir > 0
                     ? Math.min(maxLaneX, Math.max(laneX, Math.max(prev.x, curr.x) + nudge))
