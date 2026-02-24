@@ -125,7 +125,7 @@
     box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.85);
   }
   100% {
-    box-shadow: 0 0 0 8px rgba(59, 130, 246, 0);
+    box-shadow: 0 0 0 6px rgba(59, 130, 246, 0);
   }
 }
 
@@ -154,7 +154,7 @@
 }
 
 .ux-card-glow-blue {
-  animation: ux-card-glow-blue 420ms ease-out 1;
+  animation: ux-card-glow-blue 300ms ease-out 1;
 }
 
 .ux-card-glow-orange {
