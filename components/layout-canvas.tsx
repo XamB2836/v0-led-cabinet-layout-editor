@@ -25,6 +25,10 @@ import { Button } from "@/components/ui/button"
 import { ZoomIn, ZoomOut, Maximize, Ruler } from "lucide-react"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 
+type LayoutFocusRequestDetail = { entity: "data-route" | "power-feed"; id: string }
+type WorldBounds = { minX: number; minY: number; maxX: number; maxY: number }
+const LAYOUT_FOCUS_EVENT = "layout:focus-route"
+
 function getLayoutBoundsFromCabinets(
   cabinets: Cabinet[],
   cabinetTypes: CabinetType[],
@@ -48,6 +52,104 @@ function getLayoutBoundsFromCabinets(
 
   if (minX === Number.POSITIVE_INFINITY) return null
   return { minX, minY, maxX, maxY }
+}
+
+function includePointInBounds(bounds: WorldBounds | null, x: number, y: number): WorldBounds {
+  if (!bounds) {
+    return { minX: x, minY: y, maxX: x, maxY: y }
+  }
+  return {
+    minX: Math.min(bounds.minX, x),
+    minY: Math.min(bounds.minY, y),
+    maxX: Math.max(bounds.maxX, x),
+    maxY: Math.max(bounds.maxY, y),
+  }
+}
+
+function includeCabinetInBounds(
+  bounds: WorldBounds | null,
+  cabinetId: string,
+  cabinets: Cabinet[],
+  cabinetTypes: CabinetType[],
+): WorldBounds | null {
+  const cabinet = cabinets.find((entry) => entry.id === cabinetId)
+  if (!cabinet) return bounds
+  const cabinetBounds = getCabinetBounds(cabinet, cabinetTypes)
+  if (!cabinetBounds) return bounds
+  const withTopLeft = includePointInBounds(bounds, cabinetBounds.x, cabinetBounds.y)
+  return includePointInBounds(withTopLeft, cabinetBounds.x2, cabinetBounds.y2)
+}
+
+function finalizeFocusBounds(bounds: WorldBounds | null): WorldBounds | null {
+  if (!bounds) return null
+  const padding = 120
+  const minSpan = 320
+  let minX = bounds.minX - padding
+  let maxX = bounds.maxX + padding
+  let minY = bounds.minY - padding
+  let maxY = bounds.maxY + padding
+  const width = maxX - minX
+  const height = maxY - minY
+  if (width < minSpan) {
+    const expand = (minSpan - width) / 2
+    minX -= expand
+    maxX += expand
+  }
+  if (height < minSpan) {
+    const expand = (minSpan - height) / 2
+    minY -= expand
+    maxY += expand
+  }
+  return { minX, minY, maxX, maxY }
+}
+
+function getDataRouteFocusBounds(layout: LayoutData, routeId: string): WorldBounds | null {
+  const route = layout.project.dataRoutes.find((entry) => entry.id === routeId)
+  if (!route) return null
+  let bounds: WorldBounds | null = null
+
+  route.cabinetIds.forEach((endpointId) => {
+    const { cabinetId } = parseRouteCabinetId(endpointId)
+    bounds = includeCabinetInBounds(bounds, cabinetId, layout.cabinets, layout.cabinetTypes)
+  })
+
+  route.steps?.forEach((step) => {
+    if (step.type === "point") {
+      bounds = includePointInBounds(bounds, step.x_mm, step.y_mm)
+      return
+    }
+    const { cabinetId } = parseRouteCabinetId(step.endpointId)
+    bounds = includeCabinetInBounds(bounds, cabinetId, layout.cabinets, layout.cabinetTypes)
+  })
+
+  return finalizeFocusBounds(bounds)
+}
+
+function getPowerFeedFocusBounds(layout: LayoutData, feedId: string): WorldBounds | null {
+  const feed = layout.project.powerFeeds.find((entry) => entry.id === feedId)
+  if (!feed) return null
+  let bounds: WorldBounds | null = null
+
+  feed.assignedCabinetIds.forEach((cabinetId) => {
+    bounds = includeCabinetInBounds(bounds, cabinetId, layout.cabinets, layout.cabinetTypes)
+  })
+
+  feed.steps?.forEach((step) => {
+    if (step.type === "point") {
+      bounds = includePointInBounds(bounds, step.x_mm, step.y_mm)
+      return
+    }
+    bounds = includeCabinetInBounds(bounds, step.endpointId, layout.cabinets, layout.cabinetTypes)
+  })
+
+  return finalizeFocusBounds(bounds)
+}
+
+function getFocusBoundsForRequest(layout: LayoutData, detail: LayoutFocusRequestDetail): WorldBounds | null {
+  if (detail.entity === "data-route") {
+    return getDataRouteFocusBounds(layout, detail.id)
+  }
+  return getPowerFeedFocusBounds(layout, detail.id)
 }
 
 function getConnectedScreenBoundsFromCabinets(
@@ -1719,6 +1821,28 @@ function drawDataRoutes(
 
       if (useOutdoorChaining && lvBoxDataReturnTarget) {
         const lastPoint = points[points.length - 1]
+        const overlapTolerance = scaledWorldSize(2.5, zoom, 1.2, 4.5)
+        const hasSameRowDataRun = points.slice(0, -1).some(
+          (point) => Math.abs(point.y - lastPoint.y) <= overlapTolerance && Math.abs(point.x - lastPoint.x) > 0.01,
+        )
+        const routeYMin = Math.min(...points.map((point) => point.y))
+        const routeYMax = Math.max(...points.map((point) => point.y))
+        const singleRowRoute = routeYMax - routeYMin <= scaledWorldSize(14, zoom, 8, 24)
+        const shouldOffsetReturn = hasSameRowDataRun || singleRowRoute
+        const returnRowOffset = shouldOffsetReturn ? scaledWorldSize(14, zoom, 10, 24) : 0
+        const rowMargin = scaledWorldSize(6, zoom, 3, 10)
+        const minReturnY = layoutBounds.minY + rowMargin
+        const maxReturnY = layoutBounds.maxY - rowMargin
+        let returnStartY = lastPoint.y
+        if (returnRowOffset > 0) {
+          const upY = lastPoint.y - returnRowOffset
+          const downY = lastPoint.y + returnRowOffset
+          if (upY >= minReturnY) {
+            returnStartY = upY
+          } else if (downY <= maxReturnY) {
+            returnStartY = downY
+          }
+        }
         const laneGap = scaledWorldSize(8, zoom, 5, 14)
         const laneX = Math.max(
           lvBoxDataReturnTarget.x,
@@ -1729,10 +1853,13 @@ function drawDataRoutes(
           ctx.lineWidth = width
           ctx.beginPath()
           ctx.moveTo(lastPoint.x, lastPoint.y)
-          if (Math.abs(laneX - lastPoint.x) > 0.01) {
-            ctx.lineTo(laneX, lastPoint.y)
+          if (Math.abs(returnStartY - lastPoint.y) > 0.01) {
+            ctx.lineTo(lastPoint.x, returnStartY)
           }
-          if (Math.abs(lvBoxDataReturnTarget.y - lastPoint.y) > 0.01) {
+          if (Math.abs(laneX - lastPoint.x) > 0.01) {
+            ctx.lineTo(laneX, returnStartY)
+          }
+          if (Math.abs(lvBoxDataReturnTarget.y - returnStartY) > 0.01) {
             ctx.lineTo(laneX, lvBoxDataReturnTarget.y)
           }
           if (Math.abs(lvBoxDataReturnTarget.x - laneX) > 0.01) {
@@ -1747,9 +1874,12 @@ function drawDataRoutes(
 
       if (useOutdoorChaining) {
         ctx.save()
-        ctx.strokeStyle = lineColor
-        ctx.fillStyle = lineColor
-        ctx.lineWidth = Math.max(scaledWorldSize(1.4, zoom, 1, 2.2), lineWidth * 0.24)
+        ctx.lineCap = "round"
+        ctx.lineJoin = "round"
+        const iconStroke = Math.max(scaledWorldSize(1.8, zoom, 1.2, 2.8), lineWidth * 0.3)
+        const iconOutline = iconStroke + Math.max(scaledWorldSize(1.2, zoom, 0.8, 2), iconStroke * 0.34)
+        const headLength = scaledWorldSize(5.8, zoom, 4.4, 9.8)
+        const headSpan = headLength * 0.5
 
         for (let i = 1; i < points.length; i++) {
           const prev = points[i - 1]
@@ -1762,15 +1892,54 @@ function drawDataRoutes(
           ) {
             continue
           }
+          let bridgeStartX = prev.x
+          let bridgeStartY = prev.y
+          let bridgeEndX = curr.x
+          let bridgeEndY = curr.y
+          let dy = bridgeEndY - bridgeStartY
 
-          const dy = curr.y - prev.y
+          if (Math.abs(dy) < 0.01 && prev.outdoorCabinetId && prev.bounds) {
+            const bridgeCabinet = cabinets.find((cabinet) => cabinet.id === prev.outdoorCabinetId)
+            if (bridgeCabinet) {
+              const cardCount = getCabinetReceiverCardCount(bridgeCabinet)
+              const resolvedIndex = Math.max(0, Math.min(cardCount - 1, prev.cardIndex ?? 0))
+              const rects = getReceiverCardRects(prev.bounds, zoom, cardCount, cardVariant)
+              const bridgeRect = rects[resolvedIndex]
+              if (bridgeRect) {
+                const ports = getOutdoorReceiverCardDataPorts(bridgeRect, zoom)
+                const distToIn = Math.abs(prev.y - ports.in.y)
+                const distToOut = Math.abs(prev.y - ports.out.y)
+                if (distToIn <= distToOut) {
+                  bridgeStartX = ports.in.x
+                  bridgeStartY = ports.in.y
+                  bridgeEndX = ports.out.x
+                  bridgeEndY = ports.out.y
+                } else {
+                  bridgeStartX = ports.out.x
+                  bridgeStartY = ports.out.y
+                  bridgeEndX = ports.in.x
+                  bridgeEndY = ports.in.y
+                }
+                dy = bridgeEndY - bridgeStartY
+              }
+            }
+          }
           if (Math.abs(dy) < 0.01) continue
 
           const dirY = Math.sign(dy) || 1
-          const laneDir = prev.x < layoutCenterX ? -1 : 1
-          const midY = (prev.y + curr.y) / 2
+          const midY = (bridgeStartY + bridgeEndY) / 2
           const iconOffset = scaledWorldSize(10, zoom, 7, 16)
-          const markerX = prev.x + laneDir * iconOffset
+          const markerInset = scaledWorldSize(7, zoom, 4.5, 12)
+          const minMarkerX = prev.bounds ? prev.bounds.x + markerInset : Number.NEGATIVE_INFINITY
+          const maxMarkerX = prev.bounds ? prev.bounds.x + prev.bounds.width - markerInset : Number.POSITIVE_INFINITY
+          const leftMarkerX = bridgeStartX - iconOffset
+          const rightMarkerX = bridgeStartX + iconOffset
+          let markerX = leftMarkerX
+          if (markerX < minMarkerX && rightMarkerX <= maxMarkerX) {
+            markerX = rightMarkerX
+          }
+          markerX = Math.max(minMarkerX, Math.min(maxMarkerX, markerX))
+          const laneDir = markerX >= bridgeStartX ? 1 : -1
           const markerRadius = Math.max(
             scaledWorldSize(4.8, zoom, 3.6, 8.2),
             Math.min(Math.abs(dy) * 0.26, scaledWorldSize(8.2, zoom, 5.6, 13.2)),
@@ -1779,29 +1948,45 @@ function drawDataRoutes(
           const endY = midY + dirY * markerRadius
           const controlX = markerX + laneDir * markerRadius * 1.15
 
-          ctx.beginPath()
-          ctx.moveTo(markerX, startY)
-          ctx.quadraticCurveTo(controlX, midY, markerX, endY)
-          ctx.stroke()
+          const drawBridgeCurve = (strokeStyle: string, width: number) => {
+            ctx.strokeStyle = strokeStyle
+            ctx.lineWidth = width
+            ctx.beginPath()
+            ctx.moveTo(markerX, startY)
+            ctx.quadraticCurveTo(controlX, midY, markerX, endY)
+            ctx.stroke()
+          }
+
+          drawBridgeCurve("rgba(2, 6, 23, 0.78)", iconOutline)
+          drawBridgeCurve(lineColor, iconStroke)
 
           const tangentX = markerX - controlX
           const tangentY = endY - midY
           const tangentLength = Math.hypot(tangentX, tangentY) || 1
           const ux = tangentX / tangentLength
           const uy = tangentY / tangentLength
-          const arrowLen = scaledWorldSize(6.8, zoom, 4.6, 10.8)
-          const arrowHalf = arrowLen * 0.5
-          const baseX = markerX - ux * arrowLen
-          const baseY = endY - uy * arrowLen
+          const baseX = markerX - ux * headLength
+          const baseY = endY - uy * headLength
           const px = -uy
           const py = ux
+          const leftX = baseX + px * headSpan
+          const leftY = baseY + py * headSpan
+          const rightX = baseX - px * headSpan
+          const rightY = baseY - py * headSpan
 
-          ctx.beginPath()
-          ctx.moveTo(markerX, endY)
-          ctx.lineTo(baseX + px * arrowHalf, baseY + py * arrowHalf)
-          ctx.lineTo(baseX - px * arrowHalf, baseY - py * arrowHalf)
-          ctx.closePath()
-          ctx.fill()
+          const drawBridgeHead = (strokeStyle: string, width: number) => {
+            ctx.strokeStyle = strokeStyle
+            ctx.lineWidth = width
+            ctx.beginPath()
+            ctx.moveTo(markerX, endY)
+            ctx.lineTo(leftX, leftY)
+            ctx.moveTo(markerX, endY)
+            ctx.lineTo(rightX, rightY)
+            ctx.stroke()
+          }
+
+          drawBridgeHead("rgba(2, 6, 23, 0.78)", iconOutline)
+          drawBridgeHead(lineColor, iconStroke)
         }
 
         ctx.restore()
@@ -2108,6 +2293,20 @@ function drawPowerFeeds(
     return { points, manualPoints, useOutdoorChaining }
   }
 
+  const resolveFeedLabelPosition = (
+    feed: PowerFeed,
+    feedBounds: { minX: number; minY: number; maxX: number; maxY: number },
+    anchorX: number,
+  ): "left" | "right" | "top" | "bottom" => {
+    const explicit = feed.labelPosition && feed.labelPosition !== "auto" ? feed.labelPosition : null
+    if (explicit) return explicit
+    const edgeTolerance = scaledWorldSize(18, zoom, 10, 28)
+    const isBottomRow = layoutBounds.maxY - feedBounds.maxY <= edgeTolerance
+    if (isBottomRow) return "bottom"
+    const layoutCenterX = (layoutBounds.minX + layoutBounds.maxX) / 2
+    return anchorX >= layoutCenterX ? "right" : "left"
+  }
+
   powerFeeds.forEach((feed) => {
     if (feed.assignedCabinetIds.length === 0) return
     const feedSteps = getPowerSteps(feed)
@@ -2122,7 +2321,12 @@ function drawPowerFeeds(
     const connectorText = feed.customLabel?.trim() || feed.connector
     const maxTextWidth = Math.max(ctx.measureText(labelText).width, ctx.measureText(connectorText).width)
     const boxWidth = maxTextWidth + labelPadding * 2
-    const labelPosition = feed.labelPosition && feed.labelPosition !== "auto" ? feed.labelPosition : "bottom"
+    const feedBounds = getLayoutBoundsFromCabinets(
+      cabinets.filter((c) => feed.assignedCabinetIds.includes(c.id)),
+      cabinetTypes,
+    )
+    if (!feedBounds) return
+    const labelPosition = resolveFeedLabelPosition(feed, feedBounds, points[0].x)
     if (labelPosition === "bottom") {
       bottomPlans.push({ id: feed.id, desiredX: points[0].x, width: boxWidth })
     } else if (labelPosition === "top") {
@@ -2182,7 +2386,7 @@ function drawPowerFeeds(
     const boxWidth = maxTextWidth + labelPadding * 2
     const boxHeight = fontSize * 2.4 + labelPadding * 2
     const labelOffset = getPowerLabelOffset(baseLabelOffset, boxHeight)
-    const labelPosition = feed.labelPosition && feed.labelPosition !== "auto" ? feed.labelPosition : "bottom"
+    const labelPosition = resolveFeedLabelPosition(feed, feedBounds, points[0].x)
     const sideOffsetLeft =
       maxPortLabelWidthLeft > 0 ? dataLabelSideGap + maxPortLabelWidthLeft + sideLabelGap : labelSideGap
     const sideOffsetRight =
@@ -2593,6 +2797,8 @@ export function LayoutCanvas() {
   const draggingRoutePointRef = useRef<{ routeId: string; stepIndex: number } | null>(null)
   const draggingPowerPointRef = useRef<{ feedId: string; stepIndex: number } | null>(null)
   const draggingMappingLabelRef = useRef<{ endpointId: string; cabinetId: string } | null>(null)
+  const focusAnimationFrameRef = useRef<number | null>(null)
+  const latestViewRef = useRef({ layout, zoom, panX, panY })
   const [selectionBox, setSelectionBox] = useState<{
     start: { x: number; y: number }
     end: { x: number; y: number }
@@ -2624,6 +2830,10 @@ export function LayoutCanvas() {
     },
     [zoom, panX, panY],
   )
+
+  useEffect(() => {
+    latestViewRef.current = { layout, zoom, panX, panY }
+  }, [layout, zoom, panX, panY])
 
   const handleWheelZoom = useCallback(
     (deltaY: number, clientX: number, clientY: number) => {
@@ -3108,16 +3318,19 @@ export function LayoutCanvas() {
           const labelPadding = scaledWorldSize(9, uiZoom, 6, 13)
           const boxHeight = fontSize * 2.4 + labelPadding * 2
           const labelOffset = getPowerLabelOffset(scaledWorldSize(140, uiZoom, 105, 220), boxHeight)
+          const edgeTolerance = scaledWorldSize(18, uiZoom, 10, 28)
 
           powerFeeds.forEach((feed) => {
             if (feed.assignedCabinetIds.length === 0) return
-            const labelPosition = feed.labelPosition && feed.labelPosition !== "auto" ? feed.labelPosition : "bottom"
-            if (labelPosition !== "bottom") return
             const feedBounds = getLayoutBoundsFromCabinets(
               layout.cabinets.filter((c) => feed.assignedCabinetIds.includes(c.id)),
               layout.cabinetTypes,
             )
             if (!feedBounds) return
+            const explicit = feed.labelPosition && feed.labelPosition !== "auto" ? feed.labelPosition : null
+            const labelPosition =
+              explicit ?? (layoutBounds.maxY - feedBounds.maxY <= edgeTolerance ? "bottom" : "side")
+            if (labelPosition !== "bottom") return
             const labelY = feedBounds.maxY + labelOffset
             const bottom = labelY + boxHeight
             powerLabelBottom = powerLabelBottom === null ? bottom : Math.max(powerLabelBottom, bottom)
@@ -3216,6 +3429,95 @@ export function LayoutCanvas() {
     window.addEventListener("resize", handleResize)
     return () => window.removeEventListener("resize", handleResize)
   }, [draw])
+
+  useEffect(() => {
+    const animateViewportTo = (
+      fromPanX: number,
+      fromPanY: number,
+      fromZoom: number,
+      toPanX: number,
+      toPanY: number,
+      toZoom: number,
+    ) => {
+      if (focusAnimationFrameRef.current !== null) {
+        cancelAnimationFrame(focusAnimationFrameRef.current)
+        focusAnimationFrameRef.current = null
+      }
+      const durationMs = 420
+      const startTime = performance.now()
+      const tick = (now: number) => {
+        const progress = Math.min(1, (now - startTime) / durationMs)
+        const eased = 1 - (1 - progress) ** 3
+        const currentZoom = fromZoom + (toZoom - fromZoom) * eased
+        dispatch({ type: "SET_ZOOM", payload: currentZoom })
+        dispatch({
+          type: "SET_PAN",
+          payload: {
+            x: fromPanX + (toPanX - fromPanX) * eased,
+            y: fromPanY + (toPanY - fromPanY) * eased,
+          },
+        })
+        if (progress < 1) {
+          focusAnimationFrameRef.current = requestAnimationFrame(tick)
+        } else {
+          focusAnimationFrameRef.current = null
+        }
+      }
+      focusAnimationFrameRef.current = requestAnimationFrame(tick)
+    }
+
+    const handleFocusRequest = (event: Event) => {
+      const detail = (event as CustomEvent<LayoutFocusRequestDetail>).detail
+      if (!detail || !detail.id) return
+      if (detail.entity !== "data-route" && detail.entity !== "power-feed") return
+
+      requestAnimationFrame(() => {
+        const canvas = canvasRef.current
+        if (!canvas) return
+        const rect = canvas.getBoundingClientRect()
+        if (rect.width <= 0 || rect.height <= 0) return
+
+        const latest = latestViewRef.current
+        const requestedBounds = getFocusBoundsForRequest(latest.layout, detail)
+        const fallbackBounds = getLayoutBoundsFromCabinets(latest.layout.cabinets, latest.layout.cabinetTypes)
+        const targetBounds = requestedBounds ?? fallbackBounds
+        if (!targetBounds) return
+
+        const targetWidth = Math.max(1, targetBounds.maxX - targetBounds.minX)
+        const targetHeight = Math.max(1, targetBounds.maxY - targetBounds.minY)
+        const fitZoom = clamp(
+          Math.min((rect.width * 0.62) / targetWidth, (rect.height * 0.62) / targetHeight),
+          0.1,
+          5,
+        )
+        const minZoom = clamp(latest.zoom * 0.85, 0.1, 5)
+        const maxZoom = clamp(latest.zoom * 1.35, 0.1, 5)
+        const targetZoom = clamp(fitZoom, minZoom, maxZoom)
+        const targetCenterX = (targetBounds.minX + targetBounds.maxX) / 2
+        const targetCenterY = (targetBounds.minY + targetBounds.maxY) / 2
+        const targetPanX = rect.width / 2 - targetCenterX * targetZoom
+        const targetPanY = rect.height / 2 - targetCenterY * targetZoom
+
+        if (
+          Math.abs(targetPanX - latest.panX) < 1 &&
+          Math.abs(targetPanY - latest.panY) < 1 &&
+          Math.abs(targetZoom - latest.zoom) < 0.01
+        ) {
+          return
+        }
+        animateViewportTo(latest.panX, latest.panY, latest.zoom, targetPanX, targetPanY, targetZoom)
+      })
+    }
+
+    window.addEventListener(LAYOUT_FOCUS_EVENT, handleFocusRequest as EventListener)
+    return () => {
+      window.removeEventListener(LAYOUT_FOCUS_EVENT, handleFocusRequest as EventListener)
+      if (focusAnimationFrameRef.current !== null) {
+        cancelAnimationFrame(focusAnimationFrameRef.current)
+        focusAnimationFrameRef.current = null
+      }
+    }
+  }, [dispatch])
 
   useEffect(() => {
     const canvas = canvasRef.current

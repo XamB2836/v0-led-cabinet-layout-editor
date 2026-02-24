@@ -1171,6 +1171,7 @@ function drawDataRoutes(
       y: number
       bounds: NonNullable<ReturnType<typeof getCabinetBounds>> | null
       hasReceiverCard: boolean
+      cardIndex?: number
       isVirtualAnchor: boolean
       outdoorCabinetId?: string
       outdoorPortRole?: "in" | "out"
@@ -1276,6 +1277,7 @@ function drawDataRoutes(
             y: entryPort.y,
             bounds,
             hasReceiverCard,
+            cardIndex: resolvedIndex,
             isVirtualAnchor: false,
             outdoorCabinetId: cabinet.id,
             outdoorPortRole: "in",
@@ -1285,6 +1287,7 @@ function drawDataRoutes(
             y: exitPort.y,
             bounds,
             hasReceiverCard,
+            cardIndex: resolvedIndex,
             isVirtualAnchor: false,
             outdoorCabinetId: cabinet.id,
             outdoorPortRole: "out",
@@ -1298,6 +1301,7 @@ function drawDataRoutes(
           y: anchor.y,
           bounds,
           hasReceiverCard,
+          cardIndex: anchor.resolvedIndex,
           isVirtualAnchor: anchor.isVirtual,
         })
         if (anchor.isVirtual) {
@@ -1329,6 +1333,7 @@ function drawDataRoutes(
           y: anchor.y,
           bounds,
           hasReceiverCard,
+          cardIndex: anchor.resolvedIndex,
           isVirtualAnchor: anchor.isVirtual,
         })
         if (anchor.isVirtual) {
@@ -1631,6 +1636,28 @@ function drawDataRoutes(
 
       if (useOutdoorChaining && lvBoxDataReturnTarget) {
         const lastPoint = points[points.length - 1]
+        const overlapTolerance = scaledReadableWorldSize(2.5, zoom, 1.2, 4.5, readabilityScale)
+        const hasSameRowDataRun = points.slice(0, -1).some(
+          (point) => Math.abs(point.y - lastPoint.y) <= overlapTolerance && Math.abs(point.x - lastPoint.x) > 0.01,
+        )
+        const routeYMin = Math.min(...points.map((point) => point.y))
+        const routeYMax = Math.max(...points.map((point) => point.y))
+        const singleRowRoute = routeYMax - routeYMin <= scaledReadableWorldSize(14, zoom, 8, 24, readabilityScale)
+        const shouldOffsetReturn = hasSameRowDataRun || singleRowRoute
+        const returnRowOffset = shouldOffsetReturn ? scaledReadableWorldSize(14, zoom, 10, 24, readabilityScale) : 0
+        const rowMargin = scaledReadableWorldSize(6, zoom, 3, 10, readabilityScale)
+        const minReturnY = layoutBounds.minY + rowMargin
+        const maxReturnY = layoutBounds.maxY - rowMargin
+        let returnStartY = lastPoint.y
+        if (returnRowOffset > 0) {
+          const upY = lastPoint.y - returnRowOffset
+          const downY = lastPoint.y + returnRowOffset
+          if (upY >= minReturnY) {
+            returnStartY = upY
+          } else if (downY <= maxReturnY) {
+            returnStartY = downY
+          }
+        }
         const laneGap = scaledReadableWorldSize(8, zoom, 5, 14, readabilityScale)
         const laneX = Math.max(
           lvBoxDataReturnTarget.x,
@@ -1641,10 +1668,13 @@ function drawDataRoutes(
           ctx.lineWidth = width
           ctx.beginPath()
           ctx.moveTo(lastPoint.x, lastPoint.y)
-          if (Math.abs(laneX - lastPoint.x) > 0.01) {
-            ctx.lineTo(laneX, lastPoint.y)
+          if (Math.abs(returnStartY - lastPoint.y) > 0.01) {
+            ctx.lineTo(lastPoint.x, returnStartY)
           }
-          if (Math.abs(lvBoxDataReturnTarget.y - lastPoint.y) > 0.01) {
+          if (Math.abs(laneX - lastPoint.x) > 0.01) {
+            ctx.lineTo(laneX, returnStartY)
+          }
+          if (Math.abs(lvBoxDataReturnTarget.y - returnStartY) > 0.01) {
             ctx.lineTo(laneX, lvBoxDataReturnTarget.y)
           }
           if (Math.abs(lvBoxDataReturnTarget.x - laneX) > 0.01) {
@@ -1659,12 +1689,18 @@ function drawDataRoutes(
 
       if (useOutdoorChaining) {
         ctx.save()
-        ctx.strokeStyle = lineColor
-        ctx.fillStyle = lineColor
-        ctx.lineWidth = Math.max(
-          scaledReadableWorldSize(1.4, zoom, 1, 2.2, readabilityScale),
-          lineWidth * 0.24,
+        ctx.lineCap = "round"
+        ctx.lineJoin = "round"
+        const iconStroke = Math.max(
+          scaledReadableWorldSize(1.8, zoom, 1.2, 2.8, readabilityScale),
+          lineWidth * 0.3,
         )
+        const iconOutline = iconStroke + Math.max(
+          scaledReadableWorldSize(1.2, zoom, 0.8, 2, readabilityScale),
+          iconStroke * 0.34,
+        )
+        const headLength = scaledReadableWorldSize(5.8, zoom, 4.4, 9.8, readabilityScale)
+        const headSpan = headLength * 0.5
 
         for (let i = 1; i < points.length; i++) {
           const prev = points[i - 1]
@@ -1677,15 +1713,54 @@ function drawDataRoutes(
           ) {
             continue
           }
+          let bridgeStartX = prev.x
+          let bridgeStartY = prev.y
+          let bridgeEndX = curr.x
+          let bridgeEndY = curr.y
+          let dy = bridgeEndY - bridgeStartY
 
-          const dy = curr.y - prev.y
+          if (Math.abs(dy) < 0.01 && prev.outdoorCabinetId && prev.bounds) {
+            const bridgeCabinet = layout.cabinets.find((cabinet) => cabinet.id === prev.outdoorCabinetId)
+            if (bridgeCabinet) {
+              const cardCount = getCabinetReceiverCardCount(bridgeCabinet)
+              const resolvedIndex = Math.max(0, Math.min(cardCount - 1, prev.cardIndex ?? 0))
+              const rects = getReceiverCardRects(prev.bounds, zoom, cardCount, readabilityScale, cardVariant)
+              const bridgeRect = rects[resolvedIndex]
+              if (bridgeRect) {
+                const ports = getOutdoorReceiverCardDataPorts(bridgeRect, zoom, readabilityScale)
+                const distToIn = Math.abs(prev.y - ports.in.y)
+                const distToOut = Math.abs(prev.y - ports.out.y)
+                if (distToIn <= distToOut) {
+                  bridgeStartX = ports.in.x
+                  bridgeStartY = ports.in.y
+                  bridgeEndX = ports.out.x
+                  bridgeEndY = ports.out.y
+                } else {
+                  bridgeStartX = ports.out.x
+                  bridgeStartY = ports.out.y
+                  bridgeEndX = ports.in.x
+                  bridgeEndY = ports.in.y
+                }
+                dy = bridgeEndY - bridgeStartY
+              }
+            }
+          }
           if (Math.abs(dy) < 0.01) continue
 
           const dirY = Math.sign(dy) || 1
-          const laneDir = prev.x < layoutCenterX ? -1 : 1
-          const midY = (prev.y + curr.y) / 2
+          const midY = (bridgeStartY + bridgeEndY) / 2
           const iconOffset = scaledReadableWorldSize(10, zoom, 7, 16, readabilityScale)
-          const markerX = prev.x + laneDir * iconOffset
+          const markerInset = scaledReadableWorldSize(7, zoom, 4.5, 12, readabilityScale)
+          const minMarkerX = prev.bounds ? prev.bounds.x + markerInset : Number.NEGATIVE_INFINITY
+          const maxMarkerX = prev.bounds ? prev.bounds.x + prev.bounds.width - markerInset : Number.POSITIVE_INFINITY
+          const leftMarkerX = bridgeStartX - iconOffset
+          const rightMarkerX = bridgeStartX + iconOffset
+          let markerX = leftMarkerX
+          if (markerX < minMarkerX && rightMarkerX <= maxMarkerX) {
+            markerX = rightMarkerX
+          }
+          markerX = Math.max(minMarkerX, Math.min(maxMarkerX, markerX))
+          const laneDir = markerX >= bridgeStartX ? 1 : -1
           const markerRadius = Math.max(
             scaledReadableWorldSize(4.8, zoom, 3.6, 8.2, readabilityScale),
             Math.min(Math.abs(dy) * 0.26, scaledReadableWorldSize(8.2, zoom, 5.6, 13.2, readabilityScale)),
@@ -1694,29 +1769,45 @@ function drawDataRoutes(
           const endY = midY + dirY * markerRadius
           const controlX = markerX + laneDir * markerRadius * 1.15
 
-          ctx.beginPath()
-          ctx.moveTo(markerX, startY)
-          ctx.quadraticCurveTo(controlX, midY, markerX, endY)
-          ctx.stroke()
+          const drawBridgeCurve = (strokeStyle: string, width: number) => {
+            ctx.strokeStyle = strokeStyle
+            ctx.lineWidth = width
+            ctx.beginPath()
+            ctx.moveTo(markerX, startY)
+            ctx.quadraticCurveTo(controlX, midY, markerX, endY)
+            ctx.stroke()
+          }
+
+          drawBridgeCurve("rgba(2, 6, 23, 0.78)", iconOutline)
+          drawBridgeCurve(lineColor, iconStroke)
 
           const tangentX = markerX - controlX
           const tangentY = endY - midY
           const tangentLength = Math.hypot(tangentX, tangentY) || 1
           const ux = tangentX / tangentLength
           const uy = tangentY / tangentLength
-          const arrowLen = scaledReadableWorldSize(6.8, zoom, 4.6, 10.8, readabilityScale)
-          const arrowHalf = arrowLen * 0.5
-          const baseX = markerX - ux * arrowLen
-          const baseY = endY - uy * arrowLen
+          const baseX = markerX - ux * headLength
+          const baseY = endY - uy * headLength
           const px = -uy
           const py = ux
+          const leftX = baseX + px * headSpan
+          const leftY = baseY + py * headSpan
+          const rightX = baseX - px * headSpan
+          const rightY = baseY - py * headSpan
 
-          ctx.beginPath()
-          ctx.moveTo(markerX, endY)
-          ctx.lineTo(baseX + px * arrowHalf, baseY + py * arrowHalf)
-          ctx.lineTo(baseX - px * arrowHalf, baseY - py * arrowHalf)
-          ctx.closePath()
-          ctx.fill()
+          const drawBridgeHead = (strokeStyle: string, width: number) => {
+            ctx.strokeStyle = strokeStyle
+            ctx.lineWidth = width
+            ctx.beginPath()
+            ctx.moveTo(markerX, endY)
+            ctx.lineTo(leftX, leftY)
+            ctx.moveTo(markerX, endY)
+            ctx.lineTo(rightX, rightY)
+            ctx.stroke()
+          }
+
+          drawBridgeHead("rgba(2, 6, 23, 0.78)", iconOutline)
+          drawBridgeHead(lineColor, iconStroke)
         }
 
         ctx.restore()
@@ -2068,6 +2159,20 @@ function drawPowerFeeds(
     return { points, useOutdoorChaining }
   }
 
+  const resolveFeedLabelPosition = (
+    feed: LayoutData["project"]["powerFeeds"][number],
+    feedBounds: { minX: number; minY: number; maxX: number; maxY: number },
+    anchorX: number,
+  ): "left" | "right" | "top" | "bottom" => {
+    const explicit = feed.labelPosition && feed.labelPosition !== "auto" ? feed.labelPosition : null
+    if (explicit) return explicit
+    const edgeTolerance = scaledReadableWorldSize(18, zoom, 10, 28, readabilityScale)
+    const isBottomRow = layoutBounds.maxY - feedBounds.maxY <= edgeTolerance
+    if (isBottomRow) return "bottom"
+    const layoutCenterX = (layoutBounds.minX + layoutBounds.maxX) / 2
+    return anchorX >= layoutCenterX ? "right" : "left"
+  }
+
   powerFeeds.forEach((feed) => {
     if (feed.assignedCabinetIds.length === 0) return
     const feedSteps = getPowerSteps(feed)
@@ -2087,7 +2192,12 @@ function drawPowerFeeds(
     const connectorText = feed.customLabel?.trim() || feed.connector
     const maxTextWidth = Math.max(ctx.measureText(labelText).width, ctx.measureText(connectorText).width)
     const boxWidth = maxTextWidth + labelPaddingX * 2
-    const labelPosition = feed.labelPosition && feed.labelPosition !== "auto" ? feed.labelPosition : "bottom"
+    const feedBounds = getLayoutBoundsFromCabinets(
+      layout.cabinets.filter((c) => feed.assignedCabinetIds.includes(c.id)),
+      layout.cabinetTypes,
+    )
+    if (!feedBounds) return
+    const labelPosition = resolveFeedLabelPosition(feed, feedBounds, points[0].x)
     if (labelPosition === "bottom") {
       bottomPlans.push({ id: feed.id, desiredX: points[0].x, width: boxWidth })
     } else if (labelPosition === "top") {
@@ -2149,7 +2259,7 @@ function drawPowerFeeds(
     const boxWidth = maxTextWidth + labelPaddingX * 2
     const boxHeight = fontSize * 2.4 + labelPaddingY * 2
     const labelOffset = getPowerLabelOffset(baseLabelOffset, boxHeight)
-    const labelPosition = feed.labelPosition && feed.labelPosition !== "auto" ? feed.labelPosition : "bottom"
+    const labelPosition = resolveFeedLabelPosition(feed, feedBounds, points[0].x)
     const sideOffsetLeft =
       maxPortLabelWidthLeft > 0 ? dataLabelSideGap + maxPortLabelWidthLeft + sideLabelGap : labelSideGap
     const sideOffsetRight =
@@ -2857,16 +2967,19 @@ export function drawOverview(ctx: CanvasRenderingContext2D, layout: LayoutData, 
         const labelPaddingY = scaledReadableWorldSize(6, uiZoom, 4, 9, readabilityScale)
         const boxHeight = fontSize * 2.4 + labelPaddingY * 2
         const labelOffset = getPowerLabelOffset(140 * readabilityScale, boxHeight)
+        const edgeTolerance = scaledReadableWorldSize(18, uiZoom, 10, 28, readabilityScale)
 
         layout.project.powerFeeds.forEach((feed) => {
           if (feed.assignedCabinetIds.length === 0) return
-          const labelPosition = feed.labelPosition && feed.labelPosition !== "auto" ? feed.labelPosition : "bottom"
-          if (labelPosition !== "bottom") return
           const feedBounds = getLayoutBoundsFromCabinets(
             layout.cabinets.filter((c) => feed.assignedCabinetIds.includes(c.id)),
             layout.cabinetTypes,
           )
           if (!feedBounds) return
+          const explicit = feed.labelPosition && feed.labelPosition !== "auto" ? feed.labelPosition : null
+          const labelPosition =
+            explicit ?? (layoutBounds.maxY - feedBounds.maxY <= edgeTolerance ? "bottom" : "side")
+          if (labelPosition !== "bottom") return
           const labelY = feedBounds.maxY + labelOffset
           const bottom = labelY + boxHeight
           powerLabelBottom = powerLabelBottom === null ? bottom : Math.max(powerLabelBottom, bottom)

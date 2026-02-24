@@ -1,8 +1,21 @@
 import type { Cabinet, CabinetType, LayoutData, ValidationError } from "./types"
 
+function inferCabinetTypeFromId(typeId: string): CabinetType | null {
+  const match = typeId.match(/(\d+)\s*x\s*(\d+)/i)
+  if (!match) return null
+  const width = Number.parseInt(match[1], 10)
+  const height = Number.parseInt(match[2], 10)
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return null
+  return {
+    typeId,
+    width_mm: width,
+    height_mm: height,
+  }
+}
+
 // Get the bounding box of a cabinet considering rotation
 export function getCabinetBounds(cabinet: Cabinet, types: CabinetType[]) {
-  const type = types.find((t) => t.typeId === cabinet.typeId)
+  const type = types.find((t) => t.typeId === cabinet.typeId) ?? inferCabinetTypeFromId(cabinet.typeId)
   if (!type) return null
 
   const isRotated = cabinet.rot_deg === 90 || cabinet.rot_deg === 270
@@ -68,7 +81,9 @@ export function validateLayout(layout: LayoutData): ValidationError[] {
 
   // Check for missing types
   cabinets.forEach((c) => {
-    if (!cabinetTypes.find((t) => t.typeId === c.typeId)) {
+    const knownType = cabinetTypes.find((t) => t.typeId === c.typeId)
+    const inferredType = knownType ? null : inferCabinetTypeFromId(c.typeId)
+    if (!knownType && !inferredType) {
       errors.push({
         type: "error",
         code: "MISSING_TYPE",

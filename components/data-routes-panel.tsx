@@ -1,5 +1,6 @@
 "use client"
 
+import { useEffect, useRef, useState } from "react"
 import { useEditor } from "@/lib/editor-context"
 import { getCabinetBounds, getLayoutBounds } from "@/lib/validation"
 import { Button } from "@/components/ui/button"
@@ -69,6 +70,45 @@ export function DataRoutesPanel() {
     routingMode.type === "data"
       ? "h-7 px-3 bg-blue-500/80 text-zinc-950 hover:bg-blue-400"
       : "h-7 px-3 bg-orange-500/80 text-zinc-950 hover:bg-orange-400"
+  const routeCardRefs = useRef<Record<string, HTMLDivElement | null>>({})
+  const feedCardRefs = useRef<Record<string, HTMLDivElement | null>>({})
+  const [recentRouteId, setRecentRouteId] = useState<string | null>(null)
+  const [recentFeedId, setRecentFeedId] = useState<string | null>(null)
+  const [pendingScrollTarget, setPendingScrollTarget] = useState<
+    { type: "data-route" | "power-feed"; id: string } | null
+  >(null)
+  const requestCanvasFocus = (entity: "data-route" | "power-feed", id: string) => {
+    if (typeof window === "undefined") return
+    window.requestAnimationFrame(() => {
+      window.dispatchEvent(new CustomEvent("layout:focus-route", { detail: { entity, id } }))
+    })
+  }
+
+  useEffect(() => {
+    if (!pendingScrollTarget) return
+    const request = pendingScrollTarget
+    const element =
+      request.type === "data-route" ? routeCardRefs.current[request.id] : feedCardRefs.current[request.id]
+    if (!element) return
+    window.requestAnimationFrame(() => {
+      element.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" })
+      setPendingScrollTarget((current) =>
+        current && current.type === request.type && current.id === request.id ? null : current,
+      )
+    })
+  }, [pendingScrollTarget, dataRoutes, powerFeeds])
+
+  useEffect(() => {
+    if (!recentRouteId) return
+    const timer = window.setTimeout(() => setRecentRouteId(null), 1200)
+    return () => window.clearTimeout(timer)
+  }, [recentRouteId])
+
+  useEffect(() => {
+    if (!recentFeedId) return
+    const timer = window.setTimeout(() => setRecentFeedId(null), 1200)
+    return () => window.clearTimeout(timer)
+  }, [recentFeedId])
 
   const getRouteSteps = (route: DataRoute): DataRouteStep[] => {
     if (route.steps && route.steps.length > 0) return route.steps
@@ -164,9 +204,11 @@ export function DataRoutesPanel() {
         if (group.length > 0) groups.push(group)
       }
 
+      // Outdoor auto-route must anchor from the LV-box cabinet (bottom-right fallback),
+      // regardless of current controller placement mode.
       const controllerCabinetId = resolveControllerCabinetId(
         "outdoor",
-        layout.project.controllerPlacement ?? "external",
+        "cabinet",
         layout.project.controllerCabinetId,
         layout.cabinets,
         layout.cabinetTypes,
@@ -303,8 +345,10 @@ export function DataRoutesPanel() {
         }
 
         let chosenStartLtr = startLtr
+        const isPrimaryGroup =
+          !!controllerCabinetId && group.some((item) => item.cabinet.id === controllerCabinetId)
         const hasNextGroup = groupIndex < orderedGroups.length - 1
-        if (hasNextGroup) {
+        if (hasNextGroup && !isPrimaryGroup) {
           const groupMinX = Math.min(...group.map((item) => item.centerX))
           const groupMaxX = Math.max(...group.map((item) => item.centerX))
           const preferredExitX = lvSide === "right" ? groupMinX : groupMaxX
@@ -438,6 +482,9 @@ export function DataRoutesPanel() {
     }
     dispatch({ type: "ADD_DATA_ROUTE", payload: newRoute })
     dispatch({ type: "PUSH_HISTORY" })
+    setRecentRouteId(newRoute.id)
+    setPendingScrollTarget({ type: "data-route", id: newRoute.id })
+    requestCanvasFocus("data-route", newRoute.id)
   }
 
   const handleDeleteRoute = (id: string) => {
@@ -586,6 +633,9 @@ export function DataRoutesPanel() {
     }
     dispatch({ type: "ADD_POWER_FEED", payload: newFeed })
     dispatch({ type: "PUSH_HISTORY" })
+    setRecentFeedId(newFeed.id)
+    setPendingScrollTarget({ type: "power-feed", id: newFeed.id })
+    requestCanvasFocus("power-feed", newFeed.id)
   }
 
   const handleDeletePowerFeed = (id: string) => {
@@ -619,37 +669,16 @@ export function DataRoutesPanel() {
       .map((c) => {
         const bounds = getCabinetBounds(c, layout.cabinetTypes)
         if (!bounds) return null
-        return { cabinet: c, centerX: bounds.x + bounds.width / 2, centerY: bounds.y + bounds.height / 2 }
+        return { cabinet: c, bounds, centerX: bounds.x + bounds.width / 2, centerY: bounds.y + bounds.height / 2 }
       })
-      .filter(Boolean) as { cabinet: (typeof layout.cabinets)[0]; centerX: number; centerY: number }[]
+      .filter(Boolean) as {
+      cabinet: (typeof layout.cabinets)[0]
+      bounds: NonNullable<ReturnType<typeof getCabinetBounds>>
+      centerX: number
+      centerY: number
+    }[]
 
-    // Group by columns
-    const tolerance = 100
-    const columns: (typeof cabinetsWithBounds)[] = []
-
-    cabinetsWithBounds.forEach((item) => {
-      const existingCol = columns.find((col) => col.length > 0 && Math.abs(col[0].centerX - item.centerX) < tolerance)
-      if (existingCol) {
-        existingCol.push(item)
-      } else {
-        columns.push([item])
-      }
-    })
-
-    columns.sort((a, b) => a[0].centerX - b[0].centerX)
-    // Order each column bottom -> top (higher Y is lower on the canvas)
-    columns.forEach((col) => col.sort((a, b) => b.centerY - a.centerY))
-
-    const orderedCabinetIds: string[] = []
-    columns.forEach((col, colIndex) => {
-      const colCabinets = col.map((item) => item.cabinet.id)
-      if (colIndex % 2 === 1) {
-        colCabinets.reverse()
-      }
-      orderedCabinetIds.push(...colCabinets)
-    })
-
-    if (orderedCabinetIds.length === 0) return
+    if (cabinetsWithBounds.length === 0) return
 
     const defaultTemplate = powerFeeds[0]
     const createAutoFeed = (index: number): PowerFeed => ({
@@ -663,11 +692,17 @@ export function DataRoutesPanel() {
       connectLvBox: false,
     })
 
-    const workingFeeds: PowerFeed[] =
-      powerFeeds.length > 0 ? powerFeeds.map((feed) => ({ ...feed })) : [createAutoFeed(1)]
-    const assignedByFeed: string[][] = workingFeeds.map(() => [])
-    const feedLoads = workingFeeds.map(() => 0)
+    const workingFeeds: PowerFeed[] = powerFeeds.length > 0 ? powerFeeds.map((feed) => ({ ...feed })) : []
+    const assignedByFeed: string[][] = []
+    const feedLoads: number[] = []
     const feedLookup = new Map(powerFeeds.map((feed) => [feed.id, feed]))
+    const ensureFeed = (index: number) => {
+      while (index >= workingFeeds.length) {
+        workingFeeds.push(createAutoFeed(workingFeeds.length + 1))
+      }
+      if (!assignedByFeed[index]) assignedByFeed[index] = []
+      if (!Number.isFinite(feedLoads[index])) feedLoads[index] = 0
+    }
 
     const cabinetLoadWById = new Map(
       layout.cabinets.map((cabinet) => [
@@ -687,33 +722,196 @@ export function DataRoutesPanel() {
       ]),
     )
 
-    let activeFeedIndex = 0
-    orderedCabinetIds.forEach((cabinetId) => {
-      const cabinetLoadW = cabinetLoadWById.get(cabinetId) ?? 0
-
-      while (true) {
-        if (activeFeedIndex >= workingFeeds.length) {
-          const newFeed = createAutoFeed(workingFeeds.length + 1)
-          workingFeeds.push(newFeed)
-          assignedByFeed.push([])
-          feedLoads.push(0)
-        }
-
-        const feed = workingFeeds[activeFeedIndex]
-        const maxW = getBreakerMaxW(feed.breaker)
-        const maxLoadW = maxW ?? Number.POSITIVE_INFINITY
-        const nextLoadW = feedLoads[activeFeedIndex] + cabinetLoadW
-        const isEmptyFeed = assignedByFeed[activeFeedIndex].length === 0
-
-        if (nextLoadW <= maxLoadW || isEmptyFeed) {
-          assignedByFeed[activeFeedIndex].push(cabinetId)
-          feedLoads[activeFeedIndex] = nextLoadW
-          break
-        }
-
-        activeFeedIndex += 1
+    if (powerMode === "outdoor") {
+      const rowTolerance = 100
+      const colTolerance = 100
+      const areConnected = (
+        a: NonNullable<ReturnType<typeof getCabinetBounds>>,
+        b: NonNullable<ReturnType<typeof getCabinetBounds>>,
+      ) => {
+        const tolerance = 1
+        const overlapX = a.x < b.x2 && a.x2 > b.x
+        const overlapY = a.y < b.y2 && a.y2 > b.y
+        if (overlapX && overlapY) return true
+        const horizontalTouch =
+          (Math.abs(a.x2 - b.x) <= tolerance || Math.abs(b.x2 - a.x) <= tolerance) && !(a.y2 <= b.y || b.y2 <= a.y)
+        const verticalTouch =
+          (Math.abs(a.y2 - b.y) <= tolerance || Math.abs(b.y2 - a.y) <= tolerance) && !(a.x2 <= b.x || b.x2 <= a.x)
+        return horizontalTouch || verticalTouch
       }
-    })
+
+      const groups: (typeof cabinetsWithBounds)[] = []
+      const visited = new Array(cabinetsWithBounds.length).fill(false)
+      for (let i = 0; i < cabinetsWithBounds.length; i++) {
+        if (visited[i]) continue
+        visited[i] = true
+        const queue = [i]
+        const group: (typeof cabinetsWithBounds) = []
+        while (queue.length > 0) {
+          const current = queue.shift()
+          if (current === undefined) continue
+          const currentItem = cabinetsWithBounds[current]
+          group.push(currentItem)
+          for (let j = 0; j < cabinetsWithBounds.length; j++) {
+            if (visited[j]) continue
+            if (!areConnected(currentItem.bounds, cabinetsWithBounds[j].bounds)) continue
+            visited[j] = true
+            queue.push(j)
+          }
+        }
+        if (group.length > 0) groups.push(group)
+      }
+
+      const controllerCabinetId = resolveControllerCabinetId(
+        "outdoor",
+        "cabinet",
+        layout.project.controllerCabinetId,
+        layout.cabinets,
+        layout.cabinetTypes,
+      )
+
+      const getGroupBounds = (group: typeof cabinetsWithBounds) => {
+        const minX = Math.min(...group.map((item) => item.bounds.x))
+        const minY = Math.min(...group.map((item) => item.bounds.y))
+        const maxX = Math.max(...group.map((item) => item.bounds.x2))
+        const maxY = Math.max(...group.map((item) => item.bounds.y2))
+        return { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY }
+      }
+
+      const orderedGroups = [...groups]
+      orderedGroups.sort((a, b) => {
+        const aHasController = controllerCabinetId ? a.some((item) => item.cabinet.id === controllerCabinetId) : false
+        const bHasController = controllerCabinetId ? b.some((item) => item.cabinet.id === controllerCabinetId) : false
+        if (aHasController !== bHasController) return aHasController ? -1 : 1
+        const aBounds = getGroupBounds(a)
+        const bBounds = getGroupBounds(b)
+        if (aBounds.maxY !== bBounds.maxY) return bBounds.maxY - aBounds.maxY
+        return aBounds.minX - bBounds.minX
+      })
+
+      const buildRowLanes = (group: typeof cabinetsWithBounds) => {
+        const rows: (typeof group)[] = []
+        group.forEach((item) => {
+          const existing = rows.find((row) => row.length > 0 && Math.abs(row[0].centerY - item.centerY) < rowTolerance)
+          if (existing) {
+            existing.push(item)
+          } else {
+            rows.push([item])
+          }
+        })
+        rows.sort((a, b) => b[0].centerY - a[0].centerY) // bottom -> top
+        rows.forEach((row) => row.sort((a, b) => a.centerX - b.centerX))
+        return rows.map((row) => row.map((item) => item.cabinet.id))
+      }
+
+      const buildColumnLanes = (group: typeof cabinetsWithBounds) => {
+        const cols: (typeof group)[] = []
+        group.forEach((item) => {
+          const existing = cols.find((col) => col.length > 0 && Math.abs(col[0].centerX - item.centerX) < colTolerance)
+          if (existing) {
+            existing.push(item)
+          } else {
+            cols.push([item])
+          }
+        })
+        cols.sort((a, b) => a[0].centerX - b[0].centerX)
+
+        const controllerItem = controllerCabinetId
+          ? group.find((item) => item.cabinet.id === controllerCabinetId)
+          : undefined
+        if (controllerItem && cols.length > 1) {
+          const groupMidX = (Math.min(...group.map((item) => item.centerX)) + Math.max(...group.map((item) => item.centerX))) / 2
+          const startFromRight = controllerItem.centerX >= groupMidX
+          if (startFromRight) cols.reverse()
+        }
+
+        cols.forEach((col) => col.sort((a, b) => b.centerY - a.centerY)) // bottom -> top
+        return cols.map((col) => col.map((item) => item.cabinet.id))
+      }
+
+      let nextFeedIndex = 0
+      orderedGroups.forEach((group) => {
+        const groupBounds = getGroupBounds(group)
+        const useColumnLanes = groupBounds.height > groupBounds.width
+        const lanes = useColumnLanes ? buildColumnLanes(group) : buildRowLanes(group)
+
+        lanes.forEach((laneCabinetIds) => {
+          if (laneCabinetIds.length === 0) return
+
+          ensureFeed(nextFeedIndex)
+          assignedByFeed[nextFeedIndex] = []
+          feedLoads[nextFeedIndex] = 0
+          let laneFeedIndex = nextFeedIndex
+
+          laneCabinetIds.forEach((cabinetId) => {
+            const cabinetLoadW = cabinetLoadWById.get(cabinetId) ?? 0
+            ensureFeed(laneFeedIndex)
+            const feed = workingFeeds[laneFeedIndex]
+            const maxW = getBreakerMaxW(feed.breaker)
+            const maxLoadW = maxW ?? Number.POSITIVE_INFINITY
+            const nextLoadW = feedLoads[laneFeedIndex] + cabinetLoadW
+            const isEmptyFeed = assignedByFeed[laneFeedIndex].length === 0
+
+            if (!(nextLoadW <= maxLoadW || isEmptyFeed)) {
+              laneFeedIndex += 1
+              ensureFeed(laneFeedIndex)
+            }
+
+            assignedByFeed[laneFeedIndex].push(cabinetId)
+            feedLoads[laneFeedIndex] = (feedLoads[laneFeedIndex] ?? 0) + cabinetLoadW
+          })
+
+          nextFeedIndex = laneFeedIndex + 1
+        })
+      })
+    } else {
+      // Indoor keeps the historical snake-by-column behavior.
+      const tolerance = 100
+      const columns: (typeof cabinetsWithBounds)[] = []
+
+      cabinetsWithBounds.forEach((item) => {
+        const existingCol = columns.find((col) => col.length > 0 && Math.abs(col[0].centerX - item.centerX) < tolerance)
+        if (existingCol) {
+          existingCol.push(item)
+        } else {
+          columns.push([item])
+        }
+      })
+
+      columns.sort((a, b) => a[0].centerX - b[0].centerX)
+      columns.forEach((col) => col.sort((a, b) => b.centerY - a.centerY))
+
+      const orderedCabinetIds: string[] = []
+      columns.forEach((col, colIndex) => {
+        const colCabinets = col.map((item) => item.cabinet.id)
+        if (colIndex % 2 === 1) {
+          colCabinets.reverse()
+        }
+        orderedCabinetIds.push(...colCabinets)
+      })
+
+      let activeFeedIndex = 0
+      orderedCabinetIds.forEach((cabinetId) => {
+        const cabinetLoadW = cabinetLoadWById.get(cabinetId) ?? 0
+
+        while (true) {
+          ensureFeed(activeFeedIndex)
+          const feed = workingFeeds[activeFeedIndex]
+          const maxW = getBreakerMaxW(feed.breaker)
+          const maxLoadW = maxW ?? Number.POSITIVE_INFINITY
+          const nextLoadW = feedLoads[activeFeedIndex] + cabinetLoadW
+          const isEmptyFeed = assignedByFeed[activeFeedIndex].length === 0
+
+          if (nextLoadW <= maxLoadW || isEmptyFeed) {
+            assignedByFeed[activeFeedIndex].push(cabinetId)
+            feedLoads[activeFeedIndex] = nextLoadW
+            break
+          }
+
+          activeFeedIndex += 1
+        }
+      })
+    }
 
     for (let index = powerFeeds.length; index < workingFeeds.length; index++) {
       dispatch({ type: "ADD_POWER_FEED", payload: workingFeeds[index] })
@@ -768,7 +966,7 @@ export function DataRoutesPanel() {
   return (
     <div className="space-y-4">
         {routingMode.type !== "none" && (
-          <div className={routingBannerClass}>
+          <div className={`${routingBannerClass} ux-route-banner-enter`}>
             <div className="flex items-center justify-between">
               <div>
                 <div className={`text-xs uppercase tracking-[0.2em] ${routingTitleClass}`}>Routing Mode</div>
@@ -819,7 +1017,7 @@ export function DataRoutesPanel() {
                 size="sm"
                 onClick={handleAddRoute}
                 disabled={dataRoutes.length >= maxPorts}
-                className="h-7 px-2"
+                className="h-7 px-2 transition-transform duration-150 hover:scale-105 active:scale-95"
               >
                 <Plus className="w-3 h-3" />
               </Button>
@@ -889,11 +1087,14 @@ export function DataRoutesPanel() {
                 return (
                   <div
                     key={route.id}
+                    ref={(node) => {
+                      routeCardRefs.current[route.id] = node
+                    }}
                     className={`rounded-xl border p-3 space-y-2 ${
                       isActiveRoute
                         ? "border-blue-400/50 bg-gradient-to-r from-blue-500/15 via-zinc-900/80 to-zinc-900"
                         : "border-zinc-800 bg-zinc-900/60"
-                    }`}
+                    } ${recentRouteId === route.id ? "ux-card-enter ux-card-glow-blue" : ""}`}
                   >
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
@@ -1022,6 +1223,18 @@ export function DataRoutesPanel() {
                   </div>
                 )
               })}
+              <div className="pt-1">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleAddRoute}
+                  disabled={dataRoutes.length >= maxPorts}
+                  className="h-7 w-full text-xs text-blue-100 hover:text-blue-50 transition-transform duration-150 hover:scale-[1.01] active:scale-[0.99]"
+                >
+                  <Plus className="w-3 h-3 mr-1" />
+                  Add Data Route
+                </Button>
+              </div>
             </div>
           )}
         </div>
@@ -1057,7 +1270,12 @@ export function DataRoutesPanel() {
                 <Wand2 className="w-3 h-3 mr-1" />
                 Auto
               </Button>
-              <Button variant="ghost" size="sm" onClick={handleAddPowerFeed} className="h-7 px-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleAddPowerFeed}
+                className="h-7 px-2 transition-transform duration-150 hover:scale-105 active:scale-95"
+              >
                 <Plus className="w-3 h-3" />
               </Button>
             </div>
@@ -1072,11 +1290,14 @@ export function DataRoutesPanel() {
                 return (
                   <div
                     key={feed.id}
+                    ref={(node) => {
+                      feedCardRefs.current[feed.id] = node
+                    }}
                     className={`rounded-xl border p-3 space-y-2 ${
                       isActiveFeed
                         ? "border-orange-400/50 bg-gradient-to-r from-orange-500/15 via-zinc-900/80 to-zinc-900"
                         : "border-zinc-800 bg-zinc-900/60"
-                    }`}
+                    } ${recentFeedId === feed.id ? "ux-card-enter ux-card-glow-orange" : ""}`}
                   >
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
@@ -1257,6 +1478,17 @@ export function DataRoutesPanel() {
                   </div>
                 )
               })}
+              <div className="pt-1">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleAddPowerFeed}
+                  className="h-7 w-full text-xs text-orange-100 hover:text-orange-50 transition-transform duration-150 hover:scale-[1.01] active:scale-[0.99]"
+                >
+                  <Plus className="w-3 h-3 mr-1" />
+                  Add Power Feed
+                </Button>
+              </div>
 
               {/* Total Consumption */}
               <div className="bg-orange-500/10 border border-orange-500/30 rounded-lg p-2">

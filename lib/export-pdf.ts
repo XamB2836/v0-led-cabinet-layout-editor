@@ -754,6 +754,20 @@ function computeLabelBounds(
       maxPortLabelWidthLeft > 0 ? powerLabelSideGap + maxPortLabelWidthLeft + sideLabelGap : labelSideGap
     const sideOffsetRight =
       maxPortLabelWidthRight > 0 ? powerLabelSideGap + maxPortLabelWidthRight + sideLabelGap : labelSideGap
+    const edgeTolerance = scaledReadableWorldSize(18, uiZoom, 10, 28, readabilityScale)
+
+    const resolveFeedLabelPosition = (
+      feed: LayoutData["project"]["powerFeeds"][number],
+      feedBounds: { minX: number; minY: number; maxX: number; maxY: number },
+      anchorX: number,
+    ): "left" | "right" | "top" | "bottom" => {
+      const explicit = feed.labelPosition && feed.labelPosition !== "auto" ? feed.labelPosition : null
+      if (explicit) return explicit
+      const isBottomRow = layoutBounds.maxY - feedBounds.maxY <= edgeTolerance
+      if (isBottomRow) return "bottom"
+      const layoutCenterX = (layoutBounds.minX + layoutBounds.maxX) / 2
+      return anchorX >= layoutCenterX ? "right" : "left"
+    }
 
     const bottomPlans: { id: string; desiredX: number; width: number }[] = []
     const topPlans: { id: string; desiredX: number; width: number }[] = []
@@ -791,6 +805,11 @@ function computeLabelBounds(
       }
 
       if (anchorX === null || anchorY === null) return
+      const feedBounds = getLayoutBoundsFromCabinets(
+        layout.cabinets.filter((c) => feed.assignedCabinetIds.includes(c.id)),
+        layout.cabinetTypes,
+      )
+      if (!feedBounds) return
 
       const loadW = getPowerFeedLoadW(feed, layout.cabinets, layout.cabinetTypes, layout.project.mode ?? "indoor")
       const breakerText = feed.breaker || feed.label
@@ -805,7 +824,7 @@ function computeLabelBounds(
       const maxTextWidth = Math.max(labelMeasured, connectorMeasured, labelEstimated, connectorEstimated)
       const boxWidth = maxTextWidth + labelPaddingX * 2
 
-      const labelPosition = feed.labelPosition && feed.labelPosition !== "auto" ? feed.labelPosition : "bottom"
+      const labelPosition = resolveFeedLabelPosition(feed, feedBounds, anchorX)
       if (labelPosition === "bottom") {
         bottomPlans.push({ id: feed.id, desiredX: anchorX, width: boxWidth })
       } else if (labelPosition === "top") {
@@ -841,7 +860,7 @@ function computeLabelBounds(
       const boxHeight = fontSize * 2.4 + labelPaddingY * 2
       const labelOffset = getPowerLabelOffset(baseLabelOffset * readabilityScale, boxHeight)
 
-      const labelPosition = feed.labelPosition && feed.labelPosition !== "auto" ? feed.labelPosition : "bottom"
+      const labelPosition = resolveFeedLabelPosition(feed, feedBounds, anchorX)
       let labelCenterX =
         labelPosition === "left"
           ? layoutBounds.minX - sideOffsetLeft - boxWidth / 2
