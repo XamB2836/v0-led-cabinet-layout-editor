@@ -8,6 +8,7 @@ import { getPowerFeedLoadW } from "./power-utils"
 import { DEFAULT_RECEIVER_CARD_MODEL } from "./receiver-cards"
 import { getEffectivePitchMm } from "./pitch-utils"
 import { getOrientedModuleSize } from "./module-utils"
+import { getTotalizedPixelMatrixDimensions } from "./pixel-matrix"
 
 const PAGE_SIZES_MM = {
   A4: { width: 210, height: 297 },
@@ -174,6 +175,20 @@ function getScreenSizeCounts(layout: LayoutData): ScreenSizeCount[] {
 
   if (cabinetBounds.length === 0) {
     return []
+  }
+
+  // Indoor workflows expect one global matrix totalizing all cabinets,
+  // while ignoring physical spacing between disconnected groups.
+  if ((layout.project.mode ?? "indoor") === "indoor") {
+    const matrix = getTotalizedPixelMatrixDimensions(layout)
+
+    return [
+      {
+        widthPx: matrix.widthPx,
+        heightPx: matrix.heightPx,
+        count: 1,
+      },
+    ]
   }
 
   const visited = new Array(cabinetBounds.length).fill(false)

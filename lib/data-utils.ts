@@ -1,7 +1,7 @@
 import type { Cabinet, CabinetType, DataRoute, LayoutData } from "./types"
 import { getCabinetReceiverCardCount, parseRouteCabinetId } from "./types"
-import { getLayoutBounds } from "./validation"
 import { getEffectivePitchMm } from "./pitch-utils"
+import { getTotalizedPixelMatrixDimensions } from "./pixel-matrix"
 
 const PER_PORT_MAX_PX = 650_000
 type ControllerType = LayoutData["project"]["controller"]
@@ -72,9 +72,9 @@ export function isLayoutOverControllerLimits(layout: LayoutData, controller: Con
   const totalLoad = getLayoutPixelLoad(layout.cabinets, layout.cabinetTypes, effectivePitch)
   if (totalLoad > limits.totalMaxPx) return true
   if (limits.maxWidthPx || limits.maxHeightPx) {
-    const bounds = getLayoutBounds(layout)
-    const widthPx = Math.round(bounds.width / effectivePitch)
-    const heightPx = Math.round(bounds.height / effectivePitch)
+    const matrix = getTotalizedPixelMatrixDimensions(layout)
+    const widthPx = matrix.widthPx
+    const heightPx = matrix.heightPx
     if (limits.maxWidthPx && widthPx > limits.maxWidthPx) return true
     if (limits.maxHeightPx && heightPx > limits.maxHeightPx) return true
   }

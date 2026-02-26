@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react"
 import { useEditor } from "@/lib/editor-context"
-import { getCabinetBounds, getLayoutBounds } from "@/lib/validation"
+import { getCabinetBounds } from "@/lib/validation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -27,6 +27,7 @@ import {
 } from "@/lib/data-utils"
 import { getEffectivePitchMm } from "@/lib/pitch-utils"
 import { resolveControllerCabinetId } from "@/lib/controller-utils"
+import { getTotalizedPixelMatrixDimensions } from "@/lib/pixel-matrix"
 
 export function DataRoutesPanel() {
   const { state, dispatch } = useEditor()
@@ -58,9 +59,9 @@ export function DataRoutesPanel() {
         (type) => type !== controller && !isLayoutOverControllerLimits(layout, type),
       ) ?? null
     : null
-  const bounds = getLayoutBounds(layout)
-  const layoutWidthPx = Math.round(bounds.width / effectivePitchMm)
-  const layoutHeightPx = Math.round(bounds.height / effectivePitchMm)
+  const matrix = getTotalizedPixelMatrixDimensions(layout)
+  const layoutWidthPx = matrix.widthPx
+  const layoutHeightPx = matrix.heightPx
   const routingBannerClass =
     routingMode.type === "data"
       ? "rounded-xl border border-blue-400/30 bg-gradient-to-r from-blue-500/10 via-zinc-900/80 to-zinc-900 p-3"

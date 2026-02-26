@@ -1552,6 +1552,15 @@ function drawDataRoutes(
             const isInterScreenJump =
               !!prev.bounds && !!curr.bounds && !areCabinetBoundsConnected(prev.bounds, curr.bounds)
             const preferredDir = prev.x < layoutCenterX ? -1 : 1
+            const prevCenterX = prev.bounds ? prev.bounds.x + prev.bounds.width / 2 : prev.x
+            const currCenterX = curr.bounds ? curr.bounds.x + curr.bounds.width / 2 : curr.x
+            const referenceWidth = Math.min(
+              prev.bounds?.width ?? Number.POSITIVE_INFINITY,
+              curr.bounds?.width ?? Number.POSITIVE_INFINITY,
+            )
+            const sameColumn = Number.isFinite(referenceWidth)
+              ? Math.abs(prevCenterX - currCenterX) <= referenceWidth * 0.28
+              : absDx <= (120 * readabilityScale) / zoom
             const gapPx = (isInterScreenJump ? 32 : 16) * readabilityScale
             const gap = gapPx / Math.max(zoom, 0.001)
             const edgeInsetPx = (isInterScreenJump ? 4 : 10) * readabilityScale
@@ -1563,8 +1572,28 @@ function drawDataRoutes(
             const rightCandidate = Math.max(prev.x, curr.x) + gap
             const leftCandidate = Math.min(prev.x, curr.x) - gap
 
+            if (isOutdoorCabinetTransition && sameColumn && absDx <= axisSnapTolerance * 2) {
+              const laneSign = prev.x >= prevCenterX ? 1 : -1
+              const forcedOffset = Number.isFinite(referenceWidth)
+                ? Math.max((28 * readabilityScale) / zoom, referenceWidth * 0.1)
+                : (28 * readabilityScale) / zoom
+              const forcedLaneX = Math.max(minLaneX, Math.min(maxLaneX, prev.x + laneSign * forcedOffset))
+              ctx.lineTo(forcedLaneX, prev.y)
+              ctx.lineTo(forcedLaneX, curr.y)
+              ctx.lineTo(curr.x, curr.y)
+              if (dirY !== 0) lastVerticalDir = dirY
+              continue
+            }
+
             let laneX: number
-            if (isInterScreenJump) {
+            if (isOutdoorCabinetTransition && sameColumn) {
+              const laneSign = prev.x >= prevCenterX ? 1 : -1
+              const portMidX = (prev.x + curr.x) / 2
+              const minBendOffset = Number.isFinite(referenceWidth)
+                ? Math.max((24 * readabilityScale) / zoom, referenceWidth * 0.08)
+                : (24 * readabilityScale) / zoom
+              laneX = Math.max(minLaneX, Math.min(maxLaneX, portMidX + laneSign * minBendOffset))
+            } else if (isInterScreenJump) {
               const alignedLaneX =
                 preferredDir > 0
                   ? (lvBoxDataSource?.x ?? layoutBounds.maxX - edgeInset)
@@ -1578,8 +1607,23 @@ function drawDataRoutes(
 
             const minVisibleGap = ((isInterScreenJump ? 4 : 12) * readabilityScale) / Math.max(zoom, 0.001)
             const tooClose = Math.abs(laneX - prev.x) < minVisibleGap || Math.abs(laneX - curr.x) < minVisibleGap
+            const shouldKeepCenterLane = isOutdoorCabinetTransition && sameColumn
             if (tooClose) {
-              if (isInterScreenJump) {
+              if (shouldKeepCenterLane) {
+                const laneSign = prev.x >= prevCenterX ? 1 : -1
+                const portMidX = (prev.x + curr.x) / 2
+                const enforcedGap = Number.isFinite(referenceWidth)
+                  ? Math.max(minVisibleGap, referenceWidth * 0.08)
+                  : Math.max(minVisibleGap, (24 * readabilityScale) / zoom)
+                const preferredX = Math.max(minLaneX, Math.min(maxLaneX, portMidX + laneSign * enforcedGap))
+                const alternateX = Math.max(minLaneX, Math.min(maxLaneX, portMidX - laneSign * enforcedGap))
+                const preferredGapOk =
+                  Math.abs(preferredX - prev.x) >= minVisibleGap && Math.abs(preferredX - curr.x) >= minVisibleGap
+                const alternateGapOk =
+                  Math.abs(alternateX - prev.x) >= minVisibleGap && Math.abs(alternateX - curr.x) >= minVisibleGap
+                if (preferredGapOk) laneX = preferredX
+                else if (alternateGapOk) laneX = alternateX
+              } else if (isInterScreenJump) {
                 const nudge = (2 * readabilityScale) / Math.max(zoom, 0.001)
                 laneX =
                   preferredDir > 0
