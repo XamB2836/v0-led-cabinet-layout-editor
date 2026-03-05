@@ -500,6 +500,18 @@ export function OverviewSettings() {
             </SelectContent>
           </Select>
         </div>
+        <div className="flex items-center justify-between">
+          <Label htmlFor="double-sided-title" className="text-sm">
+            Double-Sided Title Logic
+          </Label>
+          <Switch
+            id="double-sided-title"
+            checked={exportSettings?.doubleSidedTitle ?? false}
+            onCheckedChange={(checked) =>
+              dispatch({ type: "UPDATE_EXPORT_SETTINGS", payload: { doubleSidedTitle: checked } })
+            }
+          />
+        </div>
         <p className="text-xs text-muted-foreground">Printed on the PDF header.</p>
         <div className="space-y-1.5">
           <Label htmlFor="number-of-displays" className="text-xs">

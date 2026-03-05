@@ -269,7 +269,7 @@ function buildPdfLegendLayout(ctx: CanvasRenderingContext2D, layout: LayoutData,
   const columnGap = Math.round(2.4 * pxPerMm)
   const maxBoxWidth = Math.round(95 * pxPerMm)
 
-  const receiverType = layout.project.overview.receiverCardModel?.trim() || DEFAULT_RECEIVER_CARD_MODEL
+  const receiverType = (layout.project.mode ?? "indoor") === "outdoor" ? "I5" : (layout.project.overview.receiverCardModel?.trim() || DEFAULT_RECEIVER_CARD_MODEL)
   const controllerOverride = layout.project.controllerLabel?.trim()
   const controllerLabel = controllerOverride || layout.project.controller
   const totalLoadW = getTotalLayoutLoadW(layout)
@@ -1176,3 +1176,4 @@ export async function exportOverviewPdf(layout: LayoutData) {
   const filename = `${projectName} - OVERVIEW.pdf`
   pdf.save(filename)
 }
+

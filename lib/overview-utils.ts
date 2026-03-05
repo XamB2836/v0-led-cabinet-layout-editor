@@ -84,8 +84,111 @@ export function getLayoutPixelDimensions(layout: LayoutData) {
   }
 }
 
+type Bounds = { minX: number; minY: number; maxX: number; maxY: number; width: number; height: number }
+
+function getBoundsFromCabinets(cabinets: Cabinet[], layout: LayoutData): Bounds | null {
+  if (cabinets.length === 0) return null
+  let minX = Number.POSITIVE_INFINITY
+  let minY = Number.POSITIVE_INFINITY
+  let maxX = Number.NEGATIVE_INFINITY
+  let maxY = Number.NEGATIVE_INFINITY
+
+  cabinets.forEach((cabinet) => {
+    const bounds = getCabinetBounds(cabinet, layout.cabinetTypes)
+    if (!bounds) return
+    minX = Math.min(minX, bounds.x)
+    minY = Math.min(minY, bounds.y)
+    maxX = Math.max(maxX, bounds.x2)
+    maxY = Math.max(maxY, bounds.y2)
+  })
+
+  if (!Number.isFinite(minX) || !Number.isFinite(minY) || !Number.isFinite(maxX) || !Number.isFinite(maxY)) return null
+  return { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY }
+}
+
+function areBoundsConnected(
+  a: { x: number; y: number; x2: number; y2: number },
+  b: { x: number; y: number; x2: number; y2: number },
+) {
+  const tolerance = 1
+  const overlapX = a.x < b.x2 && a.x2 > b.x
+  const overlapY = a.y < b.y2 && a.y2 > b.y
+  if (overlapX && overlapY) return true
+
+  const horizontalTouch =
+    (Math.abs(a.x2 - b.x) <= tolerance || Math.abs(b.x2 - a.x) <= tolerance) && !(a.y2 <= b.y || b.y2 <= a.y)
+  const verticalTouch =
+    (Math.abs(a.y2 - b.y) <= tolerance || Math.abs(b.y2 - a.y) <= tolerance) && !(a.x2 <= b.x || b.x2 <= a.x)
+  return horizontalTouch || verticalTouch
+}
+
+function getTitleBounds(layout: LayoutData): Bounds {
+  const fullBounds = getLayoutBounds(layout)
+  if (layout.cabinets.length === 0) return fullBounds
+  if (!(layout.project.exportSettings.doubleSidedTitle ?? false)) return fullBounds
+
+  const faceA = layout.cabinets.filter((cabinet) => cabinet.face === "A")
+  const faceB = layout.cabinets.filter((cabinet) => cabinet.face === "B")
+  if (faceA.length > 0 && faceB.length > 0) {
+    const preferredFace = (layout.project.exportSettings.viewSide ?? "front") === "back" ? faceB : faceA
+    const byFace = getBoundsFromCabinets(preferredFace, layout)
+    if (byFace) return byFace
+  }
+
+  const withBounds = layout.cabinets
+    .map((cabinet) => {
+      const bounds = getCabinetBounds(cabinet, layout.cabinetTypes)
+      return bounds ? { cabinet, bounds } : null
+    })
+    .filter((entry): entry is { cabinet: Cabinet; bounds: { x: number; y: number; x2: number; y2: number } } => !!entry)
+
+  if (withBounds.length < 2) return fullBounds
+
+  const visited = new Array(withBounds.length).fill(false)
+  const components: Bounds[] = []
+  for (let i = 0; i < withBounds.length; i++) {
+    if (visited[i]) continue
+    visited[i] = true
+    const queue = [i]
+    let minX = withBounds[i].bounds.x
+    let minY = withBounds[i].bounds.y
+    let maxX = withBounds[i].bounds.x2
+    let maxY = withBounds[i].bounds.y2
+
+    while (queue.length > 0) {
+      const currentIndex = queue.shift()
+      if (currentIndex === undefined) continue
+      const current = withBounds[currentIndex].bounds
+      minX = Math.min(minX, current.x)
+      minY = Math.min(minY, current.y)
+      maxX = Math.max(maxX, current.x2)
+      maxY = Math.max(maxY, current.y2)
+
+      for (let j = 0; j < withBounds.length; j++) {
+        if (visited[j]) continue
+        if (!areBoundsConnected(current, withBounds[j].bounds)) continue
+        visited[j] = true
+        queue.push(j)
+      }
+    }
+
+    components.push({ minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY })
+  }
+
+  if (components.length === 2) {
+    const [first, second] = components
+    const sameWidth = Math.abs(first.width - second.width) <= 1
+    const sameHeight = Math.abs(first.height - second.height) <= 1
+    if (sameWidth && sameHeight) {
+      return first.minY <= second.minY ? first : second
+    }
+  }
+
+  return fullBounds
+}
+
 export function getTitleParts(layout: LayoutData) {
-  const bounds = getLayoutBounds(layout)
+  const bounds = getTitleBounds(layout)
   const pitch = layout.project.pitch_mm
   const parts = [layout.project.name || "Overview"]
   if (layout.project.client) {

@@ -115,6 +115,7 @@ export interface ExportSettings {
   title: string
   clientName: string
   showLegend?: boolean
+  doubleSidedTitle?: boolean
 }
 
 export type ProjectMode = "indoor" | "outdoor"
@@ -230,6 +231,7 @@ export const DEFAULT_LAYOUT: LayoutData = {
       title: "",
       clientName: "",
       showLegend: true,
+      doubleSidedTitle: false,
     },
   },
   cabinetTypes: [...DEFAULT_CABINET_TYPES],
