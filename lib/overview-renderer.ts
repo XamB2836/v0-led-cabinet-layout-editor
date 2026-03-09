@@ -692,6 +692,75 @@ function getPowerAnchorPoint(
   return { x: anchorX, y: cardRect.y + cardRect.height / 2 }
 }
 
+function segmentIntersectsRect(
+  start: { x: number; y: number },
+  end: { x: number; y: number },
+  rect: { x: number; y: number; width: number; height: number },
+  padding: number,
+) {
+  const minX = rect.x - padding
+  const maxX = rect.x + rect.width + padding
+  const minY = rect.y - padding
+  const maxY = rect.y + rect.height + padding
+  const eps = 0.0001
+
+  if (Math.abs(start.y - end.y) < eps) {
+    const y = start.y
+    if (y <= minY + eps || y >= maxY - eps) return false
+    const segMinX = Math.min(start.x, end.x)
+    const segMaxX = Math.max(start.x, end.x)
+    return segMaxX > minX + eps && segMinX < maxX - eps
+  }
+
+  if (Math.abs(start.x - end.x) < eps) {
+    const x = start.x
+    if (x <= minX + eps || x >= maxX - eps) return false
+    const segMinY = Math.min(start.y, end.y)
+    const segMaxY = Math.max(start.y, end.y)
+    return segMaxY > minY + eps && segMinY < maxY - eps
+  }
+
+  return false
+}
+
+function pathIntersectsRects(
+  points: Array<{ x: number; y: number }>,
+  rects: Array<{ x: number; y: number; width: number; height: number }>,
+  padding: number,
+) {
+  for (let i = 1; i < points.length; i++) {
+    const start = points[i - 1]
+    const end = points[i]
+    for (const rect of rects) {
+      if (segmentIntersectsRect(start, end, rect, padding)) return true
+    }
+  }
+  return false
+}
+
+function getIndoorPowerDetourLaneY(
+  prev: { x: number; y: number },
+  curr: { x: number; y: number },
+  rects: Array<{ x: number; y: number; width: number; height: number }>,
+  zoom: number,
+  layoutMidY: number,
+  readabilityScale: number,
+) {
+  if (rects.length === 0) return null
+  const clearance = Math.max(
+    (14 * readabilityScale) / zoom,
+    Math.min(...rects.map((rect) => rect.height * 0.45)),
+  )
+  const topY = Math.min(...rects.map((rect) => rect.y)) - clearance
+  const bottomY = Math.max(...rects.map((rect) => rect.y + rect.height)) + clearance
+  const topCost = Math.abs(prev.y - topY) + Math.abs(curr.y - topY)
+  const bottomCost = Math.abs(prev.y - bottomY) + Math.abs(curr.y - bottomY)
+  if (Math.abs(topCost - bottomCost) < 0.5) {
+    return (prev.y + curr.y) / 2 >= layoutMidY ? bottomY : topY
+  }
+  return topCost <= bottomCost ? topY : bottomY
+}
+
 function drawPowerAnchorDot(
   ctx: CanvasRenderingContext2D,
   cardRect: CardRect,
@@ -2483,6 +2552,22 @@ function drawPowerFeeds(
           }
 
           if (absDx < axisSnapTolerance || absDy < axisSnapTolerance) {
+            if (!useOutdoorChaining) {
+              const obstacleRects = [prev.cardRect, curr.cardRect].filter((rect): rect is CardRect => !!rect)
+              if (obstacleRects.length > 0) {
+                const directPath = [prev, curr]
+                const obstaclePadding = Math.max((2 * readabilityScale) / zoom, lineWidth * 0.55)
+                if (pathIntersectsRects(directPath, obstacleRects, obstaclePadding)) {
+                  const detourY = getIndoorPowerDetourLaneY(prev, curr, obstacleRects, zoom, layoutMidY, readabilityScale)
+                  if (detourY !== null) {
+                    if (Math.abs(prev.y - detourY) >= axisSnapTolerance) ctx.lineTo(prev.x, detourY)
+                    ctx.lineTo(curr.x, detourY)
+                    if (Math.abs(curr.y - detourY) >= axisSnapTolerance) ctx.lineTo(curr.x, curr.y)
+                    continue
+                  }
+                }
+              }
+            }
             ctx.lineTo(curr.x, curr.y)
             continue
           }
@@ -2492,6 +2577,23 @@ function drawPowerFeeds(
             ctx.lineTo(curr.x, prev.y)
             ctx.lineTo(curr.x, curr.y)
             continue
+          }
+
+          if (!useOutdoorChaining) {
+            const obstacleRects = [prev.cardRect, curr.cardRect].filter((rect): rect is CardRect => !!rect)
+            if (obstacleRects.length > 0) {
+              const defaultTurnPath = [prev, { x: prev.x, y: curr.y }, curr]
+              const obstaclePadding = Math.max((2 * readabilityScale) / zoom, lineWidth * 0.55)
+              if (pathIntersectsRects(defaultTurnPath, obstacleRects, obstaclePadding)) {
+                const detourY = getIndoorPowerDetourLaneY(prev, curr, obstacleRects, zoom, layoutMidY, readabilityScale)
+                if (detourY !== null) {
+                  if (Math.abs(prev.y - detourY) >= axisSnapTolerance) ctx.lineTo(prev.x, detourY)
+                  ctx.lineTo(curr.x, detourY)
+                  if (Math.abs(curr.y - detourY) >= axisSnapTolerance) ctx.lineTo(curr.x, curr.y)
+                  continue
+                }
+              }
+            }
           }
 
           // Default turn at destination for mixed horizontal routing.
