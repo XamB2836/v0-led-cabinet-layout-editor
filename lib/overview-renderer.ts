@@ -686,10 +686,13 @@ function getPowerAnchorPoint(
   zoom: number,
   readabilityScale = 1,
 ) {
-  const margin = Math.min((8 * readabilityScale) / zoom, bounds.width * 0.04)
-  const offset = Math.min((6 * readabilityScale) / zoom, cardRect.width * 0.25)
-  const anchorX = Math.max(bounds.x + margin, cardRect.x - offset)
-  return { x: anchorX, y: cardRect.y + cardRect.height / 2 }
+  const laneInset = Math.min((18 * readabilityScale) / zoom, bounds.width * 0.22)
+  const anchorX = bounds.x + laneInset
+  const laneYOffset = Math.max((10 * readabilityScale) / zoom, cardRect.height * 0.9)
+  const minY = bounds.y + Math.max((10 * readabilityScale) / zoom, bounds.height * 0.1)
+  const maxY = bounds.y + bounds.height - Math.max((10 * readabilityScale) / zoom, bounds.height * 0.1)
+  const anchorY = clamp(cardRect.y + cardRect.height + laneYOffset, minY, maxY)
+  return { x: anchorX, y: anchorY }
 }
 
 function segmentIntersectsRect(
@@ -759,22 +762,6 @@ function getIndoorPowerDetourLaneY(
     return (prev.y + curr.y) / 2 >= layoutMidY ? bottomY : topY
   }
   return topCost <= bottomCost ? topY : bottomY
-}
-
-function drawPowerAnchorDot(
-  ctx: CanvasRenderingContext2D,
-  cardRect: CardRect,
-  bounds: { x: number; y: number; width: number; height: number },
-  zoom: number,
-  color: string,
-  readabilityScale = 1,
-) {
-  const { x, y } = getPowerAnchorPoint(cardRect, bounds, zoom, readabilityScale)
-  const radius = (3.2 * readabilityScale) / zoom
-  ctx.beginPath()
-  ctx.arc(x, y, radius, 0, Math.PI * 2)
-  ctx.fillStyle = color
-  ctx.fill()
 }
 
 function getOutdoorCabinetPowerPorts(
@@ -941,31 +928,38 @@ function drawReceiverCard(
   const baseFontSize = Math.min((10 * readabilityScale) / zoom, height * 0.78)
   const minFontSize = (6 * readabilityScale) / zoom
   const padding = (4 * readabilityScale) / zoom
-  const connectorX = x + width / 2
+  const centerX = x + width / 2
+  const connectorX = centerX
   const connectorY = y + height + (6 * readabilityScale) / zoom
+
+  let fontSize = baseFontSize
+  ctx.font = `bold ${fontSize}px ${FONT_FAMILY}`
+  const measuredAtBase = ctx.measureText(model).width
+  const maxBodyWidth = width
+  const targetBodyWidth = measuredAtBase + padding * 2.4
+  const minBodyWidth = Math.max((28 * readabilityScale) / zoom, height * 1.6)
+  const bodyWidth = clamp(targetBodyWidth, minBodyWidth, maxBodyWidth)
+  const bodyX = centerX - bodyWidth / 2
 
   ctx.save()
   ctx.shadowColor = "rgba(15, 23, 42, 0.15)"
   ctx.shadowBlur = (6 * readabilityScale) / zoom
   ctx.shadowOffsetY = (2 * readabilityScale) / zoom
   ctx.fillStyle = palette.receiverCardFill
-  ctx.fillRect(x, y, width, height)
+  ctx.fillRect(bodyX, y, bodyWidth, height)
   ctx.restore()
 
   ctx.strokeStyle = palette.receiverCardStroke
   ctx.lineWidth = (1 * readabilityScale) / zoom
-  ctx.strokeRect(x, y, width, height)
+  ctx.strokeRect(bodyX, y, bodyWidth, height)
 
   const borderInset = (1 * readabilityScale) / zoom
   ctx.fillStyle = palette.receiverCardStroke
-  ctx.fillRect(x + borderInset, y + borderInset, width - borderInset * 2, 2 / zoom)
+  ctx.fillRect(bodyX + borderInset, y + borderInset, bodyWidth - borderInset * 2, 2 / zoom)
 
-  const maxTextWidth = width - padding * 2
-  let fontSize = baseFontSize
-  ctx.font = `bold ${fontSize}px ${FONT_FAMILY}`
-  const textWidth = ctx.measureText(model).width
-  if (textWidth > maxTextWidth && textWidth > 0) {
-    fontSize = Math.max(minFontSize, fontSize * (maxTextWidth / textWidth))
+  const maxTextWidth = bodyWidth - padding * 2
+  if (measuredAtBase > maxTextWidth && measuredAtBase > 0) {
+    fontSize = Math.max(minFontSize, fontSize * (maxTextWidth / measuredAtBase))
   }
 
   ctx.fillStyle = palette.receiverCardText
@@ -973,7 +967,7 @@ function drawReceiverCard(
   ctx.textAlign = "center"
   ctx.textBaseline = "middle"
   const fitted = fitTextToWidth(ctx, model, maxTextWidth)
-  ctx.fillText(fitted, x + width / 2, y + height / 2)
+  ctx.fillText(fitted, centerX, y + height / 2)
 
   ctx.fillStyle = "#3b82f6"
   ctx.beginPath()
@@ -2996,9 +2990,6 @@ export function drawOverview(ctx: CanvasRenderingContext2D, layout: LayoutData, 
           readabilityScale,
           isOutdoorMode ? "outdoor" : "indoor",
         )
-        if (!isOutdoorMode) {
-          drawPowerAnchorDot(ctx, rect, bounds, uiZoom, "#f97316", readabilityScale)
-        }
       })
       drawCabinetPowerInOut(
         ctx,

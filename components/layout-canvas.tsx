@@ -722,10 +722,13 @@ function getPowerAnchorPoint(
   bounds: { x: number; y: number; width: number; height: number },
   zoom: number,
 ) {
-  const margin = Math.min(8 / zoom, bounds.width * 0.04)
-  const offset = Math.min(6 / zoom, cardRect.width * 0.25)
-  const anchorX = Math.max(bounds.x + margin, cardRect.x - offset)
-  return { x: anchorX, y: cardRect.centerY }
+  const laneInset = Math.min(18 / zoom, bounds.width * 0.22)
+  const anchorX = bounds.x + laneInset
+  const laneYOffset = Math.max(10 / zoom, cardRect.height * 0.9)
+  const minY = bounds.y + Math.max(10 / zoom, bounds.height * 0.1)
+  const maxY = bounds.y + bounds.height - Math.max(10 / zoom, bounds.height * 0.1)
+  const anchorY = clamp(cardRect.y + cardRect.height + laneYOffset, minY, maxY)
+  return { x: anchorX, y: anchorY }
 }
 
 function segmentIntersectsRect(
@@ -791,20 +794,6 @@ function getIndoorPowerDetourLaneY(
     return (prev.y + curr.y) / 2 >= layoutMidY ? bottomY : topY
   }
   return topCost <= bottomCost ? topY : bottomY
-}
-
-function drawPowerAnchorDot(
-  ctx: CanvasRenderingContext2D,
-  cardRect: ReceiverCardRect,
-  bounds: { x: number; y: number; width: number; height: number },
-  zoom: number,
-) {
-  const { x, y } = getPowerAnchorPoint(cardRect, bounds, zoom)
-  const radius = 3.2 / zoom
-  ctx.beginPath()
-  ctx.arc(x, y, radius, 0, Math.PI * 2)
-  ctx.fillStyle = "#f97316"
-  ctx.fill()
 }
 
 function getOutdoorCabinetPowerPorts(
@@ -996,27 +985,33 @@ function drawReceiverCard(
   const minFontSize = 5 / zoom
   const padding = 4 / zoom
 
+  let fontSize = baseFontSize
+  ctx.font = `bold ${fontSize}px Inter, sans-serif`
+  const measuredAtBase = ctx.measureText(model).width
+  const maxBodyWidth = width
+  const targetBodyWidth = measuredAtBase + padding * 2.4
+  const minBodyWidth = Math.max(28 / zoom, height * 1.6)
+  const bodyWidth = clamp(targetBodyWidth, minBodyWidth, maxBodyWidth)
+  const bodyX = centerX - bodyWidth / 2
+
   ctx.save()
   ctx.shadowColor = "rgba(2, 6, 23, 0.6)"
   ctx.shadowBlur = 5 / zoom
   ctx.shadowOffsetY = 2 / zoom
   ctx.fillStyle = "#0b1220"
-  ctx.fillRect(x, y, width, height)
+  ctx.fillRect(bodyX, y, bodyWidth, height)
   ctx.restore()
 
   ctx.strokeStyle = "#1f2a44"
   ctx.lineWidth = 1 / zoom
-  ctx.strokeRect(x, y, width, height)
+  ctx.strokeRect(bodyX, y, bodyWidth, height)
 
   ctx.fillStyle = "#0f172a"
-  ctx.fillRect(x + 1 / zoom, y + 1 / zoom, width - 2 / zoom, 2 / zoom)
+  ctx.fillRect(bodyX + 1 / zoom, y + 1 / zoom, bodyWidth - 2 / zoom, 2 / zoom)
 
-  const maxTextWidth = width - padding * 2
-  let fontSize = baseFontSize
-  ctx.font = `bold ${fontSize}px Inter, sans-serif`
-  const textWidth = ctx.measureText(model).width
-  if (textWidth > maxTextWidth && textWidth > 0) {
-    fontSize = Math.max(minFontSize, fontSize * (maxTextWidth / textWidth))
+  const maxTextWidth = bodyWidth - padding * 2
+  if (measuredAtBase > maxTextWidth && measuredAtBase > 0) {
+    fontSize = Math.max(minFontSize, fontSize * (maxTextWidth / measuredAtBase))
   }
 
   ctx.fillStyle = "#e2e8f0"
@@ -3343,9 +3338,6 @@ export function LayoutCanvas() {
           drawReceiverCard(ctx, rect, cardModel, uiZoom, {
             variant: isOutdoorMode ? "outdoor" : "indoor",
           })
-          if (!isOutdoorMode) {
-            drawPowerAnchorDot(ctx, rect, bounds, uiZoom)
-          }
         })
         drawCabinetPowerInOut(
           ctx,
