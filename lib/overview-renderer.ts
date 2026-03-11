@@ -2751,7 +2751,6 @@ function drawControllerPorts(
   const boxWidth = scaledReadableWorldSize(120, zoom, 100, 160, readabilityScale)
   const boxHeight = scaledReadableWorldSize(40, zoom, 32, 60, readabilityScale)
   const fontSize = scaledReadableWorldSize(11, zoom, 10, 14, readabilityScale)
-
   const boxX = (minX + maxX) / 2 - boxWidth / 2
   const baseY = maxY + scaledReadableWorldSize(100, zoom, 70, 160, readabilityScale)
   const boxY = Math.max(baseY, minY ?? baseY)

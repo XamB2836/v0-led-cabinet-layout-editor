@@ -9,6 +9,7 @@ import { DEFAULT_RECEIVER_CARD_MODEL } from "./receiver-cards"
 import { getEffectivePitchMm } from "./pitch-utils"
 import { getOrientedModuleSize } from "./module-utils"
 import { getTotalizedPixelMatrixDimensions } from "./pixel-matrix"
+import { resolveControllerCabinetId } from "./controller-utils"
 
 const PAGE_SIZES_MM = {
   A4: { width: 210, height: 297 },
@@ -595,6 +596,19 @@ function computeLabelBounds(
   let minY = layoutBounds.minY
   let maxX = layoutBounds.maxX
   let maxY = layoutBounds.maxY
+  const mode = layout.project.mode ?? "indoor"
+  const controllerPlacement = layout.project.controllerPlacement ?? "external"
+  const controllerCabinetId = resolveControllerCabinetId(
+    mode,
+    controllerPlacement,
+    layout.project.controllerCabinetId,
+    layout.cabinets,
+    layout.cabinetTypes,
+  )
+  const controllerInCabinet =
+    controllerPlacement === "cabinet" &&
+    !!controllerCabinetId &&
+    layout.cabinets.some((cabinet) => cabinet.id === controllerCabinetId)
 
   const dataRoutes = layout.project.dataRoutes ?? []
   const isOutdoorMode = (layout.project.mode ?? "indoor") === "outdoor"
@@ -907,6 +921,38 @@ function computeLabelBounds(
     })
   }
 
+  if (layout.cabinets.length > 0 && !controllerInCabinet) {
+    const controllerLabel = layout.project.controllerLabel?.trim() || layout.project.controller
+    if (controllerLabel) {
+      if (mode === "outdoor") {
+        const boxWidth = scaledReadableWorldSize(128, uiZoom, 110, 150, readabilityScale)
+        const boxHeight = scaledReadableWorldSize(58, uiZoom, 46, 74, readabilityScale)
+        const boxX = layoutBounds.maxX - boxWidth
+        const baseY = layoutBounds.maxY + scaledReadableWorldSize(100, uiZoom, 70, 160, readabilityScale)
+        const boxY = baseY
+        minX = Math.min(minX, boxX)
+        maxX = Math.max(maxX, boxX + boxWidth)
+        minY = Math.min(minY, boxY)
+        maxY = Math.max(maxY, boxY + boxHeight)
+      } else {
+        const boxWidth = scaledReadableWorldSize(120, uiZoom, 100, 160, readabilityScale)
+        const boxHeight = scaledReadableWorldSize(40, uiZoom, 32, 60, readabilityScale)
+        const baseY = layoutBounds.maxY + scaledReadableWorldSize(100, uiZoom, 70, 160, readabilityScale)
+        const clearance = scaledReadableWorldSize(24, uiZoom, 16, 40, readabilityScale)
+        const controllerMinY = Math.max(
+          baseY,
+          (maxPortLabelBottom ?? -Infinity) + clearance,
+        )
+        const boxX = (layoutBounds.minX + layoutBounds.maxX) / 2 - boxWidth / 2
+        const boxY = controllerMinY
+        minX = Math.min(minX, boxX)
+        maxX = Math.max(maxX, boxX + boxWidth)
+        minY = Math.min(minY, boxY)
+        maxY = Math.max(maxY, boxY + boxHeight)
+      }
+    }
+  }
+
   return { minX, minY, maxX, maxY }
 }
 
@@ -965,6 +1011,20 @@ function pickLegendPosition(options: {
   return { x: best.x, y: best.y }
 }
 
+function getRectOverlap(
+  a: { x: number; y: number; width: number; height: number },
+  b: { x: number; y: number; width: number; height: number },
+) {
+  const x1 = Math.max(a.x, b.x)
+  const y1 = Math.max(a.y, b.y)
+  const x2 = Math.min(a.x + a.width, b.x + b.width)
+  const y2 = Math.min(a.y + a.height, b.y + b.height)
+  return {
+    width: Math.max(0, x2 - x1),
+    height: Math.max(0, y2 - y1),
+  }
+}
+
 export async function exportOverviewPdf(layout: LayoutData) {
   const { pageSize, viewSide } = layout.project.exportSettings
   const orientation: "portrait" | "landscape" = "landscape"
@@ -988,6 +1048,7 @@ export async function exportOverviewPdf(layout: LayoutData) {
   const marginMm = 6
   const headerPx = Math.round(headerMm * pxPerMm)
   const marginPx = Math.round(marginMm * pxPerMm)
+  const viewLabelReservePx = Math.round(6 * pxPerMm)
   const showLegend = layout.project.exportSettings.showLegend ?? true
   const legendLayout = showLegend ? buildPdfLegendLayout(ctx, layout, pxPerMm) : null
   const legendGapPx = Math.round(3 * pxPerMm)
@@ -996,10 +1057,20 @@ export async function exportOverviewPdf(layout: LayoutData) {
   const readabilityScale = getOverviewReadabilityScale(layout)
   const layoutWidthMm = Math.max(1, bounds.width)
   const layoutHeightMm = Math.max(1, bounds.height)
-  let dimensionOffsetMm = clamp(Math.round(layoutHeightMm * 0.25), 100, 180)
-  const extraSideMm = clamp(Math.round(layoutWidthMm * 0.08), 80, 180)
-  const extraTopMm = dimensionOffsetMm + clamp(Math.round(layoutHeightMm * 0.07), 35, 90)
-  const extraBottomMm = clamp(Math.round(layoutHeightMm * 0.30), 110, 220)
+  const isTallLayout = layoutHeightMm > layoutWidthMm * 1.35
+  const isWideOrSquareLayout = !isTallLayout
+  let dimensionOffsetMm = isWideOrSquareLayout
+    ? clamp(Math.round(layoutHeightMm * 0.06), 34, 62)
+    : clamp(Math.round(layoutHeightMm * 0.25), 100, 180)
+  const extraSideMm = isWideOrSquareLayout
+    ? clamp(Math.round(layoutWidthMm * 0.012), 10, 28)
+    : clamp(Math.round(layoutWidthMm * 0.08), 80, 180)
+  const extraTopMm = isWideOrSquareLayout
+    ? dimensionOffsetMm + clamp(Math.round(layoutHeightMm * 0.004), 4, 10)
+    : dimensionOffsetMm + clamp(Math.round(layoutHeightMm * 0.07), 35, 90)
+  const extraBottomMm = isWideOrSquareLayout
+    ? clamp(Math.round(layoutHeightMm * 0.045), 18, 42)
+    : clamp(Math.round(layoutHeightMm * 0.30), 110, 220)
 
   const baseBounds = {
     minX: bounds.minX - extraSideMm,
@@ -1008,56 +1079,116 @@ export async function exportOverviewPdf(layout: LayoutData) {
     maxY: bounds.maxY + extraBottomMm,
   }
   const availableWidth = canvas.width - marginPx * 2
-  const availableHeight = canvas.height - headerPx - marginPx * 2
-  let contentAvailableWidth = availableWidth
-  let contentAvailableHeight = availableHeight
+  const availableHeight = canvas.height - headerPx - marginPx * 2 - viewLabelReservePx
   let legendPosition: { rightX: number; topY: number } | null = null
-
-  // Keep legend fixed in bottom-left corner while preserving more overview size than before.
-  if (legendLayout) {
-    const reservedLegendHeight = Math.round(legendLayout.boxHeight * 0.62) + legendGapPx
-    const reserveBottom = availableHeight - reservedLegendHeight
-    contentAvailableHeight = reserveBottom > 0 ? reserveBottom : availableHeight
-    legendPosition = {
-      rightX: marginPx + legendLayout.boxWidth,
-      topY: canvas.height - marginPx - legendLayout.boxHeight,
-    }
-  }
   const uiScale = clamp(renderDpi / outputDpi, 1, 2)
+  const fixedLegendPosition =
+    legendLayout === null
+      ? null
+      : {
+          rightX: marginPx + legendLayout.boxWidth,
+          topY: canvas.height - marginPx - legendLayout.boxHeight,
+        }
+  const fixedLegendRect =
+    legendLayout === null || fixedLegendPosition === null
+      ? null
+      : {
+          x: fixedLegendPosition.rightX - legendLayout.boxWidth,
+          y: fixedLegendPosition.topY,
+          width: legendLayout.boxWidth,
+          height: legendLayout.boxHeight,
+        }
 
+  let reserveLeftPx = 0
+  let reserveBottomPx = 0
   let printBounds = { ...baseBounds }
-  for (let i = 0; i < 4; i++) {
-    const contentWidth = printBounds.maxX - printBounds.minX
-    const contentHeight = printBounds.maxY - printBounds.minY
-    const zoom =
+  let zoom = 1
+  let panX = 0
+  let panY = 0
+  let extraX = 0
+  let extraY = 0
+  let contentWidth = printBounds.maxX - printBounds.minX
+  let contentHeight = printBounds.maxY - printBounds.minY
+
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const contentAvailableWidth = Math.max(1, availableWidth - reserveLeftPx)
+    const contentAvailableHeight = Math.max(1, availableHeight - reserveBottomPx)
+    printBounds = { ...baseBounds }
+    for (let i = 0; i < 4; i++) {
+      const iterWidth = printBounds.maxX - printBounds.minX
+      const iterHeight = printBounds.maxY - printBounds.minY
+      const iterZoom =
+        iterWidth && iterHeight
+          ? Math.min(contentAvailableWidth / iterWidth, contentAvailableHeight / iterHeight)
+          : 1
+      const labelBounds = computeLabelBounds(layout, ctx, iterZoom, uiScale, readabilityScale)
+      const minX = Math.min(baseBounds.minX, labelBounds.minX)
+      const maxX = Math.max(baseBounds.maxX, labelBounds.maxX)
+      const minY = Math.min(baseBounds.minY, labelBounds.minY)
+      const maxY = Math.max(baseBounds.maxY, labelBounds.maxY)
+      const safetyPad = isWideOrSquareLayout
+        ? scaledWorldSize(4, iterZoom, 2, 8)
+        : scaledWorldSize(18, iterZoom, 12, 28)
+      printBounds = {
+        minX: minX - safetyPad,
+        maxX: maxX + safetyPad,
+        minY: minY - safetyPad,
+        maxY: maxY + safetyPad,
+      }
+    }
+
+    contentWidth = printBounds.maxX - printBounds.minX
+    contentHeight = printBounds.maxY - printBounds.minY
+    zoom =
       contentWidth && contentHeight
         ? Math.min(contentAvailableWidth / contentWidth, contentAvailableHeight / contentHeight)
         : 1
-    const labelBounds = computeLabelBounds(layout, ctx, zoom, uiScale, readabilityScale)
-    const minX = Math.min(baseBounds.minX, labelBounds.minX)
-    const maxX = Math.max(baseBounds.maxX, labelBounds.maxX)
-    const minY = Math.min(baseBounds.minY, labelBounds.minY)
-    const maxY = Math.max(baseBounds.maxY, labelBounds.maxY)
-    const safetyPad = scaledWorldSize(18, zoom, 12, 28)
-    printBounds = {
-      minX: minX - safetyPad,
-      maxX: maxX + safetyPad,
-      minY: minY - safetyPad,
-      maxY: maxY + safetyPad,
+
+    extraX = Math.max(0, (contentAvailableWidth - contentWidth * zoom) / 2)
+    extraY = Math.max(0, (contentAvailableHeight - contentHeight * zoom) / 2)
+    panX = marginPx + reserveLeftPx + extraX - printBounds.minX * zoom
+    panY = headerPx + marginPx + extraY - printBounds.minY * zoom
+
+    if (!fixedLegendRect) break
+
+    const contentRect = {
+      x: panX + printBounds.minX * zoom - legendGapPx,
+      y: panY + printBounds.minY * zoom - legendGapPx,
+      width: contentWidth * zoom + legendGapPx * 2,
+      height: contentHeight * zoom + legendGapPx * 2,
+    }
+    const paddedLegendRect = {
+      x: fixedLegendRect.x - legendGapPx,
+      y: fixedLegendRect.y - legendGapPx,
+      width: fixedLegendRect.width + legendGapPx * 2,
+      height: fixedLegendRect.height + legendGapPx * 2,
+    }
+    const overlap = getRectOverlap(contentRect, paddedLegendRect)
+    if (overlap.width <= 0 || overlap.height <= 0) break
+
+    const shiftRight = isTallLayout ? Math.min(extraX, overlap.width) : Math.min(extraX, overlap.width * 0.6)
+    const shiftUp = isTallLayout ? Math.min(extraY, overlap.height * 0.35) : Math.min(extraY, overlap.height)
+    panX += shiftRight
+    panY -= shiftUp
+
+    const shiftedContentRect = {
+      x: contentRect.x + shiftRight,
+      y: contentRect.y - shiftUp,
+      width: contentRect.width,
+      height: contentRect.height,
+    }
+    const shiftedOverlap = getRectOverlap(shiftedContentRect, paddedLegendRect)
+    if (shiftedOverlap.width <= 0 || shiftedOverlap.height <= 0) break
+
+    if (isTallLayout) {
+      reserveLeftPx = Math.min(availableWidth * 0.45, reserveLeftPx + shiftedOverlap.width + legendGapPx)
+      reserveBottomPx = Math.min(availableHeight * 0.16, reserveBottomPx + shiftedOverlap.height * 0.25)
+    } else {
+      reserveLeftPx = Math.min(availableWidth * 0.3, reserveLeftPx + shiftedOverlap.width * 0.45)
+      reserveBottomPx = Math.min(availableHeight * 0.35, reserveBottomPx + shiftedOverlap.height + legendGapPx)
     }
   }
 
-  const contentWidth = printBounds.maxX - printBounds.minX
-  const contentHeight = printBounds.maxY - printBounds.minY
-  const zoom =
-    contentWidth && contentHeight
-      ? Math.min(contentAvailableWidth / contentWidth, contentAvailableHeight / contentHeight)
-      : 1
-
-  const extraX = Math.max(0, (contentAvailableWidth - contentWidth * zoom) / 2)
-  const extraY = Math.max(0, (contentAvailableHeight - contentHeight * zoom) / 2)
-  const panX = marginPx + extraX - printBounds.minX * zoom
-  const panY = headerPx + marginPx + extraY - printBounds.minY * zoom
   const minTopGapPx = Math.round(6 * pxPerMm)
   const minTopY = headerPx + minTopGapPx
   const topDimensionY = panY + (bounds.minY - dimensionOffsetMm) * zoom
@@ -1066,7 +1197,7 @@ export async function exportOverviewPdf(layout: LayoutData) {
     dimensionOffsetMm = Math.max(140, Math.min(dimensionOffsetMm, adjustedOffset))
   }
 
-  // Legend position is fixed when enabled.
+  if (fixedLegendPosition) legendPosition = fixedLegendPosition
 
   drawOverview(ctx, layout, {
     zoom,
@@ -1140,7 +1271,13 @@ export async function exportOverviewPdf(layout: LayoutData) {
   ctx.font = `700 ${viewFontPx}px Geist, sans-serif`
   ctx.textAlign = "center"
   ctx.textBaseline = "middle"
-  const viewLabelY = canvas.height - Math.round(4.5 * pxPerMm)
+  const contentBottomY = panY + printBounds.maxY * zoom
+  const legendBottomY = legendLayout && legendPosition ? legendPosition.topY + legendLayout.boxHeight : -Infinity
+  const viewClearancePx = Math.round(6 * pxPerMm)
+  const bottomMarginPx = Math.round(4.5 * pxPerMm)
+  const desiredViewLabelY = Math.max(contentBottomY, legendBottomY) + viewClearancePx
+  const maxViewLabelY = canvas.height - bottomMarginPx
+  const viewLabelY = Math.min(desiredViewLabelY, maxViewLabelY)
   ctx.fillText(viewLabel, canvas.width / 2, viewLabelY)
 
   if (legendLayout && legendPosition) {
