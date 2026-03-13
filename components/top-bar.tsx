@@ -7,6 +7,7 @@ import { useEditor } from "@/lib/editor-context"
 import type { LayoutData, ProjectMode } from "@/lib/types"
 import { coerceModePitch, getModeOptions, getModePitchOptions } from "@/lib/modes"
 import { exportOverviewPdf } from "@/lib/export-pdf"
+import { buildCadExport } from "@/lib/cad-export"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -27,12 +28,12 @@ export function TopBar() {
   const projectNumber = layout.project.name.replace(/\D/g, "")
 
   const handleExportJSON = () => {
-    const json = JSON.stringify(layout, null, 2)
+    const json = JSON.stringify(buildCadExport(layout), null, 2)
     const blob = new Blob([json], { type: "application/json" })
     const url = URL.createObjectURL(blob)
     const a = document.createElement("a")
     a.href = url
-    a.download = `${layout.project.name.replace(/\s+/g, "_")}_layout.json`
+    a.download = `${layout.project.name.replace(/\s+/g, "_")}_cad.json`
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -233,7 +234,7 @@ export function TopBar() {
         </Button>
         <Button variant="outline" size="sm" onClick={handleExportJSON}>
           <Download className="w-4 h-4 mr-2" />
-          JSON
+          JSON CAD
         </Button>
         <Button
           variant="outline"

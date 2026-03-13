@@ -5,6 +5,9 @@ export interface CabinetType {
   typeId: string
   width_mm: number
   height_mm: number
+  depth_mm?: number
+  cadKey?: string
+  description?: string
 }
 
 export interface Cabinet {
