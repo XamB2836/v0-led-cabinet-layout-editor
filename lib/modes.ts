@@ -61,6 +61,12 @@ const OUTDOOR_PITCH_OPTIONS: ModePitchOption[] = [
   { pitch_mm: 10, pitch_is_gob: false, label: "P 10" },
 ]
 
+const INDOOR_MODE_FEATURES: ModeFeatures = {
+  dataRoutingProfile: "indoor_v1",
+  powerRoutingProfile: "indoor_v1",
+  supportsDoubleFace: false,
+}
+
 const MODE_DEFINITIONS: Record<ProjectMode, ModeDefinition> = {
   indoor: {
     id: "indoor",
@@ -70,11 +76,17 @@ const MODE_DEFINITIONS: Record<ProjectMode, ModeDefinition> = {
     defaultPitch: { pitch_mm: 2.5, pitch_is_gob: true, label: "P 2.5 GOB" },
     moduleSizes: ["320x160", "160x160"],
     defaultModuleSize: "320x160",
-    features: {
-      dataRoutingProfile: "indoor_v1",
-      powerRoutingProfile: "indoor_v1",
-      supportsDoubleFace: false,
-    },
+    features: INDOOR_MODE_FEATURES,
+  },
+  "die-cast": {
+    id: "die-cast",
+    label: "Die-Cast",
+    cabinetTypes: DEFAULT_CABINET_TYPES,
+    pitchOptions: INDOOR_PITCH_OPTIONS,
+    defaultPitch: { pitch_mm: 2.5, pitch_is_gob: true, label: "P 2.5 GOB" },
+    moduleSizes: ["320x160", "160x160"],
+    defaultModuleSize: "320x160",
+    features: INDOOR_MODE_FEATURES,
   },
   outdoor: {
     id: "outdoor",
@@ -105,7 +117,7 @@ function isSamePitch(a: number, b: number) {
 }
 
 export function coerceProjectMode(value: unknown): ProjectMode {
-  return value === "outdoor" ? "outdoor" : "indoor"
+  return value === "outdoor" || value === "die-cast" ? value : "indoor"
 }
 
 export function getModeDefinition(mode: ProjectMode): ModeDefinition {

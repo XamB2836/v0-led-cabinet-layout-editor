@@ -372,24 +372,35 @@ type ReceiverCardRect = {
 type ReceiverCardVariant = "indoor" | "outdoor"
 type OutdoorPowerFlowDirection = "ltr" | "rtl"
 
+function isCompactOutdoorCabinetBounds(bounds: { width: number; height: number }) {
+  return bounds.height <= 400 && bounds.width >= bounds.height * 2
+}
+
 function getReceiverCardRect(
   bounds: { x: number; y: number; width: number; height: number },
   zoom: number,
   heightFraction = 0.28,
   variant: ReceiverCardVariant = "indoor",
 ): ReceiverCardRect {
-  const maxWidth = variant === "outdoor" ? Math.min(68 / zoom, bounds.width * 0.55) : Math.min(84 / zoom, bounds.width * 0.65)
-  const minWidth = variant === "outdoor" ? Math.min(30 / zoom, maxWidth) : Math.min(40 / zoom, maxWidth)
+  const isCompactOutdoor = variant === "outdoor" && isCompactOutdoorCabinetBounds(bounds)
+  const maxWidth = variant === "outdoor"
+    ? Math.min((isCompactOutdoor ? 106 : 68) / zoom, bounds.width * (isCompactOutdoor ? 0.64 : 0.55))
+    : Math.min(84 / zoom, bounds.width * 0.65)
+  const minWidth = variant === "outdoor"
+    ? Math.min((isCompactOutdoor ? 48 : 30) / zoom, maxWidth)
+    : Math.min(40 / zoom, maxWidth)
   const maxHeight =
     variant === "outdoor"
-      ? Math.min(29 / zoom, bounds.height * (heightFraction + 0.11))
+      ? Math.min((isCompactOutdoor ? 40 : 29) / zoom, bounds.height * (heightFraction + (isCompactOutdoor ? 0.18 : 0.11)))
       : Math.min(18 / zoom, bounds.height * heightFraction)
-  const minHeight = variant === "outdoor" ? Math.min(16.5 / zoom, maxHeight) : Math.min(12 / zoom, maxHeight)
+  const minHeight = variant === "outdoor"
+    ? Math.min((isCompactOutdoor ? 22 : 16.5) / zoom, maxHeight)
+    : Math.min(12 / zoom, maxHeight)
   const cardWidth = variant === "outdoor"
-    ? Math.min(maxWidth, Math.max(minWidth, bounds.width * 0.42))
+    ? Math.min(maxWidth, Math.max(minWidth, bounds.width * (isCompactOutdoor ? 0.52 : 0.42)))
     : Math.min(maxWidth, Math.max(minWidth, bounds.width * 0.7))
   const cardHeight = variant === "outdoor"
-    ? Math.min(maxHeight, Math.max(minHeight, bounds.height * 0.297))
+    ? Math.min(maxHeight, Math.max(minHeight, bounds.height * (isCompactOutdoor ? 0.38 : 0.297)))
     : Math.min(maxHeight, Math.max(minHeight, bounds.height * 0.2))
   const cardX = bounds.x + bounds.width / 2 - cardWidth / 2
   const cardCenterY =
@@ -818,8 +829,9 @@ function getOutdoorCabinetPowerPorts(
   const stemTopY = barY + 1.2 / zoom
   const stemBottomY = stemTopY + Math.max(6.8 / zoom, bounds.height * 0.05)
   const arrowHalfWidth = Math.max(3.2 / zoom, 0.24 * (stemBottomY - stemTopY))
-  const labelY = stemBottomY + Math.max(5.8 / zoom, bounds.height * 0.038)
-  const labelSize = Math.max(7.8 / zoom, 9 / zoom)
+  const isCompactOutdoor = isCompactOutdoorCabinetBounds(bounds)
+  const labelY = stemBottomY + Math.max((isCompactOutdoor ? 7.8 : 5.8) / zoom, bounds.height * (isCompactOutdoor ? 0.05 : 0.038))
+  const labelSize = Math.max((isCompactOutdoor ? 11.5 : 7.8) / zoom, (isCompactOutdoor ? 13 : 9) / zoom)
 
   return {
     barY,
@@ -841,9 +853,10 @@ function getOutdoorLvBoxRect(
   bounds: { x: number; y: number; width: number; height: number },
   zoom: number,
 ) {
+  const isCompactOutdoor = isCompactOutdoorCabinetBounds(bounds)
   const inset = 6 / zoom
-  const width = Math.max(78 / zoom, Math.min(bounds.width - inset * 2, bounds.width * 0.5))
-  const height = Math.max(40 / zoom, Math.min(bounds.height - inset * 2, bounds.height * 0.33))
+  const width = Math.max((isCompactOutdoor ? 60 : 78) / zoom, Math.min(bounds.width - inset * 2, bounds.width * (isCompactOutdoor ? 0.42 : 0.5)))
+  const height = Math.max((isCompactOutdoor ? 30 : 40) / zoom, Math.min(bounds.height - inset * 2, bounds.height * (isCompactOutdoor ? 0.26 : 0.33)))
   return {
     x: bounds.x + bounds.width - width - inset,
     y: bounds.y + bounds.height - height - inset,
@@ -866,8 +879,9 @@ function drawCabinetPowerInOut(
   if (!ports) return
   const inPort = flowDirection === "rtl" ? ports.right : ports.left
   const outPort = flowDirection === "rtl" ? ports.left : ports.right
-  const labelOffsetX = Math.max(4.8 / zoom, bounds.width * 0.02)
-  const labelOffsetY = Math.max(3.2 / zoom, bounds.height * 0.018)
+  const isCompactOutdoor = isCompactOutdoorCabinetBounds(bounds)
+  const labelOffsetX = Math.max((isCompactOutdoor ? 6.5 : 4.8) / zoom, bounds.width * (isCompactOutdoor ? 0.028 : 0.02))
+  const labelOffsetY = Math.max((isCompactOutdoor ? 4.8 : 3.2) / zoom, bounds.height * (isCompactOutdoor ? 0.028 : 0.018))
   const inLabelX = inPort.x <= outPort.x ? inPort.x - labelOffsetX : inPort.x + labelOffsetX
   const outLabelX = outPort.x >= inPort.x ? outPort.x + labelOffsetX : outPort.x - labelOffsetX
   const labelY = ports.labelY + labelOffsetY
@@ -1343,6 +1357,7 @@ function drawDataRoutes(
   activeRouteId?: string,
   cardVariant: ReceiverCardVariant = "indoor",
   outdoorLvBoxCabinetId?: string,
+  useExternalOutdoorLvBox = false,
 ) {
   const lineWidth = scaledWorldSize(5, zoom, 3, 9)
   const outlineWidth = lineWidth + scaledWorldSize(3, zoom, 2, 6)
@@ -1595,14 +1610,21 @@ function drawDataRoutes(
     const firstPoint = points[0]
     const firstBounds = firstPoint.bounds
     const isOutdoorDataRouting = cardVariant === "outdoor"
+    const externalOutdoorLvBoxRect =
+      isOutdoorDataRouting && useExternalOutdoorLvBox ? getExternalOutdoorControllerRect(layoutBounds, zoom) : null
     const lvBoxDataSource =
-      isOutdoorDataRouting && outdoorLvBoxCabinetId
+      isOutdoorDataRouting && (outdoorLvBoxCabinetId || externalOutdoorLvBoxRect)
         ? (() => {
-            const controllerCabinet = cabinets.find((cabinet) => cabinet.id === outdoorLvBoxCabinetId)
-            if (!controllerCabinet) return null
-            const controllerBounds = getCabinetBounds(controllerCabinet, cabinetTypes)
-            if (!controllerBounds) return null
-            const lvBoxRect = getOutdoorLvBoxRect(controllerBounds, zoom)
+            const lvBoxRect = (() => {
+              if (externalOutdoorLvBoxRect) return externalOutdoorLvBoxRect
+              if (!outdoorLvBoxCabinetId) return null
+              const controllerCabinet = cabinets.find((cabinet) => cabinet.id === outdoorLvBoxCabinetId)
+              if (!controllerCabinet) return null
+              const controllerBounds = getCabinetBounds(controllerCabinet, cabinetTypes)
+              if (!controllerBounds) return null
+              return getOutdoorLvBoxRect(controllerBounds, zoom)
+            })()
+            if (!lvBoxRect) return null
             const sourceInset = scaledWorldSize(4.2, zoom, 2.8, 8)
             const laneStep = scaledWorldSize(4, zoom, 2, 7)
             const laneOffset = routeIndex * laneStep
@@ -1623,13 +1645,18 @@ function drawDataRoutes(
           })()
         : null
     const lvBoxDataReturnTarget =
-      isOutdoorDataRouting && outdoorLvBoxCabinetId
+      isOutdoorDataRouting && (outdoorLvBoxCabinetId || externalOutdoorLvBoxRect)
         ? (() => {
-            const controllerCabinet = cabinets.find((cabinet) => cabinet.id === outdoorLvBoxCabinetId)
-            if (!controllerCabinet) return null
-            const controllerBounds = getCabinetBounds(controllerCabinet, cabinetTypes)
-            if (!controllerBounds) return null
-            const lvBoxRect = getOutdoorLvBoxRect(controllerBounds, zoom)
+            const lvBoxRect = (() => {
+              if (externalOutdoorLvBoxRect) return externalOutdoorLvBoxRect
+              if (!outdoorLvBoxCabinetId) return null
+              const controllerCabinet = cabinets.find((cabinet) => cabinet.id === outdoorLvBoxCabinetId)
+              if (!controllerCabinet) return null
+              const controllerBounds = getCabinetBounds(controllerCabinet, cabinetTypes)
+              if (!controllerBounds) return null
+              return getOutdoorLvBoxRect(controllerBounds, zoom)
+            })()
+            if (!lvBoxRect) return null
             const targetInset = scaledWorldSize(4.2, zoom, 2.8, 8)
             return {
               x: lvBoxRect.x + lvBoxRect.width - targetInset,
@@ -2358,6 +2385,22 @@ function drawPowerFeeds(
         }
       })
 
+      if (includeLvBoxLink && !outdoorLvBoxCabinetId && points.length > 0) {
+        const layoutBounds = getLayoutBoundsFromCabinets(cabinets, cabinetTypes)
+        if (layoutBounds) {
+          const externalRect = getExternalOutdoorControllerRect(layoutBounds, zoom)
+          const anchorInset = Math.max(5 / zoom, externalRect.width * 0.08)
+          const lastPoint = points[points.length - 1]
+          const lvAnchorX = clamp(lastPoint.x, externalRect.x + anchorInset, externalRect.x + externalRect.width - anchorInset)
+          points.push({
+            x: lvAnchorX,
+            y: externalRect.y,
+            bounds: null,
+            outdoorPortRole: "lvbox",
+          })
+        }
+      }
+
       return { points, manualPoints, useOutdoorChaining }
     }
 
@@ -2843,12 +2886,19 @@ function drawControllerPorts(
   if (!layoutBounds) return
 
   const { minX, maxX, maxY } = layoutBounds
+  const layoutHeight = Math.max(1, layoutBounds.maxY - layoutBounds.minY)
+  const layoutWidth = Math.max(1, layoutBounds.maxX - layoutBounds.minX)
+  const isCompactOutdoorLayout = layoutHeight <= 400 && layoutWidth >= layoutHeight * 2
 
   if (mode === "outdoor") {
     const title = "LV BOX"
     const items = [label, "PI", "SWITCH", "ANTENNA"]
-    const boxWidth = scaledWorldSize(128, zoom, 110, 150)
-    const boxHeight = scaledWorldSize(58, zoom, 46, 74)
+    const boxWidth = isCompactOutdoorLayout
+      ? scaledWorldSize(176, zoom, 150, 210)
+      : scaledWorldSize(188, zoom, 160, 224)
+    const boxHeight = isCompactOutdoorLayout
+      ? scaledWorldSize(74, zoom, 60, 92)
+      : scaledWorldSize(82, zoom, 66, 100)
     const boxX = maxX - boxWidth
     const baseY = maxY + scaledWorldSize(100, zoom, 70, 160)
     const boxY = Math.max(baseY, minY ?? baseY)
@@ -2918,6 +2968,26 @@ function drawControllerPorts(
   ctx.fillText(label, boxX + boxWidth / 2, boxY + boxHeight / 2)
 
   ctx.restore()
+}
+
+function getExternalOutdoorControllerRect(
+  layoutBounds: { minX: number; minY: number; maxX: number; maxY: number },
+  zoom: number,
+  minY?: number,
+) {
+  const layoutHeight = Math.max(1, layoutBounds.maxY - layoutBounds.minY)
+  const layoutWidth = Math.max(1, layoutBounds.maxX - layoutBounds.minX)
+  const isCompactOutdoorLayout = layoutHeight <= 400 && layoutWidth >= layoutHeight * 2
+  const boxWidth = isCompactOutdoorLayout
+    ? scaledWorldSize(176, zoom, 150, 210)
+    : scaledWorldSize(188, zoom, 160, 224)
+  const boxHeight = isCompactOutdoorLayout
+    ? scaledWorldSize(74, zoom, 60, 92)
+    : scaledWorldSize(82, zoom, 66, 100)
+  const boxX = layoutBounds.maxX - boxWidth
+  const baseY = layoutBounds.maxY + scaledWorldSize(100, zoom, 70, 160)
+  const boxY = Math.max(baseY, minY ?? baseY)
+  return { x: boxX, y: boxY, width: boxWidth, height: boxHeight }
 }
 
 export function LayoutCanvas() {
@@ -3289,6 +3359,7 @@ export function LayoutCanvas() {
         routingMode.type === "data" ? routingMode.routeId : undefined,
         isOutdoorMode ? "outdoor" : "indoor",
         isOutdoorMode && controllerPlacement === "cabinet" ? controllerCabinetId : undefined,
+        isOutdoorMode && controllerPlacement === "external",
       )
     }
 
@@ -3487,7 +3558,7 @@ export function LayoutCanvas() {
           layout.cabinets,
           layout.cabinetTypes,
           uiZoom,
-          controllerMinY,
+          isOutdoorMode ? undefined : controllerMinY,
           isOutdoorMode ? "outdoor" : "indoor",
         )
       }
@@ -3700,6 +3771,7 @@ export function LayoutCanvas() {
       layout.cabinetTypes,
     )
     let lvBoxHitCabinetId: string | null = null
+    let lvBoxHitExternal = false
     if (
       routingMode.type === "power" &&
       activeFeed &&
@@ -3718,6 +3790,23 @@ export function LayoutCanvas() {
           world.y <= lvBoxRect.y + lvBoxRect.height
         ) {
           lvBoxHitCabinetId = controllerCabinetId
+        }
+      }
+    }
+    if (routingMode.type === "power" && activeFeed && isOutdoorMode && controllerPlacement === "external") {
+      const layoutBounds = getLayoutBoundsFromCabinets(layout.cabinets, layout.cabinetTypes)
+      if (layoutBounds) {
+        const externalRect = getExternalOutdoorControllerRect(layoutBounds, uiZoom)
+        const hitPadX = Math.max(10 / uiZoom, externalRect.width * 0.08)
+        const hitPadTop = Math.max(10 / uiZoom, externalRect.height * 0.15)
+        const hitPadBottom = Math.max(140 / uiZoom, externalRect.height * 1.8)
+        if (
+          world.x >= externalRect.x - hitPadX &&
+          world.x <= externalRect.x + externalRect.width + hitPadX &&
+          world.y >= externalRect.y - hitPadTop &&
+          world.y <= externalRect.y + externalRect.height + hitPadBottom
+        ) {
+          lvBoxHitExternal = true
         }
       }
     }
@@ -3881,6 +3970,17 @@ export function LayoutCanvas() {
           },
         })
       }
+      return
+    }
+
+    if (lvBoxHitExternal && routingMode.type === "power" && activeFeed && e.button === 0) {
+      dispatch({
+        type: "UPDATE_POWER_FEED",
+        payload: {
+          id: activeFeed.id,
+          updates: { connectLvBox: !activeFeed.connectLvBox },
+        },
+      })
       return
     }
 

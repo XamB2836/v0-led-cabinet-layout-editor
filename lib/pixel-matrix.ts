@@ -69,7 +69,7 @@ export function getTotalizedPixelMatrixDimensions(layout: LayoutData) {
     return { widthPx: 0, heightPx: 0 }
   }
 
-  if ((layout.project.mode ?? "indoor") !== "indoor") {
+  if ((layout.project.mode ?? "indoor") === "outdoor") {
     let minX = cabinetBounds[0].x
     let minY = cabinetBounds[0].y
     let maxX = cabinetBounds[0].x2

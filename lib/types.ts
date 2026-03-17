@@ -121,7 +121,7 @@ export interface ExportSettings {
   doubleSidedTitle?: boolean
 }
 
-export type ProjectMode = "indoor" | "outdoor"
+export type ProjectMode = "indoor" | "die-cast" | "outdoor"
 
 export interface Project {
   mode: ProjectMode

@@ -250,6 +250,10 @@ type CardRect = { x: number; y: number; width: number; height: number }
 type ReceiverCardVariant = "indoor" | "outdoor"
 type OutdoorPowerFlowDirection = "ltr" | "rtl"
 
+function isCompactOutdoorCabinetBounds(bounds: { width: number; height: number }) {
+  return bounds.height <= 400 && bounds.width >= bounds.height * 2
+}
+
 function getReceiverCardRects(
   bounds: { x: number; y: number; width: number; height: number },
   zoom: number,
@@ -258,30 +262,37 @@ function getReceiverCardRects(
   variant: ReceiverCardVariant = "indoor",
 ): CardRect[] {
   if (count <= 0) return []
+  const isCompactOutdoor = variant === "outdoor" && isCompactOutdoorCabinetBounds(bounds)
   const maxWidth =
     variant === "outdoor"
-      ? Math.min((68 * readabilityScale) / zoom, bounds.width * 0.55)
+      ? Math.min(
+          ((isCompactOutdoor ? 106 : 68) * readabilityScale) / zoom,
+          bounds.width * (isCompactOutdoor ? 0.64 : 0.55),
+        )
       : Math.min((100 * readabilityScale) / zoom, bounds.width * 0.7)
   const minWidth =
     variant === "outdoor"
-      ? Math.min((30 * readabilityScale) / zoom, maxWidth)
+      ? Math.min(((isCompactOutdoor ? 48 : 30) * readabilityScale) / zoom, maxWidth)
       : Math.min((34 * readabilityScale) / zoom, maxWidth)
   const heightFraction = count === 2 ? 0.18 : 0.22
   const maxHeight =
     variant === "outdoor"
-      ? Math.min((29 * readabilityScale) / zoom, bounds.height * (heightFraction + 0.11))
+      ? Math.min(
+          ((isCompactOutdoor ? 40 : 29) * readabilityScale) / zoom,
+          bounds.height * (heightFraction + (isCompactOutdoor ? 0.18 : 0.11)),
+        )
       : Math.min((18 * readabilityScale) / zoom, bounds.height * (heightFraction + 0.03))
   const minHeight =
     variant === "outdoor"
-      ? Math.min((16.5 * readabilityScale) / zoom, maxHeight)
+      ? Math.min(((isCompactOutdoor ? 22 : 16.5) * readabilityScale) / zoom, maxHeight)
       : Math.min((10 * readabilityScale) / zoom, maxHeight)
   const cardWidth =
     variant === "outdoor"
-      ? Math.min(maxWidth, Math.max(minWidth, bounds.width * 0.42))
+      ? Math.min(maxWidth, Math.max(minWidth, bounds.width * (isCompactOutdoor ? 0.52 : 0.42)))
       : Math.min(maxWidth, Math.max(minWidth, bounds.width * 0.7))
   const cardHeight =
     variant === "outdoor"
-      ? Math.min(maxHeight, Math.max(minHeight, bounds.height * 0.297))
+      ? Math.min(maxHeight, Math.max(minHeight, bounds.height * (isCompactOutdoor ? 0.38 : 0.297)))
       : Math.min(maxHeight, Math.max(minHeight, bounds.height * 0.2))
   const cardX = bounds.x + bounds.width / 2 - cardWidth / 2
   const cardCenterY =
@@ -451,6 +462,30 @@ function scaledReadableWorldSize(
   return scaledWorldSize(basePx * readabilityScale, zoom, minPx * readabilityScale, maxPx * readabilityScale)
 }
 
+function getCompactLayoutGap(
+  layoutHeight: number,
+  zoom: number,
+  readabilityScale: number,
+  options: {
+    basePx: number
+    minPx: number
+    maxPx: number
+    compactRatio: number
+    compactMinMm: number
+    compactMaxMm: number
+  },
+) {
+  const preferred = scaledReadableWorldSize(
+    options.basePx,
+    zoom,
+    options.minPx,
+    options.maxPx,
+    readabilityScale,
+  )
+  const compactCap = clamp(layoutHeight * options.compactRatio, options.compactMinMm, options.compactMaxMm)
+  return Math.min(preferred, compactCap)
+}
+
 function getPortLabelOffset(baseOffset: number, labelHeight: number) {
   // Keep a minimum gap from cabinets while adapting to larger label boxes.
   return Math.max(baseOffset, labelHeight * 0.8)
@@ -577,14 +612,15 @@ function getOutdoorLvBoxRect(
   zoom: number,
   readabilityScale = 1,
 ) {
+  const isCompactOutdoor = isCompactOutdoorCabinetBounds(bounds)
   const inset = (6 * readabilityScale) / zoom
   const width = Math.max(
-    (78 * readabilityScale) / zoom,
-    Math.min(bounds.width - inset * 2, bounds.width * 0.5),
+    ((isCompactOutdoor ? 60 : 78) * readabilityScale) / zoom,
+    Math.min(bounds.width - inset * 2, bounds.width * (isCompactOutdoor ? 0.42 : 0.5)),
   )
   const height = Math.max(
-    (40 * readabilityScale) / zoom,
-    Math.min(bounds.height - inset * 2, bounds.height * 0.33),
+    ((isCompactOutdoor ? 30 : 40) * readabilityScale) / zoom,
+    Math.min(bounds.height - inset * 2, bounds.height * (isCompactOutdoor ? 0.26 : 0.33)),
   )
   return {
     x: bounds.x + bounds.width - width - inset,
@@ -787,8 +823,17 @@ function getOutdoorCabinetPowerPorts(
   const stemTopY = barY + (1.2 * readabilityScale) / zoom
   const stemBottomY = stemTopY + Math.max((6.8 * readabilityScale) / zoom, bounds.height * 0.05)
   const arrowHalfWidth = Math.max((3.2 * readabilityScale) / zoom, 0.24 * (stemBottomY - stemTopY))
-  const labelY = stemBottomY + Math.max((5.8 * readabilityScale) / zoom, bounds.height * 0.038)
-  const labelSize = Math.max((7.8 * readabilityScale) / zoom, (9 * readabilityScale) / zoom)
+  const isCompactOutdoor = isCompactOutdoorCabinetBounds(bounds)
+  const labelY =
+    stemBottomY +
+    Math.max(
+      ((isCompactOutdoor ? 7.8 : 5.8) * readabilityScale) / zoom,
+      bounds.height * (isCompactOutdoor ? 0.05 : 0.038),
+    )
+  const labelSize = Math.max(
+    ((isCompactOutdoor ? 11.5 : 7.8) * readabilityScale) / zoom,
+    ((isCompactOutdoor ? 13 : 9) * readabilityScale) / zoom,
+  )
 
   return {
     barY,
@@ -821,8 +866,15 @@ function drawCabinetPowerInOut(
   if (!ports) return
   const inPort = flowDirection === "rtl" ? ports.right : ports.left
   const outPort = flowDirection === "rtl" ? ports.left : ports.right
-  const labelOffsetX = Math.max((4.8 * readabilityScale) / zoom, bounds.width * 0.02)
-  const labelOffsetY = Math.max((3.2 * readabilityScale) / zoom, bounds.height * 0.018)
+  const isCompactOutdoor = isCompactOutdoorCabinetBounds(bounds)
+  const labelOffsetX = Math.max(
+    ((isCompactOutdoor ? 6.5 : 4.8) * readabilityScale) / zoom,
+    bounds.width * (isCompactOutdoor ? 0.028 : 0.02),
+  )
+  const labelOffsetY = Math.max(
+    ((isCompactOutdoor ? 4.8 : 3.2) * readabilityScale) / zoom,
+    bounds.height * (isCompactOutdoor ? 0.028 : 0.018),
+  )
   const inLabelX = inPort.x <= outPort.x ? inPort.x - labelOffsetX : inPort.x + labelOffsetX
   const outLabelX = outPort.x >= inPort.x ? outPort.x + labelOffsetX : outPort.x - labelOffsetX
   const labelY = ports.labelY + labelOffsetY
@@ -1413,14 +1465,23 @@ function drawDataRoutes(
     const firstPoint = points[0]
     const firstBounds = firstPoint.bounds
     const isOutdoorDataRouting = cardVariant === "outdoor"
+    const externalOutdoorLvBoxRect =
+      isOutdoorDataRouting && controllerPlacement === "external"
+        ? getExternalOutdoorControllerRect(layoutBounds, zoom, undefined, readabilityScale)
+        : null
     const lvBoxDataSource =
-      isOutdoorDataRouting && outdoorLvBoxCabinetId
+      isOutdoorDataRouting && (outdoorLvBoxCabinetId || externalOutdoorLvBoxRect)
         ? (() => {
-            const controllerCabinet = layout.cabinets.find((cabinet) => cabinet.id === outdoorLvBoxCabinetId)
-            if (!controllerCabinet) return null
-            const controllerBounds = getCabinetBounds(controllerCabinet, layout.cabinetTypes)
-            if (!controllerBounds) return null
-            const lvBoxRect = getOutdoorLvBoxRect(controllerBounds, zoom, readabilityScale)
+            const lvBoxRect = (() => {
+              if (externalOutdoorLvBoxRect) return externalOutdoorLvBoxRect
+              if (!outdoorLvBoxCabinetId) return null
+              const controllerCabinet = layout.cabinets.find((cabinet) => cabinet.id === outdoorLvBoxCabinetId)
+              if (!controllerCabinet) return null
+              const controllerBounds = getCabinetBounds(controllerCabinet, layout.cabinetTypes)
+              if (!controllerBounds) return null
+              return getOutdoorLvBoxRect(controllerBounds, zoom, readabilityScale)
+            })()
+            if (!lvBoxRect) return null
             const sourceInset = scaledReadableWorldSize(4.2, zoom, 2.8, 8, readabilityScale)
             const laneStep = scaledReadableWorldSize(4, zoom, 2, 7, readabilityScale)
             const laneOffset = routeIndex * laneStep
@@ -1441,13 +1502,18 @@ function drawDataRoutes(
           })()
         : null
     const lvBoxDataReturnTarget =
-      isOutdoorDataRouting && outdoorLvBoxCabinetId
+      isOutdoorDataRouting && (outdoorLvBoxCabinetId || externalOutdoorLvBoxRect)
         ? (() => {
-            const controllerCabinet = layout.cabinets.find((cabinet) => cabinet.id === outdoorLvBoxCabinetId)
-            if (!controllerCabinet) return null
-            const controllerBounds = getCabinetBounds(controllerCabinet, layout.cabinetTypes)
-            if (!controllerBounds) return null
-            const lvBoxRect = getOutdoorLvBoxRect(controllerBounds, zoom, readabilityScale)
+            const lvBoxRect = (() => {
+              if (externalOutdoorLvBoxRect) return externalOutdoorLvBoxRect
+              if (!outdoorLvBoxCabinetId) return null
+              const controllerCabinet = layout.cabinets.find((cabinet) => cabinet.id === outdoorLvBoxCabinetId)
+              if (!controllerCabinet) return null
+              const controllerBounds = getCabinetBounds(controllerCabinet, layout.cabinetTypes)
+              if (!controllerBounds) return null
+              return getOutdoorLvBoxRect(controllerBounds, zoom, readabilityScale)
+            })()
+            if (!lvBoxRect) return null
             const targetInset = scaledReadableWorldSize(4.2, zoom, 2.8, 8, readabilityScale)
             return {
               x: lvBoxRect.x + lvBoxRect.width - targetInset,
@@ -1962,7 +2028,6 @@ function drawPowerFeeds(
   const labelPaddingX = scaledReadableWorldSize(9, zoom, 6, 13, readabilityScale)
   const labelPaddingY = scaledReadableWorldSize(6, zoom, 4, 9, readabilityScale)
   const labelRadius = scaledReadableWorldSize(7, zoom, 4.5, 11, readabilityScale)
-  const baseLabelOffset = 140 * readabilityScale
   const labelSideGap = scaledReadableWorldSize(110, zoom, 70, 160, readabilityScale)
   const dataLabelSideGap = scaledReadableWorldSize(60, zoom, 40, 90, readabilityScale)
   const sideLabelGap = scaledReadableWorldSize(12, zoom, 8, 18, readabilityScale)
@@ -1972,6 +2037,15 @@ function drawPowerFeeds(
 
   const layoutBounds = getLayoutBoundsFromCabinets(layout.cabinets, layout.cabinetTypes)
   if (!layoutBounds) return
+  const layoutHeight = Math.max(1, layoutBounds.maxY - layoutBounds.minY)
+  const baseLabelOffset = getCompactLayoutGap(layoutHeight, zoom, readabilityScale, {
+    basePx: 140,
+    minPx: 96,
+    maxPx: 190,
+    compactRatio: 0.28,
+    compactMinMm: 46,
+    compactMaxMm: 150,
+  })
   const mode = layout.project.mode ?? "indoor"
   const controllerPlacement = layout.project.controllerPlacement ?? "external"
   const controllerCabinetId = resolveControllerCabinetId(
@@ -2050,7 +2124,17 @@ function drawPowerFeeds(
       const dataFontSize = scaledReadableWorldSize(14, zoom, 12, 18, readabilityScale)
       const dataLabelPadding = scaledReadableWorldSize(8, zoom, 6, 12, readabilityScale)
       const dataLabelHeight = dataFontSize + dataLabelPadding * 1.6
-      const dataLabelOffset = getPortLabelOffset(90 * readabilityScale, dataLabelHeight)
+      const dataLabelOffset = getPortLabelOffset(
+        getCompactLayoutGap(layoutHeight, zoom, readabilityScale, {
+          basePx: 90,
+          minPx: 60,
+          maxPx: 130,
+          compactRatio: 0.18,
+          compactMinMm: 34,
+          compactMaxMm: 96,
+        }),
+        dataLabelHeight,
+      )
       maxPortLabelBottom = layoutBounds.maxY + dataLabelOffset + dataLabelHeight / 2
     }
   }
@@ -2069,7 +2153,18 @@ function drawPowerFeeds(
 
     const dataFontSize = scaledReadableWorldSize(14, zoom, 12, 18, readabilityScale)
     const dataLabelPadding = scaledReadableWorldSize(8, zoom, 6, 12, readabilityScale)
-    const dataLabelOffset = 90
+    const dataLabelHeight = dataFontSize + dataLabelPadding * 1.6
+    const dataLabelOffset = getPortLabelOffset(
+      getCompactLayoutGap(layoutHeight, zoom, readabilityScale, {
+        basePx: 90,
+        minPx: 60,
+        maxPx: 130,
+        compactRatio: 0.18,
+        compactMinMm: 34,
+        compactMaxMm: 96,
+      }),
+      dataLabelHeight,
+    )
 
     dataRoutes.forEach((route) => {
       if (route.cabinetIds.length === 0) return
@@ -2237,6 +2332,22 @@ function drawPowerFeeds(
           })
         }
       })
+      if (includeLvBoxLink && !outdoorLvBoxCabinetId && points.length > 0) {
+        const externalRect = getExternalOutdoorControllerRect(layoutBounds, zoom, undefined, readabilityScale)
+        const anchorInset = Math.max((5 * readabilityScale) / zoom, externalRect.width * 0.08)
+        const lastPoint = points[points.length - 1]
+        const lvAnchorX = clamp(
+          lastPoint.x,
+          externalRect.x + anchorInset,
+          externalRect.x + externalRect.width - anchorInset,
+        )
+        points.push({
+          x: lvAnchorX,
+          y: externalRect.y,
+          bounds: null,
+          outdoorPortRole: "lvbox",
+        })
+      }
       return { points, useOutdoorChaining }
     }
 
@@ -2696,14 +2807,30 @@ function drawControllerPorts(
   if (bounds.width === 0 && bounds.height === 0) return
 
   const { minX, maxX, maxY } = bounds
+  const layoutHeight = Math.max(1, bounds.maxY - bounds.minY)
+  const layoutWidth = Math.max(1, bounds.maxX - bounds.minX)
+  const isCompactOutdoorLayout = layoutHeight <= 400 && layoutWidth >= layoutHeight * 2
 
   if (mode === "outdoor") {
     const title = "LV BOX"
     const items = [label, "PI", "SWITCH", "ANTENNA"]
-    const boxWidth = scaledReadableWorldSize(128, zoom, 110, 150, readabilityScale)
-    const boxHeight = scaledReadableWorldSize(58, zoom, 46, 74, readabilityScale)
+    const boxWidth = isCompactOutdoorLayout
+      ? scaledReadableWorldSize(176, zoom, 150, 210, readabilityScale)
+      : scaledReadableWorldSize(188, zoom, 160, 224, readabilityScale)
+    const boxHeight = isCompactOutdoorLayout
+      ? scaledReadableWorldSize(74, zoom, 60, 92, readabilityScale)
+      : scaledReadableWorldSize(82, zoom, 66, 100, readabilityScale)
     const boxX = maxX - boxWidth
-    const baseY = maxY + scaledReadableWorldSize(100, zoom, 70, 160, readabilityScale)
+    const baseY =
+      maxY +
+      getCompactLayoutGap(layoutHeight, zoom, readabilityScale, {
+        basePx: 100,
+        minPx: 70,
+        maxPx: 160,
+        compactRatio: 0.24,
+        compactMinMm: 46,
+        compactMaxMm: 120,
+      })
     const boxY = Math.max(baseY, minY ?? baseY)
     const titleBandHeight = Math.max((10 * readabilityScale) / zoom, boxHeight * 0.24)
     const listPadding = Math.max((6 * readabilityScale) / zoom, boxWidth * 0.08)
@@ -2752,7 +2879,16 @@ function drawControllerPorts(
   const boxHeight = scaledReadableWorldSize(40, zoom, 32, 60, readabilityScale)
   const fontSize = scaledReadableWorldSize(11, zoom, 10, 14, readabilityScale)
   const boxX = (minX + maxX) / 2 - boxWidth / 2
-  const baseY = maxY + scaledReadableWorldSize(100, zoom, 70, 160, readabilityScale)
+  const baseY =
+    maxY +
+    getCompactLayoutGap(layoutHeight, zoom, readabilityScale, {
+      basePx: 100,
+      minPx: 70,
+      maxPx: 160,
+      compactRatio: 0.22,
+      compactMinMm: 42,
+      compactMaxMm: 112,
+    })
   const boxY = Math.max(baseY, minY ?? baseY)
 
   ctx.save()
@@ -2768,6 +2904,36 @@ function drawControllerPorts(
   ctx.textBaseline = "middle"
   ctx.fillText(label, boxX + boxWidth / 2, boxY + boxHeight / 2)
   ctx.restore()
+}
+
+function getExternalOutdoorControllerRect(
+  layoutBounds: { minX: number; minY: number; maxX: number; maxY: number },
+  zoom: number,
+  minY?: number,
+  readabilityScale = 1,
+) {
+  const layoutHeight = Math.max(1, layoutBounds.maxY - layoutBounds.minY)
+  const layoutWidth = Math.max(1, layoutBounds.maxX - layoutBounds.minX)
+  const isCompactOutdoorLayout = layoutHeight <= 400 && layoutWidth >= layoutHeight * 2
+  const boxWidth = isCompactOutdoorLayout
+    ? scaledReadableWorldSize(176, zoom, 150, 210, readabilityScale)
+    : scaledReadableWorldSize(188, zoom, 160, 224, readabilityScale)
+  const boxHeight = isCompactOutdoorLayout
+    ? scaledReadableWorldSize(74, zoom, 60, 92, readabilityScale)
+    : scaledReadableWorldSize(82, zoom, 66, 100, readabilityScale)
+  const boxX = layoutBounds.maxX - boxWidth
+  const baseY =
+    layoutBounds.maxY +
+    getCompactLayoutGap(layoutHeight, zoom, readabilityScale, {
+      basePx: 100,
+      minPx: 70,
+      maxPx: 160,
+      compactRatio: 0.24,
+      compactMinMm: 46,
+      compactMaxMm: 120,
+    })
+  const boxY = Math.max(baseY, minY ?? baseY)
+  return { x: boxX, y: boxY, width: boxWidth, height: boxHeight }
 }
 
 export function drawOverview(ctx: CanvasRenderingContext2D, layout: LayoutData, options: OverviewRenderOptions) {
@@ -3134,7 +3300,7 @@ export function drawOverview(ctx: CanvasRenderingContext2D, layout: LayoutData, 
         controllerLabel,
         layout,
         uiZoom,
-        controllerMinY,
+        isOutdoorMode ? undefined : controllerMinY,
         readabilityScale,
         isOutdoorMode ? "outdoor" : "indoor",
       )

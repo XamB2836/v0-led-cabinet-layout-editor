@@ -5,6 +5,7 @@ import type React from "react"
 import { useMemo, useState } from "react"
 import { useEditor } from "@/lib/editor-context"
 import type { CabinetType } from "@/lib/types"
+import { getModeDefinition } from "@/lib/modes"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -23,8 +24,9 @@ export function CabinetLibrary() {
   })
   const [draggedType, setDraggedType] = useState<string | null>(null)
   const [search, setSearch] = useState("")
-  const isOutdoorMode = (layout.project.mode ?? "indoor") === "outdoor"
-  const modeLabel = isOutdoorMode ? "Outdoor" : "Indoor"
+  const mode = layout.project.mode ?? "indoor"
+  const isOutdoorMode = mode === "outdoor"
+  const modeLabel = getModeDefinition(mode).label
   const filteredTypes = useMemo(() => {
     const query = search.trim().toLowerCase()
     const sizeMatch = query.match(/(\d+)\s*[xX]\s*(\d+)/)

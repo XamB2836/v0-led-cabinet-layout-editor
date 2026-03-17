@@ -2,6 +2,7 @@ import type { Cabinet, CabinetType, PowerFeed, ProjectMode } from "./types"
 
 const POWER_DENSITY_W_M2_BY_MODE: Record<ProjectMode, number> = {
   indoor: 550,
+  "die-cast": 550,
   outdoor: 700,
 }
 const BREAKER_LIMITS: Record<string, { maxW: number }> = {

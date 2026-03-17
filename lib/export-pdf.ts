@@ -19,10 +19,13 @@ const PAGE_SIZES_MM = {
 const FONT_FAMILY = "Geist, sans-serif"
 const WEIGHT_REF_AREA_MM2 = 1120 * 640
 const WEIGHT_REF_KG = 19
+// Die-cast cabinet density for export summaries.
+const DIE_CAST_WEIGHT_DENSITY_LB_M2 = 35.8
 const LB_PER_KG = 2.20462
 const INDOOR_WEIGHT_DENSITY_LB_M2 = (WEIGHT_REF_KG * LB_PER_KG) / (WEIGHT_REF_AREA_MM2 / 1_000_000)
 const WEIGHT_DENSITY_LB_M2_BY_MODE: Record<LayoutData["project"]["mode"], number> = {
   indoor: INDOOR_WEIGHT_DENSITY_LB_M2,
+  "die-cast": DIE_CAST_WEIGHT_DENSITY_LB_M2,
   outdoor: 131,
 }
 const NUMMAX_LOGO_SRC = "/nummax-logo-lockup.png"
@@ -61,6 +64,30 @@ function scaledReadableWorldSize(
   readabilityScale: number,
 ) {
   return scaledWorldSize(basePx * readabilityScale, zoom, minPx * readabilityScale, maxPx * readabilityScale)
+}
+
+function getCompactLayoutGap(
+  layoutHeight: number,
+  zoom: number,
+  readabilityScale: number,
+  options: {
+    basePx: number
+    minPx: number
+    maxPx: number
+    compactRatio: number
+    compactMinMm: number
+    compactMaxMm: number
+  },
+) {
+  const preferred = scaledReadableWorldSize(
+    options.basePx,
+    zoom,
+    options.minPx,
+    options.maxPx,
+    readabilityScale,
+  )
+  const compactCap = clamp(layoutHeight * options.compactRatio, options.compactMinMm, options.compactMaxMm)
+  return Math.min(preferred, compactCap)
 }
 
 function getPortLabelOffset(baseOffset: number, labelHeight: number) {
@@ -178,9 +205,9 @@ function getScreenSizeCounts(layout: LayoutData): ScreenSizeCount[] {
     return []
   }
 
-  // Indoor workflows expect one global matrix totalizing all cabinets,
+  // Non-outdoor workflows expect one global matrix totalizing all cabinets,
   // while ignoring physical spacing between disconnected groups.
-  if ((layout.project.mode ?? "indoor") === "indoor") {
+  if ((layout.project.mode ?? "indoor") !== "outdoor") {
     const matrix = getTotalizedPixelMatrixDimensions(layout)
 
     return [
@@ -592,6 +619,9 @@ function computeLabelBounds(
 ) {
   const uiZoom = uiScale > 0 ? zoom / uiScale : zoom
   const layoutBounds = getLayoutBounds(layout)
+  const layoutHeight = Math.max(1, layoutBounds.maxY - layoutBounds.minY)
+  const layoutWidth = Math.max(1, layoutBounds.maxX - layoutBounds.minX)
+  const isCompactOutdoorLayout = layoutHeight <= 400 && layoutWidth >= layoutHeight * 2
   let minX = layoutBounds.minX
   let minY = layoutBounds.minY
   let maxX = layoutBounds.maxX
@@ -629,7 +659,17 @@ function computeLabelBounds(
   const dataLabelPadding = scaledReadableWorldSize(8, uiZoom, 6, 12, readabilityScale)
   const dataLabelSideGap = scaledReadableWorldSize(60, uiZoom, 40, 90, readabilityScale)
   const dataLabelHeight = dataFontSize + dataLabelPadding * 1.6
-  const dataLabelOffset = getPortLabelOffset(90 * readabilityScale, dataLabelHeight)
+  const dataLabelOffset = getPortLabelOffset(
+    getCompactLayoutGap(layoutHeight, uiZoom, readabilityScale, {
+      basePx: 90,
+      minPx: 60,
+      maxPx: 130,
+      compactRatio: 0.18,
+      compactMinMm: 34,
+      compactMaxMm: 96,
+    }),
+    dataLabelHeight,
+  )
   let maxPortLabelWidthLeft = 0
   let maxPortLabelWidthRight = 0
   let hasBottomPortLabel = false
@@ -772,7 +812,14 @@ function computeLabelBounds(
     const fontPx = fontSize * zoom
     const labelPaddingX = scaledReadableWorldSize(9, uiZoom, 6, 13, readabilityScale)
     const labelPaddingY = scaledReadableWorldSize(6, uiZoom, 4, 9, readabilityScale)
-    const baseLabelOffset = 140
+    const baseLabelOffset = getCompactLayoutGap(layoutHeight, uiZoom, readabilityScale, {
+      basePx: 140,
+      minPx: 96,
+      maxPx: 190,
+      compactRatio: 0.28,
+      compactMinMm: 46,
+      compactMaxMm: 150,
+    })
     const labelSideGap = scaledReadableWorldSize(110, uiZoom, 70, 160, readabilityScale)
     const sideLabelGap = scaledReadableWorldSize(12, uiZoom, 8, 18, readabilityScale)
     const powerLabelSideGap = scaledReadableWorldSize(60, uiZoom, 40, 90, readabilityScale)
@@ -925,10 +972,23 @@ function computeLabelBounds(
     const controllerLabel = layout.project.controllerLabel?.trim() || layout.project.controller
     if (controllerLabel) {
       if (mode === "outdoor") {
-        const boxWidth = scaledReadableWorldSize(128, uiZoom, 110, 150, readabilityScale)
-        const boxHeight = scaledReadableWorldSize(58, uiZoom, 46, 74, readabilityScale)
+        const boxWidth = isCompactOutdoorLayout
+          ? scaledReadableWorldSize(176, uiZoom, 150, 210, readabilityScale)
+          : scaledReadableWorldSize(188, uiZoom, 160, 224, readabilityScale)
+        const boxHeight = isCompactOutdoorLayout
+          ? scaledReadableWorldSize(74, uiZoom, 60, 92, readabilityScale)
+          : scaledReadableWorldSize(82, uiZoom, 66, 100, readabilityScale)
         const boxX = layoutBounds.maxX - boxWidth
-        const baseY = layoutBounds.maxY + scaledReadableWorldSize(100, uiZoom, 70, 160, readabilityScale)
+        const baseY =
+          layoutBounds.maxY +
+          getCompactLayoutGap(layoutHeight, uiZoom, readabilityScale, {
+            basePx: 100,
+            minPx: 70,
+            maxPx: 160,
+            compactRatio: 0.24,
+            compactMinMm: 46,
+            compactMaxMm: 120,
+          })
         const boxY = baseY
         minX = Math.min(minX, boxX)
         maxX = Math.max(maxX, boxX + boxWidth)
@@ -937,7 +997,16 @@ function computeLabelBounds(
       } else {
         const boxWidth = scaledReadableWorldSize(120, uiZoom, 100, 160, readabilityScale)
         const boxHeight = scaledReadableWorldSize(40, uiZoom, 32, 60, readabilityScale)
-        const baseY = layoutBounds.maxY + scaledReadableWorldSize(100, uiZoom, 70, 160, readabilityScale)
+        const baseY =
+          layoutBounds.maxY +
+          getCompactLayoutGap(layoutHeight, uiZoom, readabilityScale, {
+            basePx: 100,
+            minPx: 70,
+            maxPx: 160,
+            compactRatio: 0.22,
+            compactMinMm: 42,
+            compactMaxMm: 112,
+          })
         const clearance = scaledReadableWorldSize(24, uiZoom, 16, 40, readabilityScale)
         const controllerMinY = Math.max(
           baseY,
@@ -1071,15 +1140,38 @@ export async function exportOverviewPdf(layout: LayoutData) {
   const extraBottomMm = isWideOrSquareLayout
     ? clamp(Math.round(layoutHeightMm * 0.045), 18, 42)
     : clamp(Math.round(layoutHeightMm * 0.30), 110, 220)
+  const extraRightDimensionMm =
+    dimensionOffsetMm + clamp(Math.round(layoutHeightMm * 0.08), 18, isWideOrSquareLayout ? 34 : 54)
+  const extraLeftMm = extraSideMm
+  const extraRightMm = Math.max(extraSideMm, extraRightDimensionMm)
 
   const baseBounds = {
-    minX: bounds.minX - extraSideMm,
-    maxX: bounds.maxX + extraSideMm,
+    minX: bounds.minX - extraLeftMm,
+    maxX: bounds.maxX + extraRightMm,
     minY: bounds.minY - extraTopMm,
     maxY: bounds.maxY + extraBottomMm,
   }
   const availableWidth = canvas.width - marginPx * 2
   const availableHeight = canvas.height - headerPx - marginPx * 2 - viewLabelReservePx
+  const isCompactLayout = layout.cabinets.length <= 4 && (layoutWidthMm <= 1600 || layoutHeightMm <= 700)
+  const isSingleCompactWideLayout =
+    layout.cabinets.length <= 2 && layoutHeightMm <= 420 && layoutWidthMm >= layoutHeightMm * 2
+  const frameInsetXPx = isCompactLayout
+    ? Math.round(
+        Math.min(
+          availableWidth * (isSingleCompactWideLayout ? 0.16 : layout.cabinets.length <= 2 ? 0.085 : 0.06),
+          (isSingleCompactWideLayout ? 52 : 32) * pxPerMm,
+        ),
+      )
+    : 0
+  const frameInsetYPx = isCompactLayout
+    ? Math.round(
+        Math.min(
+          availableHeight * (isSingleCompactWideLayout ? 0.1 : layout.cabinets.length <= 2 ? 0.055 : 0.04),
+          (isSingleCompactWideLayout ? 28 : 18) * pxPerMm,
+        ),
+      )
+    : 0
   let legendPosition: { rightX: number; topY: number } | null = null
   const uiScale = clamp(renderDpi / outputDpi, 1, 2)
   const fixedLegendPosition =
@@ -1111,8 +1203,8 @@ export async function exportOverviewPdf(layout: LayoutData) {
   let contentHeight = printBounds.maxY - printBounds.minY
 
   for (let attempt = 0; attempt < 4; attempt++) {
-    const contentAvailableWidth = Math.max(1, availableWidth - reserveLeftPx)
-    const contentAvailableHeight = Math.max(1, availableHeight - reserveBottomPx)
+    const contentAvailableWidth = Math.max(1, availableWidth - reserveLeftPx - frameInsetXPx * 2)
+    const contentAvailableHeight = Math.max(1, availableHeight - reserveBottomPx - frameInsetYPx * 2)
     printBounds = { ...baseBounds }
     for (let i = 0; i < 4; i++) {
       const iterWidth = printBounds.maxX - printBounds.minX
@@ -1144,8 +1236,8 @@ export async function exportOverviewPdf(layout: LayoutData) {
         ? Math.min(contentAvailableWidth / contentWidth, contentAvailableHeight / contentHeight)
         : 1
 
-    extraX = Math.max(0, (contentAvailableWidth - contentWidth * zoom) / 2)
-    extraY = Math.max(0, (contentAvailableHeight - contentHeight * zoom) / 2)
+    extraX = frameInsetXPx + Math.max(0, (contentAvailableWidth - contentWidth * zoom) / 2)
+    extraY = frameInsetYPx + Math.max(0, (contentAvailableHeight - contentHeight * zoom) / 2)
     panX = marginPx + reserveLeftPx + extraX - printBounds.minX * zoom
     panY = headerPx + marginPx + extraY - printBounds.minY * zoom
 

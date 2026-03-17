@@ -223,24 +223,34 @@ export function getOverviewReadabilityScale(layout: LayoutData) {
   const areaM2 = (width * height) / 1_000_000
   const density = layout.cabinets.length / Math.max(areaM2, 0.2)
 
-  let scale = 1.06
-  if (shortSide <= 400) scale = 1.34
-  else if (shortSide <= 700) scale = 1.26
-  else if (shortSide <= 1000) scale = 1.2
-  else if (shortSide <= 1600) scale = 1.12
+  let scale = 1.02
+  if (shortSide <= 400) scale = 1.14
+  else if (shortSide <= 700) scale = 1.1
+  else if (shortSide <= 1000) scale = 1.07
+  else if (shortSide <= 1600) scale = 1.03
 
-  if (layout.cabinets.length <= 4) scale += 0.08
-  else if (layout.cabinets.length <= 8) scale += 0.04
-  else if (layout.cabinets.length >= 32) scale -= 0.04
+  if (layout.cabinets.length <= 4) scale += 0.03
+  else if (layout.cabinets.length <= 8) scale += 0.02
+  else if (layout.cabinets.length >= 32) scale -= 0.03
 
-  if (density >= 14) scale *= 0.92
-  else if (density >= 8) scale *= 0.96
-  else if (density <= 2.5) scale *= 1.06
+  if (density >= 14) scale *= 0.94
+  else if (density >= 8) scale *= 0.97
+  else if (density <= 2.5) scale *= 1.02
 
   const aspectRatio = longSide / Math.max(shortSide, 1)
   if (aspectRatio >= 4 && layout.cabinets.length <= 6) {
-    scale += 0.08
+    scale += 0.03
   }
 
-  return clamp(scale, 1.0, 1.38)
+  if (layout.cabinets.length <= 2 && shortSide <= 450) {
+    scale *= 0.84
+  } else if (layout.cabinets.length <= 4 && shortSide <= 600) {
+    scale *= 0.9
+  }
+
+  if (areaM2 <= 0.45) {
+    scale *= 0.94
+  }
+
+  return clamp(scale, 0.86, 1.18)
 }
