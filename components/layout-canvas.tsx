@@ -1846,7 +1846,9 @@ function drawDataRoutes(
 
             if (isOutdoorCabinetTransition && sameColumn && absDx <= axisSnapTolerance * 2) {
               const laneSign = prev.x >= prevCenterX ? 1 : -1
-              const forcedOffset = Number.isFinite(referenceWidth) ? Math.max(28 / zoom, referenceWidth * 0.1) : 28 / zoom
+              const forcedOffsetBase = Number.isFinite(referenceWidth) ? Math.max(28 / zoom, referenceWidth * 0.1) : 28 / zoom
+              const laneSeparation = scaledWorldSize(16, zoom, 10, 24)
+              const forcedOffset = forcedOffsetBase + laneSeparation
               const forcedLaneX = Math.max(minLaneX, Math.min(maxLaneX, prev.x + laneSign * forcedOffset))
               ctx.lineTo(forcedLaneX, prev.y)
               ctx.lineTo(forcedLaneX, curr.y)
@@ -1859,7 +1861,9 @@ function drawDataRoutes(
             if (isOutdoorCabinetTransition && sameColumn) {
               const laneSign = prev.x >= prevCenterX ? 1 : -1
               const portMidX = (prev.x + curr.x) / 2
-              const minBendOffset = Number.isFinite(referenceWidth) ? Math.max(24 / zoom, referenceWidth * 0.08) : 24 / zoom
+              const minBendOffsetBase = Number.isFinite(referenceWidth) ? Math.max(24 / zoom, referenceWidth * 0.08) : 24 / zoom
+              const laneSeparation = scaledWorldSize(16, zoom, 10, 24)
+              const minBendOffset = minBendOffsetBase + laneSeparation
               laneX = Math.max(minLaneX, Math.min(maxLaneX, portMidX + laneSign * minBendOffset))
             } else if (isInterScreenJump) {
               const alignedLaneX =
@@ -3344,7 +3348,42 @@ export function LayoutCanvas() {
       }
     })
 
-    // Draw data routes above cabinets but under receiver cards
+    // Draw power feeds above cabinets but under data routes/receiver cards.
+    if (showPowerRoutes && powerFeeds && powerFeeds.length > 0) {
+      drawPowerFeeds(
+        ctx,
+        powerFeeds,
+        layout.cabinets,
+        layout.cabinetTypes,
+        uiZoom,
+        dataRoutes,
+        forcePortLabelsBottom,
+        routingMode.type === "power" ? routingMode.feedId : undefined,
+        isOutdoorMode ? "outdoor" : "indoor",
+        isOutdoorMode && controllerPlacement === "cabinet" ? controllerCabinetId : undefined,
+      )
+    }
+
+    // Keep outdoor power IN/OUT markers below data lines so crossings stay readable.
+    if (showReceiverCards && isOutdoorMode) {
+      layout.cabinets.forEach((cabinet) => {
+        const bounds = getCabinetBounds(cabinet, layout.cabinetTypes)
+        if (!bounds) return
+        const cardCount = getCabinetReceiverCardCount(cabinet)
+        if (cardCount === 0) return
+        const rects = getReceiverCardRects(bounds, uiZoom, cardCount, "outdoor")
+        drawCabinetPowerInOut(
+          ctx,
+          bounds,
+          rects,
+          uiZoom,
+          "outdoor",
+          outdoorFlowByCabinet.get(cabinet.id) ?? "ltr",
+        )
+      })
+    }
+
+    // Draw data routes above power feeds so they remain visible at crossings.
     if (showDataRoutes && dataRoutes && dataRoutes.length > 0) {
       drawDataRoutes(
         ctx,
@@ -3360,22 +3399,6 @@ export function LayoutCanvas() {
         isOutdoorMode ? "outdoor" : "indoor",
         isOutdoorMode && controllerPlacement === "cabinet" ? controllerCabinetId : undefined,
         isOutdoorMode && controllerPlacement === "external",
-      )
-    }
-
-    // Draw power feeds above data routes
-    if (showPowerRoutes && powerFeeds && powerFeeds.length > 0) {
-      drawPowerFeeds(
-        ctx,
-        powerFeeds,
-        layout.cabinets,
-        layout.cabinetTypes,
-        uiZoom,
-        dataRoutes,
-        forcePortLabelsBottom,
-        routingMode.type === "power" ? routingMode.feedId : undefined,
-        isOutdoorMode ? "outdoor" : "indoor",
-        isOutdoorMode && controllerPlacement === "cabinet" ? controllerCabinetId : undefined,
       )
     }
 
@@ -3410,14 +3433,6 @@ export function LayoutCanvas() {
             variant: isOutdoorMode ? "outdoor" : "indoor",
           })
         })
-        drawCabinetPowerInOut(
-          ctx,
-          bounds,
-          rects,
-          uiZoom,
-          isOutdoorMode ? "outdoor" : "indoor",
-          outdoorFlowByCabinet.get(cabinet.id) ?? "ltr",
-        )
         })
       }
 

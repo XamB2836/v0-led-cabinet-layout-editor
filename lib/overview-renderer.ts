@@ -1703,9 +1703,11 @@ function drawDataRoutes(
 
             if (isOutdoorCabinetTransition && sameColumn && absDx <= axisSnapTolerance * 2) {
               const laneSign = prev.x >= prevCenterX ? 1 : -1
-              const forcedOffset = Number.isFinite(referenceWidth)
+              const forcedOffsetBase = Number.isFinite(referenceWidth)
                 ? Math.max((28 * readabilityScale) / zoom, referenceWidth * 0.1)
                 : (28 * readabilityScale) / zoom
+              const laneSeparation = scaledReadableWorldSize(16, zoom, 10, 24, readabilityScale)
+              const forcedOffset = forcedOffsetBase + laneSeparation
               const forcedLaneX = Math.max(minLaneX, Math.min(maxLaneX, prev.x + laneSign * forcedOffset))
               ctx.lineTo(forcedLaneX, prev.y)
               ctx.lineTo(forcedLaneX, curr.y)
@@ -1718,9 +1720,11 @@ function drawDataRoutes(
             if (isOutdoorCabinetTransition && sameColumn) {
               const laneSign = prev.x >= prevCenterX ? 1 : -1
               const portMidX = (prev.x + curr.x) / 2
-              const minBendOffset = Number.isFinite(referenceWidth)
+              const minBendOffsetBase = Number.isFinite(referenceWidth)
                 ? Math.max((24 * readabilityScale) / zoom, referenceWidth * 0.08)
                 : (24 * readabilityScale) / zoom
+              const laneSeparation = scaledReadableWorldSize(16, zoom, 10, 24, readabilityScale)
+              const minBendOffset = minBendOffsetBase + laneSeparation
               laneX = Math.max(minLaneX, Math.min(maxLaneX, portMidX + laneSign * minBendOffset))
             } else if (isInterScreenJump) {
               const alignedLaneX =
@@ -3078,6 +3082,36 @@ export function drawOverview(ctx: CanvasRenderingContext2D, layout: LayoutData, 
 
   })
 
+  if (showPowerRoutes) {
+    drawPowerFeeds(ctx, layout, uiZoom, readabilityScale, isOutdoorMode ? "outdoor" : "indoor")
+  }
+
+  if (showReceiverCards && isOutdoorMode) {
+    layout.cabinets.forEach((cabinet) => {
+      const bounds = getCabinetBounds(cabinet, layout.cabinetTypes)
+      if (!bounds) return
+      const receiverLabel = getReceiverCardLabel(layout, cabinet)
+      if (!receiverLabel) return
+      const cardCount = getCabinetReceiverCardCount(cabinet)
+      const rects = getReceiverCardRects(
+        bounds,
+        uiZoom,
+        cardCount,
+        readabilityScale,
+        "outdoor",
+      )
+      drawCabinetPowerInOut(
+        ctx,
+        bounds,
+        rects,
+        uiZoom,
+        readabilityScale,
+        "outdoor",
+        outdoorFlowByCabinet.get(cabinet.id) ?? "ltr",
+      )
+    })
+  }
+
   if (showDataRoutes) {
     drawDataRoutes(
       ctx,
@@ -3089,10 +3123,6 @@ export function drawOverview(ctx: CanvasRenderingContext2D, layout: LayoutData, 
       readabilityScale,
       isOutdoorMode ? "outdoor" : "indoor",
     )
-  }
-
-  if (showPowerRoutes) {
-    drawPowerFeeds(ctx, layout, uiZoom, readabilityScale, isOutdoorMode ? "outdoor" : "indoor")
   }
 
   layout.cabinets.forEach((cabinet) => {
@@ -3156,15 +3186,6 @@ export function drawOverview(ctx: CanvasRenderingContext2D, layout: LayoutData, 
           isOutdoorMode ? "outdoor" : "indoor",
         )
       })
-      drawCabinetPowerInOut(
-        ctx,
-        bounds,
-        rects,
-        uiZoom,
-        readabilityScale,
-        isOutdoorMode ? "outdoor" : "indoor",
-        outdoorFlowByCabinet.get(cabinet.id) ?? "ltr",
-      )
     })
   }
 
