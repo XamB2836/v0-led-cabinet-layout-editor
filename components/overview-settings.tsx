@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react"
 import { useEditor } from "@/lib/editor-context"
 import { DEFAULT_LAYOUT, type ModuleSize } from "@/lib/types"
-import { coerceModeModuleSize, getModeModuleSizeOptions } from "@/lib/modes"
+import { coerceModeModuleSize, getModeModuleSizeOptions, getProjectHardwareDefaults } from "@/lib/modes"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
@@ -11,7 +11,6 @@ import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
 import {
-  DEFAULT_RECEIVER_CARD_MODEL,
   RECEIVER_CARD_MODELS,
   formatReceiverCardOptionLabel,
 } from "@/lib/receiver-cards"
@@ -22,6 +21,7 @@ export function OverviewSettings() {
   const { layout } = state
   const { overview, exportSettings } = layout.project
   const mode = layout.project.mode ?? "indoor"
+  const hardwareDefaults = getProjectHardwareDefaults(mode, layout.project.outdoorHardwareProfile ?? "standard")
   const mappingDefaults = DEFAULT_LAYOUT.project.overview.mappingNumbers
   const mappingNumbers = overview?.mappingNumbers ?? mappingDefaults
   const showMappingNumbers = mappingNumbers?.show ?? false
@@ -88,9 +88,9 @@ export function OverviewSettings() {
             </Label>
             <Input
               id="receiver-model"
-              value={overview?.receiverCardModel || DEFAULT_RECEIVER_CARD_MODEL}
+              value={overview?.receiverCardModel || hardwareDefaults.receiverCardModel}
               onChange={(e) => dispatch({ type: "UPDATE_OVERVIEW", payload: { receiverCardModel: e.target.value } })}
-              placeholder={DEFAULT_RECEIVER_CARD_MODEL}
+              placeholder={hardwareDefaults.receiverCardModel}
               className="h-8 bg-input text-sm font-mono"
             />
           </div>

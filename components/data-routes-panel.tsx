@@ -44,9 +44,10 @@ export function DataRoutesPanel() {
   const controllerPorts: Record<LayoutData["project"]["controller"], number> = {
     A100: 2,
     A200: 4,
+    "TB-50": 2,
     X8E: 8,
   }
-  const controllerOrder: LayoutData["project"]["controller"][] = ["A100", "A200", "X8E"]
+  const controllerOrder: LayoutData["project"]["controller"][] = ["A100", "TB-50", "A200", "X8E"]
   const maxPorts = controllerPorts[controller]
   const maxUsedPort = dataRoutes.reduce((max, route) => Math.max(max, route.port), 0)
   const invalidPorts = maxUsedPort > maxPorts

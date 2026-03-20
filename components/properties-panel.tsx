@@ -10,6 +10,7 @@ import {
   getCabinetReceiverCardCount,
   parseRouteCabinetId,
 } from "@/lib/types"
+import { getProjectHardwareDefaults } from "@/lib/modes"
 import { resolveControllerCabinetId } from "@/lib/controller-utils"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -18,7 +19,6 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
-  DEFAULT_RECEIVER_CARD_MODEL,
   RECEIVER_CARD_MODELS,
   formatReceiverCardOptionLabel,
 } from "@/lib/receiver-cards"
@@ -37,13 +37,14 @@ export function PropertiesPanel() {
   const gridLabelAxis = layout.project.overview.gridLabelAxis ?? "columns"
   const mode = layout.project.mode ?? "indoor"
   const isOutdoorMode = mode === "outdoor"
+  const hardwareDefaults = getProjectHardwareDefaults(mode, layout.project.outdoorHardwareProfile ?? "standard")
 
   const pitch = layout.project.pitch_mm
   const widthPx = bounds.width > 0 ? Math.round(bounds.width / pitch) : 0
   const heightPx = bounds.height > 0 ? Math.round(bounds.height / pitch) : 0
 
   const receiverCardCount = selectedCabinet ? getCabinetReceiverCardCount(selectedCabinet) : 1
-  const receiverModelDefault = layout.project.overview.receiverCardModel || DEFAULT_RECEIVER_CARD_MODEL
+  const receiverModelDefault = layout.project.overview.receiverCardModel || hardwareDefaults.receiverCardModel
   const [receiverModelDraft, setReceiverModelDraft] = useState(receiverModelDefault)
   const [gridLabelDraft, setGridLabelDraft] = useState("")
   const controllerPlacement = layout.project.controllerPlacement ?? "external"
@@ -188,7 +189,7 @@ export function PropertiesPanel() {
   }
 
   const handleApplyReceiverModel = () => {
-    const nextModel = receiverModelDraft.trim() || DEFAULT_RECEIVER_CARD_MODEL
+    const nextModel = receiverModelDraft.trim() || hardwareDefaults.receiverCardModel
     let changed = false
 
     if (nextModel !== layout.project.overview.receiverCardModel) {
@@ -323,7 +324,7 @@ export function PropertiesPanel() {
                           value={receiverModelDraft}
                           onChange={(e) => setReceiverModelDraft(e.target.value)}
                           className="h-8 bg-input text-sm font-mono"
-                          placeholder={DEFAULT_RECEIVER_CARD_MODEL}
+                          placeholder={receiverModelDefault}
                         />
                         <Select onValueChange={(value) => setReceiverModelDraft(value)}>
                           <SelectTrigger className="h-8 bg-input text-xs">

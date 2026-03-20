@@ -7,7 +7,7 @@ import type { Cabinet, CabinetType, LayoutData, EditorState, DataRoute, PowerFee
 import { DEFAULT_LAYOUT } from "./types"
 import { normalizeLayout } from "./layout-io"
 import { decodeLayoutFromUrlParam } from "./layout-url"
-import { coerceModeModuleSize, coerceModePitch, getModeCabinetTypes } from "./modes"
+import { coerceModeModuleSize, coerceModePitch, getModeCabinetTypes, getProjectHardwareDefaults } from "./modes"
 
 type EditorAction =
   | { type: "SET_LAYOUT"; payload: LayoutData }
@@ -357,16 +357,24 @@ function editorReducer(state: EditorState, action: EditorAction): EditorState {
 
       const modeTypes = getModeCabinetTypes(mode)
       const nextControllerPlacement: "cabinet" | "external" = mode === "outdoor" ? "cabinet" : "external"
+      const outdoorHardwareProfile = mode === "outdoor" ? state.layout.project.outdoorHardwareProfile ?? "standard" : "standard"
+      const hardwareDefaults = getProjectHardwareDefaults(mode, outdoorHardwareProfile)
       const baseLayout = normalizeLayout({
         ...DEFAULT_LAYOUT,
         project: {
           ...DEFAULT_LAYOUT.project,
           mode,
+          outdoorHardwareProfile,
+          controller: hardwareDefaults.controller,
           // Keep project identity fields while resetting the design.
           name: state.layout.project.name,
           client: state.layout.project.client,
           controllerPlacement: nextControllerPlacement,
           controllerCabinetId: undefined,
+          overview: {
+            ...DEFAULT_LAYOUT.project.overview,
+            receiverCardModel: hardwareDefaults.receiverCardModel,
+          },
         },
         cabinetTypes: modeTypes,
         cabinets: [],

@@ -16,7 +16,7 @@ import {
 import { isDataRouteOverCapacity } from "@/lib/data-utils"
 import { getPowerFeedDisplayLabel, getPowerFeedLoadW, isPowerFeedOverloaded } from "@/lib/power-utils"
 import { getEffectivePitchMm } from "@/lib/pitch-utils"
-import { DEFAULT_RECEIVER_CARD_MODEL } from "@/lib/receiver-cards"
+import { getProjectHardwareDefaults } from "@/lib/modes"
 import { findRouteIdForEndpoint, getMappingNumberLabelMap } from "@/lib/mapping-numbers"
 import { getOverviewReadabilityScale } from "@/lib/overview-utils"
 import { getOrientedModuleSize } from "@/lib/module-utils"
@@ -987,11 +987,13 @@ function drawReceiverCard(
     ctx.fillRect(portX, bottomPortY, portW, portH)
 
     const labelSize = Math.max(6 / zoom, bodyH * 0.28)
+    const maxTextWidth = bodyW - 4 / zoom
+    const fitted = fitTextToWidth(ctx, model, maxTextWidth)
     ctx.fillStyle = "#e2e8f0"
     ctx.font = `bold ${labelSize}px Inter, sans-serif`
     ctx.textAlign = "center"
     ctx.textBaseline = "middle"
-    ctx.fillText("I5", centerX, centerY)
+    ctx.fillText(fitted, centerX, centerY)
     return
   }
 
@@ -3170,7 +3172,11 @@ export function LayoutCanvas() {
     const gridLabelAxis = overview?.gridLabelAxis ?? "columns"
     const showCabinetLabels = overview?.showCabinetLabels ?? true
     const showReceiverCards = overview?.showReceiverCards ?? true
-    const receiverCardModel = overview?.receiverCardModel || DEFAULT_RECEIVER_CARD_MODEL
+    const receiverDefaults = getProjectHardwareDefaults(
+      layout.project.mode ?? "indoor",
+      layout.project.outdoorHardwareProfile ?? "standard",
+    )
+    const receiverCardModel = overview?.receiverCardModel || receiverDefaults.receiverCardModel
     const showDataRoutes = overview?.showDataRoutes ?? true
     const showPowerRoutes = overview?.showPowerRoutes ?? true
     const showModuleGrid = overview?.showModuleGrid ?? true

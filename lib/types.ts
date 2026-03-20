@@ -34,6 +34,7 @@ export interface GridSettings {
 export type LabelsMode = "internal" | "grid"
 export type GridLabelAxis = "columns" | "rows"
 export type ModuleSize = "320x160" | "160x160" | "320x320"
+export type OutdoorHardwareProfile = "standard" | "nova"
 
 export type MappingNumbersMode = "auto" | "manual"
 export type MappingNumbersFontSize = "small" | "medium" | "large"
@@ -130,7 +131,8 @@ export interface Project {
   units: "mm"
   pitch_mm: number
   pitch_is_gob: boolean
-  controller: "A100" | "A200" | "X8E"
+  outdoorHardwareProfile?: OutdoorHardwareProfile
+  controller: "A100" | "A200" | "X8E" | "TB-50"
   controllerLabel?: string
   controllerPlacement?: "external" | "cabinet"
   controllerCabinetId?: string
@@ -193,6 +195,7 @@ export const DEFAULT_LAYOUT: LayoutData = {
     units: "mm",
     pitch_mm: 2.5,
     pitch_is_gob: true,
+    outdoorHardwareProfile: "standard",
     controller: "A100",
     controllerLabel: "",
     controllerPlacement: "external",

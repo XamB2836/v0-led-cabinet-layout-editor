@@ -1,7 +1,7 @@
 import type { Cabinet, LabelsMode, LayoutData } from "./types"
 import { getCabinetReceiverCardCount } from "./types"
 import { getCabinetBounds, getLayoutBounds } from "./validation"
-import { DEFAULT_RECEIVER_CARD_MODEL } from "./receiver-cards"
+import { getProjectHardwareDefaults } from "./modes"
 import { getTotalizedPixelMatrixDimensions } from "./pixel-matrix"
 
 const LABEL_TOLERANCE_MM = 1
@@ -73,7 +73,9 @@ export function getReceiverCardLabel(layout: LayoutData, cabinet: Cabinet) {
     return cabinet.receiverCardOverride.trim()
   }
   const model = layout.project.overview.receiverCardModel?.trim()
-  return model && model.length > 0 ? model : DEFAULT_RECEIVER_CARD_MODEL
+  if (model && model.length > 0) return model
+  return getProjectHardwareDefaults(layout.project.mode ?? "indoor", layout.project.outdoorHardwareProfile ?? "standard")
+    .receiverCardModel
 }
 
 export function getLayoutPixelDimensions(layout: LayoutData) {

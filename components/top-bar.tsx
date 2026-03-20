@@ -4,8 +4,8 @@ import type React from "react"
 
 import { useRef } from "react"
 import { useEditor } from "@/lib/editor-context"
-import type { LayoutData, ProjectMode } from "@/lib/types"
-import { coerceModePitch, getModeOptions, getModePitchOptions } from "@/lib/modes"
+import type { LayoutData, OutdoorHardwareProfile, ProjectMode } from "@/lib/types"
+import { coerceModePitch, getModeOptions, getModePitchOptions, getProjectHardwareDefaults } from "@/lib/modes"
 import { exportOverviewPdf } from "@/lib/export-pdf"
 import { buildCadExport } from "@/lib/cad-export"
 import { Button } from "@/components/ui/button"
@@ -26,6 +26,7 @@ export function TopBar() {
   const pitchValue = currentPitch.pitch_mm
   const pitchMode = currentPitch.pitch_is_gob ? "gob" : "std"
   const projectNumber = layout.project.name.replace(/\D/g, "")
+  const outdoorHardwareProfile = layout.project.outdoorHardwareProfile ?? "standard"
 
   const handleExportJSON = () => {
     const json = JSON.stringify(buildCadExport(layout), null, 2)
@@ -134,6 +135,36 @@ export function TopBar() {
         </Select>
       </div>
 
+      {mode === "outdoor" ? (
+        <div className="flex items-center gap-2">
+          <Label htmlFor="outdoor-profile" className="text-xs text-muted-foreground">
+            Outdoor
+          </Label>
+          <Select
+            value={outdoorHardwareProfile}
+            onValueChange={(value: OutdoorHardwareProfile) => {
+              const defaults = getProjectHardwareDefaults("outdoor", value)
+              dispatch({
+                type: "UPDATE_PROJECT",
+                payload: { outdoorHardwareProfile: value, controller: defaults.controller },
+              })
+              dispatch({
+                type: "UPDATE_OVERVIEW",
+                payload: { receiverCardModel: defaults.receiverCardModel },
+              })
+            }}
+          >
+            <SelectTrigger id="outdoor-profile" className="h-8 w-44 bg-secondary text-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="standard">Standard (I5 / A100)</SelectItem>
+              <SelectItem value="nova">Nova (Nova / TB-50)</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      ) : null}
+
       {/* Pitch */}
       <div className="flex items-center gap-2">
         <Label htmlFor="pitch" className="text-xs text-muted-foreground">
@@ -187,16 +218,17 @@ export function TopBar() {
         </Label>
         <Select
           value={layout.project.controller}
-          onValueChange={(value: "A100" | "A200" | "X8E") =>
+          onValueChange={(value: "A100" | "A200" | "X8E" | "TB-50") =>
             dispatch({ type: "UPDATE_PROJECT", payload: { controller: value } })
           }
         >
-          <SelectTrigger className="h-8 w-24 bg-secondary text-sm">
+          <SelectTrigger className="h-8 w-28 bg-secondary text-sm">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="A100">A100 (2 ports)</SelectItem>
             <SelectItem value="A200">A200 (4 ports)</SelectItem>
+            <SelectItem value="TB-50">TB-50 (2 ports)</SelectItem>
             <SelectItem value="X8E">X8E (8 ports)</SelectItem>
           </SelectContent>
         </Select>

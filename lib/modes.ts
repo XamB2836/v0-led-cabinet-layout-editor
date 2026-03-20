@@ -1,4 +1,9 @@
-import { DEFAULT_CABINET_TYPES, type CabinetType, type ModuleSize, type ProjectMode } from "./types"
+import { DEFAULT_CABINET_TYPES, type CabinetType, type ModuleSize, type OutdoorHardwareProfile, type ProjectMode } from "./types"
+import {
+  DEFAULT_OUTDOOR_NOVA_RECEIVER_CARD_MODEL,
+  DEFAULT_OUTDOOR_RECEIVER_CARD_MODEL,
+  DEFAULT_RECEIVER_CARD_MODEL,
+} from "./receiver-cards"
 
 type ModeRoutingProfile = "indoor_v1" | "outdoor_v1"
 
@@ -6,6 +11,21 @@ export interface ModeFeatures {
   dataRoutingProfile: ModeRoutingProfile
   powerRoutingProfile: ModeRoutingProfile
   supportsDoubleFace: boolean
+}
+
+export function getProjectHardwareDefaults(
+  mode: ProjectMode,
+  outdoorHardwareProfile: OutdoorHardwareProfile = "standard",
+): {
+  controller: "A100" | "A200" | "X8E" | "TB-50"
+  receiverCardModel: string
+} {
+  if (mode === "outdoor") {
+    return outdoorHardwareProfile === "nova"
+      ? { controller: "TB-50", receiverCardModel: DEFAULT_OUTDOOR_NOVA_RECEIVER_CARD_MODEL }
+      : { controller: "A100", receiverCardModel: DEFAULT_OUTDOOR_RECEIVER_CARD_MODEL }
+  }
+  return { controller: "A100", receiverCardModel: DEFAULT_RECEIVER_CARD_MODEL }
 }
 
 export interface ModePitchOption {

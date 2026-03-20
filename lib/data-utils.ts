@@ -9,6 +9,7 @@ type ControllerType = LayoutData["project"]["controller"]
 const CONTROLLER_LIMITS: Record<ControllerType, { totalMaxPx: number; maxWidthPx?: number; maxHeightPx?: number }> = {
   A100: { totalMaxPx: 1_300_000 },
   A200: { totalMaxPx: 2_300_000, maxWidthPx: 4096, maxHeightPx: 2560 },
+  "TB-50": { totalMaxPx: 1_300_000, maxWidthPx: 4096, maxHeightPx: 4096 },
   X8E: { totalMaxPx: 5_240_000, maxWidthPx: 16384, maxHeightPx: 8192 },
 }
 

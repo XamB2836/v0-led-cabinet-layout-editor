@@ -5,7 +5,7 @@ import { drawOverview } from "./overview-renderer"
 import { getOverviewReadabilityScale, getTitleParts } from "./overview-utils"
 import { getCabinetReceiverCardCount, parseRouteCabinetId } from "./types"
 import { getPowerFeedDisplayLabel, getPowerFeedLoadW } from "./power-utils"
-import { DEFAULT_RECEIVER_CARD_MODEL } from "./receiver-cards"
+import { getProjectHardwareDefaults } from "./modes"
 import { getEffectivePitchMm } from "./pitch-utils"
 import { getOrientedModuleSize } from "./module-utils"
 import { getTotalizedPixelMatrixDimensions } from "./pixel-matrix"
@@ -297,7 +297,11 @@ function buildPdfLegendLayout(ctx: CanvasRenderingContext2D, layout: LayoutData,
   const columnGap = Math.round(2.4 * pxPerMm)
   const maxBoxWidth = Math.round(95 * pxPerMm)
 
-  const receiverType = (layout.project.mode ?? "indoor") === "outdoor" ? "I5" : (layout.project.overview.receiverCardModel?.trim() || DEFAULT_RECEIVER_CARD_MODEL)
+  const receiverDefaults = getProjectHardwareDefaults(
+    layout.project.mode ?? "indoor",
+    layout.project.outdoorHardwareProfile ?? "standard",
+  )
+  const receiverType = layout.project.overview.receiverCardModel?.trim() || receiverDefaults.receiverCardModel
   const controllerOverride = layout.project.controllerLabel?.trim()
   const controllerLabel = controllerOverride || layout.project.controller
   const totalLoadW = getTotalLayoutLoadW(layout)

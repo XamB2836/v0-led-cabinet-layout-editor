@@ -8,6 +8,7 @@ import { getMappingNumberLabelMap } from "./mapping-numbers"
 import { getOrientedModuleSize } from "./module-utils"
 import { resolveControllerCabinetId } from "./controller-utils"
 import { getEffectivePitchMm } from "./pitch-utils"
+import { getProjectHardwareDefaults } from "./modes"
 
 export interface OverviewPalette {
   background: string
@@ -969,11 +970,13 @@ function drawReceiverCard(
     ctx.fillRect(portX, bottomPortY, portW, portH)
 
     const labelSize = Math.max((6 * readabilityScale) / zoom, bodyH * 0.28)
+    const maxTextWidth = bodyW - (4 * readabilityScale) / zoom
+    const fitted = fitTextToWidth(ctx, model, maxTextWidth)
     ctx.fillStyle = "#e2e8f0"
     ctx.font = `bold ${labelSize}px ${FONT_FAMILY}`
     ctx.textAlign = "center"
     ctx.textBaseline = "middle"
-    ctx.fillText("I5", x + width / 2, y + height / 2)
+    ctx.fillText(fitted, x + width / 2, y + height / 2)
     return
   }
 
@@ -2992,7 +2995,11 @@ export function drawOverview(ctx: CanvasRenderingContext2D, layout: LayoutData, 
   const showCabinetLabels = options.showCabinetLabels ?? layout.project.overview.showCabinetLabels ?? true
   const gridLabelAxis = layout.project.overview.gridLabelAxis ?? "columns"
   const showGridLabels = showCabinetLabels && shouldShowGridLabels(options.labelsMode)
-  const receiverCardModel = layout.project.overview.receiverCardModel
+  const receiverDefaults = getProjectHardwareDefaults(
+    layout.project.mode ?? "indoor",
+    layout.project.outdoorHardwareProfile ?? "standard",
+  )
+  const receiverCardModel = layout.project.overview.receiverCardModel || receiverDefaults.receiverCardModel
   const showReceiverCards = (options.showReceiverCards ?? true) && (layout.project.overview.showReceiverCards ?? true)
   const isOutdoorMode = (layout.project.mode ?? "indoor") === "outdoor"
   const outdoorFlowByCabinet = isOutdoorMode
