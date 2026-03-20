@@ -14,7 +14,7 @@ import {
   parseRouteCabinetId,
 } from "@/lib/types"
 import { isDataRouteOverCapacity } from "@/lib/data-utils"
-import { getPowerFeedLoadW, isPowerFeedOverloaded } from "@/lib/power-utils"
+import { getPowerFeedDisplayLabel, getPowerFeedLoadW, isPowerFeedOverloaded } from "@/lib/power-utils"
 import { getEffectivePitchMm } from "@/lib/pitch-utils"
 import { DEFAULT_RECEIVER_CARD_MODEL } from "@/lib/receiver-cards"
 import { findRouteIdForEndpoint, getMappingNumberLabelMap } from "@/lib/mapping-numbers"
@@ -2463,8 +2463,8 @@ function drawPowerFeeds(
 
     ctx.font = `bold ${fontSize}px Inter, sans-serif`
     const loadW = getPowerFeedLoadW(feed, cabinets, cabinetTypes, cardVariant === "outdoor" ? "outdoor" : "indoor")
-    const breakerText = feed.breaker || feed.label
-    const labelText = `${breakerText} | ${loadW}W`
+    const mainLabel = getPowerFeedDisplayLabel(feed)
+    const labelText = `${mainLabel} | ${loadW}W`
     const connectorText = feed.customLabel?.trim() || feed.connector
     const maxTextWidth = Math.max(ctx.measureText(labelText).width, ctx.measureText(connectorText).width)
     const boxWidth = maxTextWidth + labelPadding * 2
@@ -2522,8 +2522,8 @@ function drawPowerFeeds(
 
     ctx.font = `bold ${fontSize}px Inter, sans-serif`
     const loadW = getPowerFeedLoadW(feed, cabinets, cabinetTypes, cardVariant === "outdoor" ? "outdoor" : "indoor")
-    const breakerText = feed.breaker || feed.label
-    const labelText = `${breakerText} | ${loadW}W`
+    const mainLabel = getPowerFeedDisplayLabel(feed)
+    const labelText = `${mainLabel} | ${loadW}W`
     const connectorText = feed.customLabel?.trim() || feed.connector
 
     const maxTextWidth = Math.max(

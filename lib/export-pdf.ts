@@ -4,7 +4,7 @@ import { getCabinetBounds, getLayoutBounds } from "./validation"
 import { drawOverview } from "./overview-renderer"
 import { getOverviewReadabilityScale, getTitleParts } from "./overview-utils"
 import { getCabinetReceiverCardCount, parseRouteCabinetId } from "./types"
-import { getPowerFeedLoadW } from "./power-utils"
+import { getPowerFeedDisplayLabel, getPowerFeedLoadW } from "./power-utils"
 import { DEFAULT_RECEIVER_CARD_MODEL } from "./receiver-cards"
 import { getEffectivePitchMm } from "./pitch-utils"
 import { getOrientedModuleSize } from "./module-utils"
@@ -324,7 +324,13 @@ function buildPdfLegendLayout(ctx: CanvasRenderingContext2D, layout: LayoutData,
     (acc, feed) => {
       if (feed.assignedCabinetIds.length === 0) return acc
       const breakerLabel = feed.breaker ?? ""
-      const voltage = breakerLabel.includes("220") ? "220V" : breakerLabel.includes("110") ? "110V" : "n/a"
+      const voltage = breakerLabel.includes("220")
+        ? "220V"
+        : breakerLabel.includes("120")
+          ? "120V"
+          : breakerLabel.includes("110")
+            ? "110V"
+            : "n/a"
       acc[voltage] = (acc[voltage] ?? 0) + 1
       return acc
     },
@@ -888,8 +894,8 @@ function computeLabelBounds(
       if (!feedBounds) return
 
       const loadW = getPowerFeedLoadW(feed, layout.cabinets, layout.cabinetTypes, layout.project.mode ?? "indoor")
-      const breakerText = feed.breaker || feed.label
-      const labelText = `${breakerText} | ${loadW}W`
+      const mainLabel = getPowerFeedDisplayLabel(feed)
+      const labelText = `${mainLabel} | ${loadW}W`
       const connectorText = feed.customLabel?.trim() || feed.connector
 
       ctx.font = `bold ${fontPx}px ${FONT_FAMILY}`
@@ -922,8 +928,8 @@ function computeLabelBounds(
       const anchorY = firstBounds ? firstBounds.y + firstBounds.height / 2 : feedBounds.minY
 
       const loadW = getPowerFeedLoadW(feed, layout.cabinets, layout.cabinetTypes, layout.project.mode ?? "indoor")
-      const breakerText = feed.breaker || feed.label
-      const labelText = `${breakerText} | ${loadW}W`
+      const mainLabel = getPowerFeedDisplayLabel(feed)
+      const labelText = `${mainLabel} | ${loadW}W`
       const connectorText = feed.customLabel?.trim() || feed.connector
 
       ctx.font = `bold ${fontPx}px ${FONT_FAMILY}`

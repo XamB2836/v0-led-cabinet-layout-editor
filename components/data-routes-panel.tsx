@@ -17,7 +17,11 @@ import {
   getCabinetReceiverCardCount,
   parseRouteCabinetId,
 } from "@/lib/types"
-import { getBreakerMaxW, getPowerFeedLoadW } from "@/lib/power-utils"
+import {
+  getBreakerMaxW,
+  getPowerFeedLoadW,
+  shouldSyncPowerFeedLabelToBreaker,
+} from "@/lib/power-utils"
 import {
   getControllerLimits,
   getDataRouteLoadPx,
@@ -625,7 +629,7 @@ export function DataRoutesPanel() {
   const handleAddPowerFeed = () => {
     const newFeed: PowerFeed = {
       id: `feed-${Date.now()}`,
-      label: `220V @20A`,
+      label: "220V 20A",
       breaker: "220V 20A",
       connector: "NAC3FX-W",
       consumptionW: 0,
@@ -649,6 +653,13 @@ export function DataRoutesPanel() {
 
   const handleUpdatePowerFeed = (id: string, updates: Partial<PowerFeed>) => {
     dispatch({ type: "UPDATE_POWER_FEED", payload: { id, updates } })
+  }
+
+  const handlePowerFeedBreakerChange = (feed: PowerFeed, breaker: string) => {
+    handleUpdatePowerFeed(feed.id, {
+      breaker,
+      ...(shouldSyncPowerFeedLabelToBreaker(feed) ? { label: breaker } : {}),
+    })
   }
 
   const handleStartPowerRouting = (feedId: string) => {
@@ -684,7 +695,7 @@ export function DataRoutesPanel() {
     const defaultTemplate = powerFeeds[0]
     const createAutoFeed = (index: number): PowerFeed => ({
       id: `feed-${Date.now()}-${index}`,
-      label: defaultTemplate?.label || "220V @20A",
+      label: defaultTemplate?.label || defaultTemplate?.breaker || "220V 20A",
       customLabel: defaultTemplate?.customLabel,
       breaker: defaultTemplate?.breaker || "220V 20A",
       connector: defaultTemplate?.connector || "NAC3FX-W",
@@ -1382,20 +1393,20 @@ export function DataRoutesPanel() {
 
                     <div className="grid grid-cols-2 gap-2">
                       <div className="space-y-1">
-                        <Label className="text-xs text-zinc-400">Label</Label>
+                        <Label className="text-xs text-zinc-400">Main label</Label>
                         <Input
                           value={feed.label}
                           onChange={(e) => handleUpdatePowerFeed(feed.id, { label: e.target.value })}
                           onBlur={() => dispatch({ type: "PUSH_HISTORY" })}
                           className="h-8 text-xs bg-zinc-950/60 border-zinc-800 text-zinc-100"
-                          placeholder="220V @20A"
+                          placeholder="220V 20A"
                         />
                       </div>
                       <div className="space-y-1">
-                        <Label className="text-xs text-zinc-400">Breaker</Label>
+                        <Label className="text-xs text-zinc-400">Breaker limit</Label>
                         <Select
                           value={feed.breaker || "220V 20A"}
-                          onValueChange={(value) => handleUpdatePowerFeed(feed.id, { breaker: value })}
+                          onValueChange={(value) => handlePowerFeedBreakerChange(feed, value)}
                         >
                           <SelectTrigger className="h-8 text-xs bg-zinc-950/60 border-zinc-800 text-zinc-100">
                             <SelectValue />
@@ -1403,6 +1414,7 @@ export function DataRoutesPanel() {
                           <SelectContent>
                             <SelectItem value="220V 20A">220V 20A</SelectItem>
                             <SelectItem value="110V 15A">110V 15A</SelectItem>
+                            <SelectItem value="120V 15A">120V 15A</SelectItem>
                           </SelectContent>
                         </Select>
                       </div>
@@ -1417,7 +1429,7 @@ export function DataRoutesPanel() {
                         />
                       </div>
                       <div className="space-y-1">
-                        <Label className="text-xs text-zinc-400">Custom label</Label>
+                        <Label className="text-xs text-zinc-400">Secondary label</Label>
                         <Input
                           value={feed.customLabel ?? ""}
                           onChange={(e) =>
@@ -1427,7 +1439,7 @@ export function DataRoutesPanel() {
                           }
                           onBlur={() => dispatch({ type: "PUSH_HISTORY" })}
                           className="h-8 text-xs bg-zinc-950/60 border-zinc-800 text-zinc-100"
-                          placeholder="Optional (under breaker)"
+                          placeholder="Optional (second line)"
                         />
                       </div>
                       <div className="space-y-1 col-span-2">

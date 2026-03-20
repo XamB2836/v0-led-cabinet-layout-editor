@@ -8,6 +8,7 @@ const POWER_DENSITY_W_M2_BY_MODE: Record<ProjectMode, number> = {
 const BREAKER_LIMITS: Record<string, { maxW: number }> = {
   "220V 20A": { maxW: 3520 },
   "110V 15A": { maxW: 1320 },
+  "120V 15A": { maxW: 1440 },
 }
 
 function getCabinetAreaM2(cabinet: Cabinet, types: CabinetType[]): number {
@@ -36,6 +37,26 @@ export function getPowerFeedLoadW(
     return sum + getCabinetAreaM2(cabinet, types) * powerDensityWm2
   }, 0)
   return Math.round(total)
+}
+
+function normalizePowerFeedLabel(value?: string | null) {
+  return value?.replace(/\s*@\s*/g, " ").replace(/\s+/g, " ").trim() ?? ""
+}
+
+export function getPowerFeedDisplayLabel(feed: PowerFeed): string {
+  const label = feed.label?.trim()
+  if (label) return label
+  const breaker = feed.breaker?.trim()
+  if (breaker) return breaker
+  return "Power Feed"
+}
+
+export function shouldSyncPowerFeedLabelToBreaker(feed: PowerFeed): boolean {
+  const label = normalizePowerFeedLabel(feed.label)
+  const breaker = normalizePowerFeedLabel(feed.breaker)
+  if (!label) return true
+  if (!breaker) return false
+  return label === breaker
 }
 
 export function getBreakerMaxW(breaker?: string | null): number | null {

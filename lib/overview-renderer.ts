@@ -1,7 +1,7 @@
 import type { LayoutData, LabelsMode, Cabinet, CabinetType, DataRouteStep } from "./types"
 import { computeGridLabel, formatRouteCabinetId, getCabinetReceiverCardCount, parseRouteCabinetId } from "./types"
 import { isDataRouteOverCapacity } from "./data-utils"
-import { getPowerFeedLoadW, isPowerFeedOverloaded } from "./power-utils"
+import { getPowerFeedDisplayLabel, getPowerFeedLoadW, isPowerFeedOverloaded } from "./power-utils"
 import { getCabinetBounds, getLayoutBounds, validateLayout } from "./validation"
 import { getOverviewReadabilityScale, getReceiverCardLabel, shouldShowGridLabels } from "./overview-utils"
 import { getMappingNumberLabelMap } from "./mapping-numbers"
@@ -2409,8 +2409,8 @@ function drawPowerFeeds(
       layout.cabinetTypes,
       cardVariant === "outdoor" ? "outdoor" : "indoor",
     )
-    const breakerText = feed.breaker || feed.label
-    const labelText = `${breakerText} | ${loadW}W`
+    const mainLabel = getPowerFeedDisplayLabel(feed)
+    const labelText = `${mainLabel} | ${loadW}W`
     const connectorText = feed.customLabel?.trim() || feed.connector
     const maxTextWidth = Math.max(ctx.measureText(labelText).width, ctx.measureText(connectorText).width)
     const boxWidth = maxTextWidth + labelPaddingX * 2
@@ -2473,8 +2473,8 @@ function drawPowerFeeds(
       layout.cabinetTypes,
       cardVariant === "outdoor" ? "outdoor" : "indoor",
     )
-    const breakerText = feed.breaker || feed.label
-    const labelText = `${breakerText} | ${loadW}W`
+    const mainLabel = getPowerFeedDisplayLabel(feed)
+    const labelText = `${mainLabel} | ${loadW}W`
     const connectorText = feed.customLabel?.trim() || feed.connector
 
     const maxTextWidth = Math.max(ctx.measureText(labelText).width, ctx.measureText(connectorText).width)
